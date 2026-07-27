@@ -28,9 +28,8 @@ def _ctx(tmp_path: Path) -> HarnessContext:
     )
 
 
-def test_optional_packs_are_browser_and_computer_only():
-    assert OPTIONAL_PACK_NAMES == frozenset({"browser", "computer"})
-    assert "media" not in OPTIONAL_PACK_NAMES
+def test_optional_packs_are_browser_computer_media():
+    assert OPTIONAL_PACK_NAMES == frozenset({"browser", "computer", "media"})
     assert "kb" not in OPTIONAL_PACK_NAMES
     assert "pdf" not in OPTIONAL_PACK_NAMES
 
@@ -70,9 +69,9 @@ def test_resolve_yaml_packs(monkeypatch):
     monkeypatch.setenv("KAGEHA_COMPUTER", "0")
     enabled = resolve_enabled_packs(policy={"packs": ["browser", "kb", "media"]})
     assert "browser" in enabled
+    assert "media" in enabled
     # Unknown / removed packs are ignored.
     assert "kb" not in enabled
-    assert "media" not in enabled
 
 
 def test_driver_presence_does_not_auto_enable_computer(monkeypatch):

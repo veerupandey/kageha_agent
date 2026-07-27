@@ -130,7 +130,6 @@ def test_no_harness_device_or_carousel_modules():
         "network_scan.py",
         "carousel_studio.py",
         "pdf.py",
-        "media.py",
         "diagram.py",
         "product_import.py",
         "connections_tools.py",

@@ -198,18 +198,16 @@ def run_models_doctor(
         )
     )
 
-    # Media providers (optional)
+    # Media pack (optional Fal tools via KAGEHA_TOOL_PACKS=media)
     fal = bool(env_key("FAL_KEY") or env_key("FAL_API_KEY"))
-    media_bits = [
-        f"GEMINI_API_KEY={'yes' if gemini else 'no'} (gemini_generate_image / Nano Banana Pro)",
-        f"FAL_KEY={'yes' if fal else 'no'} (fal_* image/video)",
-        f"SILICONFLOW_API_KEY={'yes' if bool(env_key('SILICONFLOW_API_KEY')) else 'no'}",
-    ]
     checks.append(
         DoctorCheck(
             name="media",
             ok=True,
-            detail="; ".join(media_bits),
+            detail=(
+                f"FAL_KEY={'yes' if fal else 'no'} "
+                "(enable with KAGEHA_TOOL_PACKS=media for fal_* image/video)"
+            ),
             severity="info",
         )
     )

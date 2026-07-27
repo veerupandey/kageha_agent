@@ -70,7 +70,7 @@ uv run kageha webui --open
 Default install is core only. Enable packs when a task needs them:
 
 ```bash
-export KAGEHA_TOOL_PACKS=browser,computer
+export KAGEHA_TOOL_PACKS=browser,computer,media
 ```
 
 Or in `~/.kageha/tools.yaml`:
@@ -83,6 +83,7 @@ packs: [browser, computer]
 |------|---------|
 | `browser` | Interactive Playwright / Comet control |
 | `computer` | macOS desktop automation (cua-driver) |
+| `media` | Fal image/video (`FAL_KEY` / `FAL_API_KEY`) |
 
 ## Config home
 

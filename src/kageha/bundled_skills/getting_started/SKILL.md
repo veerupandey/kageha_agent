@@ -68,7 +68,7 @@ Domain work beyond the core goes through **MCP** or user/project skills.
 ## Tool packs (trimmed default)
 
 Default loads **core** packs only (`forge`, `skills`, `mcp`, `memory`, `subagent`, `research`).
-Optional packs: `browser`, `computer` via `KAGEHA_TOOL_PACKS=browser,computer` or `tools.yaml` `packs: [...]`.  
+Optional packs: `browser`, `computer`, `media` via `KAGEHA_TOOL_PACKS=browser,computer,media` or `tools.yaml` `packs: [...]`.  
 See `docs/USAGE.md`.
 
 ## MCP

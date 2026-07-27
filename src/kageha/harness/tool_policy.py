@@ -82,10 +82,6 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
             "fal_edit_image",
             "fal_image_to_video",
             "fal_text_to_video",
-            "gemini_generate_image",
-            "gemini_tts",
-            "siliconflow_image",
-            "download_media",
         }
     ),
     "group:mcp": frozenset(

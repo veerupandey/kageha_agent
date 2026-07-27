@@ -92,13 +92,14 @@ cd src/kageha/webui/frontend && npm run dev
 Default: files, shell, web search, forge, skills, MCP, memory, subagents, research.
 
 ```bash
-export KAGEHA_TOOL_PACKS=browser,computer
+export KAGEHA_TOOL_PACKS=browser,computer,media
 ```
 
 | Pack | When |
 |------|------|
 | `browser` | Interactive browser / Comet |
 | `computer` | macOS desktop (cua-driver) |
+| `media` | Fal image/video (`FAL_KEY`) |
 
 Prefer **skills** or **MCP** for domain work.
 
@@ -211,7 +212,8 @@ Hard risk actions prompt unless you pass `--auto-approve` or use `/permissions a
 | `kageha chat` | Interactive REPL |
 | `kageha run "…"` | Single task |
 | `kageha webui` | Browser UI |
-| `kageha doctor` | Config / provider health |
+| `kageha doctor` | Runtime / sandbox health |
+| `kageha models doctor` | Models / keys / packs |
 | `kageha models list` | Providers |
 | `kageha skills …` | Skills |
 | `kageha mcp …` | MCP |

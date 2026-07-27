@@ -20,7 +20,8 @@ app = typer.Typer(
     add_completion=False,
     help=(
         "Kageha agent kernel — chat/run/webui + MCP/skills/memory. "
-        "Optional packs via KAGEHA_TOOL_PACKS. Background work: kageha jobs."
+        "Optional packs via KAGEHA_TOOL_PACKS (browser,computer,media). "
+        "Background work: kageha jobs."
     ),
 )
 models_app = typer.Typer(help="Model registry")
@@ -96,7 +97,7 @@ def run_cmd(
     sandbox: Optional[str] = typer.Option(
         None,
         "--sandbox",
-        help="Shell isolation for this process: auto|off|docker|bwrap|seatbelt|ssh|modal",
+        help="Shell isolation for this process: auto|off|docker|bwrap|seatbelt|ssh",
     ),
     project: Path = typer.Option(
         Path.cwd(), "--project", "-C", help="Project root for AGENTS.md / rules / tools"
@@ -680,79 +681,6 @@ def runtime_metrics(
         store.close()
 
 
-@runtime_app.command("benchmark")
-def runtime_benchmark(
-    suite_file: Path = typer.Option(
-        ...,
-        "--suite",
-        help="Path to benchmark case YAML (required)",
-        exists=True,
-        dir_okay=False,
-        readable=True,
-    ),
-    category: str = typer.Option("", "--category", help="Filter category"),
-    repeats: int = typer.Option(3, "--repeats", min=1),
-    security: str = typer.Option("strict", "--security-profile"),
-    auto_approve: bool = typer.Option(
-        True,
-        "--auto-approve/--no-auto-approve",
-        help="Skip HITL during benchmark (default on for CI/headless)",
-    ),
-) -> None:
-    """Run and persist a reproducible maturity benchmark suite."""
-    from kageha.runtime.benchmark import BenchmarkRunner, load_cases
-    from kageha.runtime.types import SecurityProfile
-
-    cases = load_cases(suite_file)
-    if category:
-        cases = [case for case in cases if case.category == category]
-    if not cases:
-        raise typer.BadParameter("no benchmark cases matched")
-    runner = BenchmarkRunner()
-    try:
-        score = asyncio.run(
-            runner.run(
-                cases,
-                suite=category or suite_file.stem,
-                repeats=repeats,
-                security_profile=SecurityProfile(security),
-                auto_approve=auto_approve,
-            )
-        )
-        typer.echo(json.dumps(score.to_dict(), indent=2, sort_keys=True))
-    finally:
-        runner.close()
-
-
-@runtime_app.command("soak")
-def runtime_soak(
-    suite_file: Path = typer.Option(
-        ...,
-        "--suite",
-        help="Path to soak case YAML (required)",
-        exists=True,
-        dir_okay=False,
-        readable=True,
-    ),
-    hours: float = typer.Option(72.0, "--hours", min=0.01),
-    max_turns: int = typer.Option(
-        0,
-        "--max-turns",
-        help="Testing cap; zero runs for the full duration",
-    ),
-) -> None:
-    """Run a mixed-task production soak (72 hours by default)."""
-    from kageha.runtime.benchmark import load_cases, run_soak
-
-    cases = load_cases(suite_file)
-    score = asyncio.run(
-        run_soak(
-            cases,
-            hours=hours,
-            max_turns=max_turns,
-        )
-    )
-    typer.echo(json.dumps(score.to_dict(), indent=2, sort_keys=True))
 @app.command("memory-worker", hidden=True)
 def memory_worker() -> None:
     """Run the persistent memory extraction worker under the supervisor."""
@@ -765,6 +693,31 @@ def memory_worker() -> None:
             time.sleep(0.25)
     except KeyboardInterrupt:
         service.stop_worker(timeout=2.0)
+
+
+@app.command("doctor")
+def doctor(
+    deep: bool = typer.Option(
+        False, "--deep", help="Run live providers and replay sessions"
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Check runtime, providers, sandbox, and tool-pack readiness."""
+    from kageha.runtime.doctor import run_doctor
+
+    report = run_doctor(deep=deep)
+    if as_json:
+        typer.echo(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+    else:
+        for check in report.checks:
+            mark = (
+                "PASS"
+                if check.ok
+                else ("WARN" if check.severity != "error" else "FAIL")
+            )
+            typer.echo(f"{mark:4}  {check.name:20} {check.detail}")
+    if not report.ok:
+        raise typer.Exit(1)
 
 
 @app.command("chat")
@@ -800,7 +753,7 @@ def chat_cmd(
     sandbox: Optional[str] = typer.Option(
         None,
         "--sandbox",
-        help="Shell isolation for this process: auto|off|docker|bwrap|seatbelt|ssh|modal",
+        help="Shell isolation for this process: auto|off|docker|bwrap|seatbelt|ssh",
     ),
 ) -> None:
     """Interactive chat — ask, then follow up in the same session workspace."""
@@ -1058,6 +1011,21 @@ def computer_status_cmd() -> None:
     from kageha.harness.tools.computer_prefs import status_text
 
     typer.echo(status_text())
+
+
+@computer_app.command("doctor")
+def computer_doctor_cmd() -> None:
+    """Probe driver, permissions, and tool-calling model (same as /computer doctor)."""
+
+    async def _run() -> str:
+        from kageha.chat.computer_commands import handle_computer_command
+
+        _handled, msg = await handle_computer_command("/computer doctor")
+        return msg
+
+    typer.echo(asyncio.run(_run()))
+
+
 @computer_app.command("pack")
 def computer_pack_cmd(
     mode: str = typer.Argument(..., help="on|off|auto"),
@@ -1178,7 +1146,7 @@ def webui_cmd(
         Path.cwd(),
         "--project",
         "-C",
-        help="Default project root for Labs / review / worktrees",
+        help="Default project root for @ files / worktrees",
     ),
 ) -> None:
     """Serve the Kageha chat + memory Web UI (REST over App Server)."""
@@ -1359,6 +1327,39 @@ def models_providers() -> None:
         typer.echo(
             f"{p.key:14} {p.label:32} env={p.api_key_env} default={p.default_model}"
         )
+
+
+@models_app.command("doctor")
+def models_doctor(
+    no_smoke: bool = typer.Option(False, "--no-smoke", help="Skip API smoke tests"),
+    model_id: Optional[str] = typer.Option(
+        None, "--model", help="Smoke only this model"
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Emit JSON report"),
+    plain: bool = typer.Option(False, "--plain", help="Disable Rich TUI formatting"),
+    fix: bool = typer.Option(
+        False, "--fix", help="Offer models setup when checks fail"
+    ),
+) -> None:
+    """Diagnose models, keys, roles, sandbox, and tools.yaml."""
+    from kageha.models.doctor import (
+        format_doctor_report,
+        maybe_fix_interactive,
+        run_models_doctor,
+    )
+
+    report = run_models_doctor(smoke=not no_smoke, model_id=model_id)
+    if as_json:
+        typer.echo(json.dumps(report.to_dict(), indent=2))
+    else:
+        text = format_doctor_report(report, rich=not plain)
+        typer.echo(text.rstrip("\n"))
+    if fix:
+        maybe_fix_interactive(report)
+    if not report.ok:
+        raise typer.Exit(1)
+
+
 @skills_app.command("list")
 def skills_list() -> None:
     from kageha.memory.skills import SkillRegistry

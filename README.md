@@ -34,14 +34,14 @@ uv run kageha webui --open
 Optional packs:
 
 ```bash
-export KAGEHA_TOOL_PACKS=browser,computer
+export KAGEHA_TOOL_PACKS=browser,computer,media
 ```
 
 ## What you get
 
 - **Modes:** `normal` · `/plan` · `/goal`
 - **Core tools:** files, shell, web search, forge, skills, MCP, memory, subagents, research
-- **Optional packs:** `browser`, `computer`
+- **Optional packs:** `browser`, `computer`, `media` (Fal)
 - **Surfaces:** CLI chat / run, WebUI
 - **Memory:** SQLite under `~/.kageha/`
 - **Runtime:** journaled sessions

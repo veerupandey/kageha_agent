@@ -2,7 +2,7 @@
 
 Default loads CORE packs only. Optional packs opt in via:
 
-1. ``KAGEHA_TOOL_PACKS=browser,media`` or ``all`` (highest precedence)
+1. ``KAGEHA_TOOL_PACKS=browser,computer,media`` or ``all`` (highest precedence)
 2. ``tools.yaml`` ``packs: [browser, ...]`` or ``packs: all``
 3. otherwise core only
 
@@ -27,11 +27,11 @@ CORE_PACK_IMPORTS: list[tuple[str, str]] = [
     ("research", "kageha.harness.tools.research:register_research_tools"),
 ]
 
-# Device control lives in skills. Browser and computer are the only optional
-# native packs retained by the lightweight core.
+# Optional native packs (explicit opt-in via KAGEHA_TOOL_PACKS / tools.yaml).
 OPTIONAL_PACK_IMPORTS: list[tuple[str, str]] = [
     ("browser", "kageha.harness.tools.browser:register_browser_tools"),
     ("computer", "kageha.harness.tools.computer:register_computer_tools"),
+    ("media", "kageha.harness.tools.media:register_media_tools"),
 ]
 
 CORE_PACK_NAMES: frozenset[str] = frozenset(n for n, _ in CORE_PACK_IMPORTS)

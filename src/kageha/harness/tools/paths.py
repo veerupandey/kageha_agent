@@ -22,7 +22,6 @@ def rel_to_workspace(path: Path, root: Path) -> str:
         prefix = root_s + "/"
         if path_s.startswith(prefix):
             return path_s[len(prefix) :]
-        # Last resort: keep a short relative-looking name (e.g. carousel/prompts.json)
         parts = resolved_path.parts
         if len(parts) >= 2:
             return f"{parts[-2]}/{parts[-1]}"
