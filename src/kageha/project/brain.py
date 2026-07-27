@@ -219,8 +219,8 @@ def render_project_brain(
             parts.append(rule.body)
     if brain.command_names:
         parts.append(
-            "### Project slash commands\n"
-            "Available via `/project:<name>` or `/cmd <name>`: "
+            "### Project command recipes\n"
+            "Defined under `.kageha/commands/`: "
             + ", ".join(f"`{n}`" for n in brain.command_names)
         )
     text = "\n\n".join(parts).strip()

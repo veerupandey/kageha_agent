@@ -51,8 +51,8 @@ def test_verifiable_objective_stays_in_goal(prompt: str):
 def test_goal_never_gets_build_gate():
     assert not requires_plan_approval("goal")
     assert GOAL_QA_MISFIT_MESSAGE == "This looks like Normal"
-    assert "not Q&A" in MODE_CHIP_DESCRIPTIONS["goal"]
-    assert "verifiable" in MODE_CHIP_DESCRIPTIONS["goal"].lower()
+    assert "execute" in MODE_CHIP_DESCRIPTIONS["goal"].lower()
+    assert "hitl" in MODE_CHIP_DESCRIPTIONS["goal"].lower()
 
 
 def _event_kinds(ws) -> list[str]:

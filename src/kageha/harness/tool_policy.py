@@ -75,7 +75,6 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
             "session_search",
         }
     ),
-    "group:kb": frozenset({"kb_search", "kb_query", "kb_ingest", "kb_create"}),
     "group:messaging": frozenset({"ask_human", "request_approval"}),
     "group:media": frozenset(
         {

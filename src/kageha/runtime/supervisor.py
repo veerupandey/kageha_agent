@@ -84,16 +84,6 @@ class ServiceSupervisor:
                     "memory-worker",
                 ),
             ),
-            ServiceDefinition(
-                "whatsapp",
-                (
-                    python,
-                    "-m",
-                    "kageha.cli",
-                    "whatsapp-qr",
-                ),
-                enabled=_truthy("KAGEHA_DAEMON_WHATSAPP"),
-            ),
         ]
         return [service for service in services if service.enabled]
 

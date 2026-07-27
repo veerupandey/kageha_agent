@@ -5,39 +5,28 @@ import {
   mergeServerCatalog,
   SLASH_COMMANDS,
 } from "../api/slashCatalog";
-import { streamBestOfN } from "../api/stream";
 import type {
   AgentMode,
-  ArtifactEntry,
-  BonAttempt,
   ChatMessage,
-  JobSummary,
-  JobsCounts,
-  MemorySearchResult,
   MetaPayload,
   PendingApproval,
   QueuedMessage,
-  ReviewResult,
   SessionRun,
   SessionSummary,
   ToastMessage,
 } from "../api/types";
 import {
   apiSoft,
-  emptyDesign,
   emptyRun,
   isComputerAdminSlash,
   isMetaOnlySlash,
   isModeOnlyComposerText,
   loadLastSession,
-  loadWorkbenchTab,
   mapHistoryMessages,
-  normalizeTodoBoard,
   parseModeSlash,
   rememberSession,
   syncFromRun,
   uid,
-  WORKBENCH_TAB_KEY,
 } from "./helpers";
 import {
   applyPrefsToDocument,
@@ -262,37 +251,7 @@ export const useAppStore = create<AppState>((set, get) => {
     composerChip: { kind: null, value: null },
     tabs: [],
     runs: {},
-    drawers: {
-      design: false,
-      artifacts: false,
-      memory: false,
-      jobs: false,
-      labs: false,
-      workbench: false,
-      settings: false,
-    },
     prefs: initialPrefs,
-    design: emptyDesign(),
-    artifacts: [],
-    memoryKinds: [],
-    memoryStates: [],
-    memorySelectedKinds: [],
-    memoryQuery: "",
-    memoryStateFilter: "",
-    memoryResults: [],
-    memoryTraceId: null,
-    memorySearching: false,
-    jobs: [],
-    jobsCounts: null,
-    jobsFilter: "",
-    jobsLoading: false,
-    workbenchTab: loadWorkbenchTab(),
-    bonLive: null,
-    bonObjective: "",
-    bonN: 2,
-    reviewResult: null,
-    todoBoards: {},
-    todoBoardDismissed: [],
     slashCatalog: SLASH_COMMANDS.slice(),
     capabilities: {
       projectFiles: null,
@@ -332,14 +291,10 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     setAgentMode: (mode) => {
-      set((s) => {
+      set(() => {
         const next: Partial<AppState> = { agentMode: mode };
         if (mode === "normal") {
           next.composerChip = { kind: null, value: null };
-          // Leaving Plan/Spec: hide sticky Build foot unless a live approval waits.
-          if (!s.pendingApproval && s.design.awaitingBuild) {
-            next.design = { ...s.design, awaitingBuild: false };
-          }
         } else {
           next.composerChip = { kind: "mode", value: mode };
         }
@@ -391,25 +346,6 @@ export const useAppStore = create<AppState>((set, get) => {
 
     dismissToast: (id) =>
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
-
-    openDrawer: (name) =>
-      set((s) => ({ drawers: { ...s.drawers, [name]: true } })),
-    closeDrawer: (name) =>
-      set((s) => ({ drawers: { ...s.drawers, [name]: false } })),
-    toggleDrawer: (name) =>
-      set((s) => ({ drawers: { ...s.drawers, [name]: !s.drawers[name] } })),
-
-    setWorkbenchTab: (tab) => {
-      try {
-        localStorage.setItem(WORKBENCH_TAB_KEY, tab);
-      } catch {
-        /* ignore */
-      }
-      set((s) => ({
-        workbenchTab: tab,
-        drawers: { ...s.drawers, workbench: true },
-      }));
-    },
 
     addPendingFiles: (files) => {
       if (!files) return;
@@ -514,11 +450,7 @@ export const useAppStore = create<AppState>((set, get) => {
     loadMeta: async () => {
       try {
         const meta = await api<MetaPayload>("/api/meta");
-        set({
-          meta,
-          memoryKinds: meta.memory_kinds || [],
-          memoryStates: meta.memory_states || [],
-        });
+        set({ meta });
       } catch {
         /* optional */
       }
@@ -615,10 +547,6 @@ export const useAppStore = create<AppState>((set, get) => {
           }),
         });
         updateRun(sessionId, (r) => ({ ...r, needsAttention: false }));
-        if (get().todoBoards[sessionId]) {
-          /* board already cached */
-        }
-        await get().refreshArtifacts().catch(() => {});
         await get().refreshSessions();
         return;
       }
@@ -636,7 +564,6 @@ export const useAppStore = create<AppState>((set, get) => {
           title?: string | null;
           status?: string;
           messages?: Array<{ role: string; text: string }>;
-          todo_board?: unknown;
           pending_approval?: PendingApproval | null;
         }>(`/api/sessions/${encodeURIComponent(sessionId)}`);
         const messages = mapHistoryMessages(data.messages);
@@ -661,8 +588,6 @@ export const useAppStore = create<AppState>((set, get) => {
             : null,
           ...syncFromRun(run),
         }));
-        if (data.todo_board) get().applyTodoBoard(data.todo_board, data.session_id);
-        await get().refreshArtifacts().catch(() => {});
         await get().refreshSessions();
       } catch (err) {
         set({
@@ -695,15 +620,9 @@ export const useAppStore = create<AppState>((set, get) => {
         set((s) => {
           const rest = { ...s.runs };
           delete rest[previousId];
-          const todoBoards = { ...s.todoBoards };
-          delete todoBoards[previousId];
           return {
             tabs: s.tabs.filter((id) => id !== previousId),
             runs: rest,
-            todoBoards,
-            todoBoardDismissed: s.todoBoardDismissed.filter(
-              (id) => id !== previousId,
-            ),
             pendingApproval:
               s.pendingApproval?.sessionId === previousId
                 ? null
@@ -732,8 +651,6 @@ export const useAppStore = create<AppState>((set, get) => {
         draft: "",
         error: null,
         pendingApproval: null,
-        design: emptyDesign(),
-        artifacts: [],
         agentMode: prefs.defaultAgentMode,
         autoApprove: !prefs.defaultAskMode,
         runs: { ...s.runs, [nextId]: run },
@@ -746,22 +663,14 @@ export const useAppStore = create<AppState>((set, get) => {
       } else {
         get().setComposerChip("mode", prefs.defaultAgentMode);
       }
-      get().applyTodoBoard(null, nextId);
       await get().refreshSessions();
     },
 
     closeTab: async (sessionId) => {
       if (!sessionId) return;
-      set((s) => {
-        const tabs = s.tabs.filter((id) => id !== sessionId);
-        const todoBoards = { ...s.todoBoards };
-        delete todoBoards[sessionId];
-        return {
-          tabs,
-          todoBoards,
-          todoBoardDismissed: s.todoBoardDismissed.filter((id) => id !== sessionId),
-        };
-      });
+      set((s) => ({
+        tabs: s.tabs.filter((id) => id !== sessionId),
+      }));
       if (get().sessionId === sessionId) {
         const next = get().tabs[get().tabs.length - 1];
         if (next) await get().openSession(next);
@@ -843,14 +752,10 @@ export const useAppStore = create<AppState>((set, get) => {
         const tabs = s.tabs.filter((id) => id !== sessionId);
         const runs = { ...s.runs };
         delete runs[sessionId];
-        const todoBoards = { ...s.todoBoards };
-        delete todoBoards[sessionId];
         return {
           sessions,
           tabs,
           runs,
-          todoBoards,
-          todoBoardDismissed: s.todoBoardDismissed.filter((id) => id !== sessionId),
           pendingApproval:
             s.pendingApproval?.sessionId === sessionId ||
             s.pendingApproval?.session_id === sessionId
@@ -1067,33 +972,13 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     },
 
-    resolveApproval: async (approved) => {
+    resolveApproval: async (approved, feedback) => {
       const pending = get().pendingApproval;
       if (!pending?.approval_id) return;
       const sid = pending.sessionId || pending.session_id || get().sessionId;
       const isPlan =
         pending.risk_class === "plan" || pending.action === "approve_plan";
-      const isClarify =
-        pending.risk_class === "clarify" || pending.action === "spec_clarify";
-
-      if (
-        approved &&
-        ((isPlan && get().design.dirty) ||
-          (isClarify &&
-            (get().design.dirty || get().design.activeFile === "requirements.md")))
-      ) {
-        try {
-          await get().saveDesign({
-            force: true,
-            file: isClarify ? "requirements.md" : undefined,
-          });
-        } catch (err) {
-          get().showToast(
-            `Save failed before continue: ${err instanceof Error ? err.message : err}`,
-          );
-          return;
-        }
-      }
+      const note = String(feedback || "").trim();
 
       set({ pendingApproval: null });
       if (sid) {
@@ -1105,494 +990,27 @@ export const useAppStore = create<AppState>((set, get) => {
           body: JSON.stringify({
             approval_id: pending.approval_id,
             approved: Boolean(approved),
+            feedback: note,
           }),
         });
         if (!sid || sid === get().sessionId) {
-          const label = approved
-            ? isClarify
-              ? "Clarify · planning…"
-              : isPlan
-                ? "Build · executing…"
-                : "Approved · continuing…"
-            : "Denied · continuing…";
+          let label: string;
+          if (approved) {
+            label = isPlan ? "Build · executing…" : "Approved · continuing…";
+          } else if (note) {
+            label = isPlan
+              ? "Suggestion · revising plan…"
+              : "Suggestion · continuing…";
+          } else {
+            label = "Denied · continuing…";
+          }
           set({ runStatus: "running", statusLabel: label });
-          if (isClarify) {
-            set((s) => ({
-              design: { ...s.design, awaitingClarify: false },
-            }));
-          }
-          if (isPlan) {
-            set((s) => ({
-              design: {
-                ...s.design,
-                awaitingBuild: false,
-                dirty: false,
-              },
-            }));
-          }
         }
       } catch (err) {
         get().showToast(
           `Approval failed: ${err instanceof Error ? err.message : err}`,
         );
       }
-    },
-
-    loadDesign: async (opts = {}) => {
-      const { sessionId } = get();
-      if (!sessionId) return;
-      if (get().design.dirty) {
-        try {
-          await get().saveDesign({ force: true });
-        } catch {
-          /* continue load */
-        }
-      }
-      const data = await api<{
-        files?: Record<string, string>;
-        agent_mode?: string;
-        phases?: string[];
-        awaiting_clarify?: boolean;
-        awaiting_build?: boolean;
-        explore_status?: Record<string, unknown> | null;
-        explore_degraded?: boolean;
-      }>(`/api/sessions/${encodeURIComponent(sessionId)}/design`);
-      const files = data.files || {};
-      if (!Object.keys(files).length && !opts.forceBuild) {
-        set((s) => ({ drawers: { ...s.drawers, design: false } }));
-        return;
-      }
-      const awaitingClarify = Boolean(
-        data.awaiting_clarify || opts.awaitingClarify,
-      );
-      const designMode = (data.agent_mode || "plan") as AgentMode;
-      const awaitingBuild = Boolean(
-        (data.awaiting_build || opts.forceBuild) &&
-          !awaitingClarify &&
-          (opts.forceBuild ||
-            get().agentMode === "plan" ||
-            get().agentMode === "spec"),
-      );
-      set((s) => ({
-        drawers: { ...s.drawers, design: true },
-        agentMode:
-          awaitingBuild && s.agentMode === "normal" ? designMode : s.agentMode,
-        design: {
-          ...s.design,
-          files,
-          agentMode: designMode,
-          phases: Array.isArray(data.phases) ? data.phases : [],
-          awaitingClarify,
-          awaitingBuild,
-          dirty: false,
-          activeFile:
-            opts.activeFile ||
-            s.design.activeFile ||
-            (awaitingClarify ? "requirements.md" : "plan.md"),
-          exploreStatus: data.explore_status || null,
-          exploreDegraded: Boolean(data.explore_degraded),
-        },
-      }));
-    },
-
-    saveDesign: async (opts = {}) => {
-      const { sessionId, design } = get();
-      if (!sessionId) return;
-      const name = opts.file || design.activeFile || "plan.md";
-      if (!design.dirty && !opts.force) return;
-      const content = String(design.files[name] ?? "");
-      set((s) => ({ design: { ...s.design, saving: true } }));
-      try {
-        const data = await api<{
-          files?: Record<string, string>;
-          awaiting_build?: boolean;
-        }>(`/api/sessions/${encodeURIComponent(sessionId)}/design`, {
-          method: "PUT",
-          body: JSON.stringify({ file: name, content }),
-        });
-        set((s) => ({
-          design: {
-            ...s.design,
-            files: data.files
-              ? { ...s.design.files, ...data.files }
-              : { ...s.design.files, [name]: content },
-            dirty: false,
-            saving: false,
-            awaitingBuild:
-              data.awaiting_build != null
-                ? Boolean(data.awaiting_build)
-                : s.design.awaitingBuild,
-          },
-        }));
-      } catch (err) {
-        set((s) => ({ design: { ...s.design, saving: false } }));
-        throw err;
-      }
-    },
-
-    setDesignFile: (name, content) =>
-      set((s) => ({
-        design: {
-          ...s.design,
-          files: { ...s.design.files, [name]: content },
-          dirty: true,
-        },
-      })),
-
-    setDesignActiveFile: (name) =>
-      set((s) => ({ design: { ...s.design, activeFile: name } })),
-
-    buildDesign: async () => {
-      const { sessionId, threadId, design } = get();
-      if (design.awaitingClarify) {
-        get().showToast(
-          "Use Continue on the approval banner after editing requirements.",
-        );
-        return;
-      }
-      if (!design.awaitingBuild) {
-        get().showToast("Nothing waiting for Build.");
-        return;
-      }
-      if (!sessionId || !threadId) {
-        get().showToast("Open a session before Build.");
-        return;
-      }
-      if (design.dirty) {
-        await get().saveDesign({ force: true });
-      }
-      const mode = (design.agentMode || get().agentMode || "plan") as AgentMode;
-      const message =
-        mode === "spec" ? "Build the approved spec." : "Build the approved plan.";
-      await runTurn(sessionId, threadId, message, [], message, {
-        autoBuild: true,
-        agentMode: mode,
-      });
-    },
-
-    refreshArtifacts: async () => {
-      const { sessionId } = get();
-      if (!sessionId) {
-        set({ artifacts: [] });
-        return;
-      }
-      try {
-        const data = await api<{
-          artifacts?: ArtifactEntry[];
-          items?: ArtifactEntry[];
-        }>(`/api/sessions/${encodeURIComponent(sessionId)}/artifacts`);
-        set({
-          artifacts: data.artifacts || data.items || [],
-        });
-      } catch {
-        set({ artifacts: [] });
-      }
-    },
-
-    setMemoryQuery: (q) => set({ memoryQuery: q }),
-    setMemoryStateFilter: (state) => set({ memoryStateFilter: state }),
-    toggleMemoryKind: (kind) =>
-      set((s) => {
-        const has = s.memorySelectedKinds.includes(kind);
-        return {
-          memorySelectedKinds: has
-            ? s.memorySelectedKinds.filter((k) => k !== kind)
-            : [...s.memorySelectedKinds, kind],
-        };
-      }),
-
-    searchMemory: async () => {
-      set({ memorySearching: true });
-      try {
-        const data = await api<MemorySearchResult>("/api/memory/search", {
-          method: "POST",
-          body: JSON.stringify({
-            query: get().memoryQuery.trim(),
-            kinds: get().memorySelectedKinds,
-            state: get().memoryStateFilter,
-            session_id: "",
-            max_results: 24,
-          }),
-        });
-        set({
-          memoryResults: data.items || [],
-          memoryTraceId: data.trace_id || null,
-          memorySearching: false,
-        });
-      } catch (err) {
-        set({
-          memorySearching: false,
-          memoryResults: [],
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    },
-
-    refreshJobs: async () => {
-      set({ jobsLoading: true });
-      try {
-        const filter = String(get().jobsFilter || "").trim();
-        const qs = filter
-          ? `?limit=40&status=${encodeURIComponent(filter)}`
-          : "?limit=40";
-        const data = await api<{
-          jobs?: JobSummary[];
-          counts?: JobsCounts;
-        }>(`/api/jobs${qs}`);
-        set({
-          jobs: data.jobs || [],
-          jobsCounts: data.counts || null,
-          jobsLoading: false,
-        });
-      } catch {
-        set({ jobsLoading: false, jobs: [] });
-      }
-    },
-
-    createJob: async (objective) => {
-      const result = await api<JobSummary>("/api/jobs", {
-        method: "POST",
-        body: JSON.stringify({ objective: objective.trim() }),
-      });
-      get().showToast(`Job ${result.id} · ${result.status || "queued"}`);
-      await get().refreshJobs();
-    },
-
-    cancelJob: async (jobId) => {
-      await api(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      await get().refreshJobs();
-    },
-
-    attachJob: async (jobId) => {
-      const info = await api<{ session_id?: string; run_id?: string }>(
-        `/api/jobs/${encodeURIComponent(jobId)}/attach`,
-      );
-      const sid = info.session_id || info.run_id;
-      if (sid) await get().openSession(sid);
-    },
-
-    setJobsFilter: (filter) => {
-      set({ jobsFilter: filter });
-      void get().refreshJobs();
-    },
-
-    runBestOfN: async (objective, n) => {
-      const obj = (objective ?? get().bonObjective).trim();
-      if (!obj) {
-        get().setWorkbenchTab("bon");
-        get().showToast("Enter a Best-of-N objective");
-        return;
-      }
-      const count = Math.max(
-        2,
-        Math.min(5, n ?? get().bonN ?? 2),
-      );
-      get().setWorkbenchTab("bon");
-      set({
-        runStatus: "running",
-        statusLabel: `Best-of-${count}…`,
-        bonObjective: obj,
-        bonN: count,
-        bonLive: {
-          n: count,
-          attempts: [],
-          placeholders: Object.fromEntries(
-            Array.from({ length: count }, (_, i) => [
-              i,
-              {
-                index: i,
-                label: `n${i + 1}`,
-                running: true,
-                status: "queued",
-                score: 0,
-              },
-            ]),
-          ),
-          winner_index: null,
-          objective: obj,
-        },
-      });
-
-      const upsert = (attempt: BonAttempt) => {
-        set((s) => {
-          if (!s.bonLive) return s;
-          const idx = Number(attempt.index);
-          const placeholders = {
-            ...s.bonLive.placeholders,
-            [idx]: {
-              ...s.bonLive.placeholders[idx],
-              ...attempt,
-            },
-          };
-          const list = [...s.bonLive.attempts];
-          const at = list.findIndex((a) => a.index === idx);
-          if (at >= 0) list[at] = { ...list[at], ...attempt };
-          else list.push(attempt);
-          return {
-            bonLive: {
-              ...s.bonLive,
-              placeholders,
-              attempts: list,
-            },
-          };
-        });
-      };
-
-      try {
-        const streamed = await streamBestOfN(
-          {
-            objective: obj,
-            n: count,
-            auto_approve: get().autoApprove,
-          },
-          {
-            onFrame: (event, data) => {
-              if (event === "attempt_started" || event === "attempt_ready") {
-                const idx = Number(data.index);
-                upsert({
-                  index: idx,
-                  label: String(data.label || `n${idx + 1}`),
-                  running: true,
-                  status:
-                    event === "attempt_ready" ? "running" : "starting",
-                  worktree: data.worktree ? String(data.worktree) : "",
-                  branch: data.branch ? String(data.branch) : "",
-                  score: 0,
-                });
-              } else if (event === "attempt_done" || event === "attempt_failed") {
-                upsert({
-                  ...(data as BonAttempt),
-                  index: Number(data.index),
-                  running: false,
-                  ok: event !== "attempt_failed",
-                });
-              } else if (event === "done") {
-                set((s) =>
-                  s.bonLive
-                    ? {
-                        bonLive: {
-                          ...s.bonLive,
-                          winner_index:
-                            data.winner_index != null
-                              ? Number(data.winner_index)
-                              : s.bonLive.winner_index,
-                          attempts: Array.isArray(data.attempts)
-                            ? (data.attempts as BonAttempt[])
-                            : s.bonLive.attempts,
-                        },
-                      }
-                    : s,
-                );
-              }
-            },
-          },
-        );
-
-        if (!streamed) {
-          const result = await api<{
-            winner?: BonAttempt;
-            winner_index?: number;
-            attempts?: BonAttempt[];
-            n?: number;
-            message?: string;
-          }>("/api/best-of-n", {
-            method: "POST",
-            body: JSON.stringify({
-              objective: obj,
-              n: count,
-              auto_approve: get().autoApprove,
-            }),
-          });
-          set({
-            bonLive: {
-              n: result.n || count,
-              attempts: result.attempts || [],
-              placeholders: {},
-              winner_index:
-                result.winner_index != null ? result.winner_index : null,
-              objective: obj,
-            },
-            runStatus: "idle",
-            statusLabel: "Ready",
-          });
-          const winner = result.winner;
-          get().showToast(
-            winner
-              ? `Winner: ${winner.label} (score ${Number(winner.score || 0).toFixed(2)})`
-              : "No winner selected.",
-          );
-          return;
-        }
-
-        set({ runStatus: "idle", statusLabel: "Ready" });
-      } catch (err) {
-        set({
-          runStatus: "error",
-          statusLabel: "Best-of-N failed",
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    },
-
-    runReview: async (opts = {}) => {
-      get().setWorkbenchTab("review");
-      set({ runStatus: "running", statusLabel: "Review…" });
-      try {
-        const result = await api<ReviewResult>("/api/review", {
-          method: "POST",
-          body: JSON.stringify(opts),
-        });
-        set({
-          reviewResult: result,
-          runStatus: "idle",
-          statusLabel: "Ready",
-        });
-      } catch (err) {
-        set({
-          runStatus: "error",
-          statusLabel: "Review failed",
-          error: err instanceof Error ? err.message : String(err),
-        });
-        throw err;
-      }
-    },
-
-    applyTodoBoard: (board, sessionId) => {
-      const sid = sessionId || get().sessionId;
-      if (!sid) return;
-      const normalized = normalizeTodoBoard(board);
-      set((s) => {
-        const todoBoards = { ...s.todoBoards };
-        let dismissed = s.todoBoardDismissed;
-        if (!normalized) {
-          delete todoBoards[sid];
-          dismissed = dismissed.filter((id) => id !== sid);
-        } else {
-          const prev = todoBoards[sid];
-          todoBoards[sid] = normalized;
-          if (
-            dismissed.includes(sid) &&
-            prev &&
-            (prev.done !== normalized.done || prev.total !== normalized.total)
-          ) {
-            dismissed = dismissed.filter((id) => id !== sid);
-          }
-        }
-        return { todoBoards, todoBoardDismissed: dismissed };
-      });
-    },
-
-    dismissTodoBoard: (sessionId) => {
-      const sid = sessionId || get().sessionId;
-      if (!sid) return;
-      set((s) =>
-        s.todoBoardDismissed.includes(sid)
-          ? s
-          : { todoBoardDismissed: [...s.todoBoardDismissed, sid] },
-      );
     },
 
     appendLocalMessage: (role, text) => {

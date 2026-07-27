@@ -2,19 +2,15 @@ import type {
   AgentMode,
   ChatMessage,
   ComputerFrame,
-  DesignPanelState,
   RunStatus,
   SessionRun,
-  TodoBoard,
   ToolCard,
-  WorkbenchTab,
 } from "../api/types";
 import type { AppState } from "./types";
 
 export const LAST_SESSION_KEY = "kageha.lastSessionId";
-export const WORKBENCH_TAB_KEY = "kageha.workbenchTab";
-export const MODE_SLASH_RE = /^\/(plan|spec|goal|normal)\b/i;
-export const AGENT_MODES: AgentMode[] = ["normal", "plan", "spec", "goal"];
+export const MODE_SLASH_RE = /^\/(plan|goal|normal)\b/i;
+export const AGENT_MODES: AgentMode[] = ["normal", "plan", "goal"];
 
 export function uid(prefix = "m"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -34,15 +30,6 @@ export function loadLastSession(): string | null {
     return localStorage.getItem(LAST_SESSION_KEY);
   } catch {
     return null;
-  }
-}
-
-export function loadWorkbenchTab(): WorkbenchTab {
-  try {
-    const v = localStorage.getItem(WORKBENCH_TAB_KEY);
-    return v === "review" ? "review" : "bon";
-  } catch {
-    return "bon";
   }
 }
 
@@ -84,49 +71,6 @@ export function emptyRun(
     waitingApproval: false,
     needsAttention: false,
     pendingFiles: [],
-  };
-}
-
-export function emptyDesign(): DesignPanelState {
-  return {
-    files: {},
-    activeFile: "plan.md",
-    agentMode: "plan",
-    phases: [],
-    awaitingClarify: false,
-    awaitingBuild: false,
-    dirty: false,
-    saving: false,
-    exploreStatus: null,
-    exploreDegraded: false,
-  };
-}
-
-export function normalizeTodoBoard(payload: unknown): TodoBoard | null {
-  if (!payload || typeof payload !== "object") return null;
-  const p = payload as Record<string, unknown>;
-  const items = Array.isArray(p.items) ? p.items : [];
-  const total = Number(p.total);
-  if ((!Number.isFinite(total) || total <= 0) && !items.length) return null;
-  const normalizedItems: TodoBoard["items"] = items
-    .filter(
-      (it): it is Record<string, unknown> =>
-        Boolean(it) && typeof it === "object",
-    )
-    .slice(0, 24)
-    .map((it) => ({
-      id: String(it.id || ""),
-      text: String(it.text || ""),
-      done: Boolean(it.done),
-    }));
-  const done = Number.isFinite(Number(p.done))
-    ? Number(p.done)
-    : normalizedItems.filter((it) => it.done).length;
-  return {
-    label: String(p.label || "todos"),
-    done,
-    total: Number.isFinite(total) && total > 0 ? total : normalizedItems.length,
-    items: normalizedItems,
   };
 }
 
@@ -384,10 +328,6 @@ export function isMetaOnlySlash(text: string): boolean {
       id === "ask" ||
       id === "auto" ||
       id === "model" ||
-      id === "labs" ||
-      id === "memory" ||
-      id === "artifacts" ||
-      id === "review" ||
       id === "permissions"
     ) {
       return false;

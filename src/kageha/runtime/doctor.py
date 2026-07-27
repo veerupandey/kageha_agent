@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import platform
 import shutil
 import sqlite3
@@ -212,60 +211,6 @@ def run_doctor(*, deep: bool = False) -> DoctorReport:
                 ),
             )
         )
-        from kageha.config import kageha_home
-
-        wa_qr_creds = kageha_home() / "platforms" / "whatsapp" / "session" / "creds.json"
-        channel_config = {
-            "whatsapp": bool(
-                os.environ.get("WHATSAPP_TOKEN")
-                or os.environ.get("WHATSAPP_ACCESS_TOKEN")
-                or wa_qr_creds.is_file()
-            ),
-            "telegram": bool(os.environ.get("TELEGRAM_BOT_TOKEN")),
-            "discord": bool(os.environ.get("DISCORD_BOT_TOKEN")),
-            "slack": bool(
-                os.environ.get("SLACK_BOT_TOKEN")
-                and os.environ.get("SLACK_APP_TOKEN")
-            ),
-        }
-        checks.append(
-            Check(
-                "channels",
-                True,
-                ", ".join(
-                    f"{name}={'configured' if configured else 'off'}"
-                    for name, configured in channel_config.items()
-                ),
-                severity="info",
-            )
-        )
-        try:
-            from kageha.gateway import ChannelGateway
-
-            gateway = ChannelGateway(store=store)
-            try:
-                gstatus = gateway.status()
-                enabled = gstatus.get("enabled_channels") or []
-                alive = sum(
-                    1 for row in gstatus.get("services") or [] if row.get("alive")
-                )
-                checks.append(
-                    Check(
-                        "gateway",
-                        True,
-                        (
-                            f"enabled={len(enabled)} alive={alive} "
-                            f"source={gstatus.get('config_source') or 'none'}"
-                        ),
-                        severity="info",
-                    )
-                )
-            finally:
-                gateway.supervisor.close()
-        except Exception as exc:  # noqa: BLE001
-            checks.append(
-                Check("gateway", False, str(exc), severity="info")
-            )
     except (OSError, sqlite3.Error, RuntimeError) as exc:
         checks.append(Check("runtime_db", False, str(exc)))
     finally:

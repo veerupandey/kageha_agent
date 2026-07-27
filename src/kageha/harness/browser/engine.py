@@ -380,7 +380,7 @@ class BrowserEngine:
         method = (method or "").strip()
         if not method or "." not in method:
             return "ERROR: method must look like Domain.method (e.g. Runtime.evaluate)"
-        # Deny focus-sensitive / dangerous domains (Cursor-aligned).
+        # Deny focus-sensitive / dangerous domains.
         domain = method.split(".", 1)[0]
         denied = {
             "Input",

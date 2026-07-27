@@ -9,8 +9,14 @@ from typing import Any
 
 import yaml
 
-from kageha.channels.whatsapp_setup import read_env_value, resolve_env_file, upsert_env_key
-from kageha.config import kageha_home, models_yaml_paths, project_root
+from kageha.config import (
+    kageha_home,
+    models_yaml_paths,
+    project_root,
+    read_env_value,
+    resolve_env_file,
+    upsert_env_key,
+)
 from kageha.models.registry import ModelRegistry
 
 

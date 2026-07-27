@@ -1,4 +1,4 @@
-"""Followup/act loop — skip planner + preserve goals (Codex-style)."""
+"""Followup/act loop — skip planner + preserve goals."""
 
 from __future__ import annotations
 

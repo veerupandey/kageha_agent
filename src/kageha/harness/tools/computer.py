@@ -263,7 +263,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
             )
         )
         if not ok:
-            return f"DENIED: {action} not approved"
+            return gate.denial_message(action)
         # Persist always-allow only after a real HITL approve (not --auto-approve).
         if bid and not gate.auto_approve:
             allowlist.set_decision(bid, "always", name=name)
@@ -513,7 +513,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
 
     @tool(
         description=(
-            "Capture AX snapshot + readings for an app (Codex-style get_app_state). "
+            "Capture AX snapshot + readings for an app (AX app state). "
             "Default is compact (include_screenshot=false, no pixel frames) for fast loops. "
             "Prefer computer_click_sequence(text=…) when possible — skip get_state. "
             "Prefer refs (e0…) from snapshot; verify with readings. "

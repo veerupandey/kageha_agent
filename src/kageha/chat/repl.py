@@ -29,7 +29,6 @@ from kageha.chat.turn_manager import (
 )
 from kageha.config import security_profile
 from kageha.harness.sandbox import SessionWorkspace
-from kageha.knowledge.registry import attached_kbs
 from kageha.loop.artifacts import (
     artifacts_touched_since,
     classify_artifacts,
@@ -50,24 +49,22 @@ from kageha.memory.skills import SkillRegistry
 HELP = """
 Just talk — ask, request work, or refine what we made.
 
+Modes:
+  /plan [task]   Clarify → research → plan.md → /build
+  /goal [task]   Execute now; HITL Approve/Deny/Suggest
+  /normal        Default chat depth
+  /build         Execute the pending plan (after /plan)
+
 Commands:
   /help  /where  /files  /status  /sessions
   /resume <id>   /new
-  /model [list|reset|<id>|planner <id>|executor <id>]
-  /comet [start|status]      Launch/check logged-in browser
-  /browser [list|use <be>|comet|cdp <url>|status]
-  /computer [status|doctor|pack on|off|auto|allowlist]
-  /research [flash|standard|deep] <query>
-  /permissions [auto|ask]
-  /memory status|list|why|on|off|learn|remember|correct|forget
-  /project:<name>  /cmd <name>   Project recipes from .kageha/commands/
-  /best-of-n <objective>         Parallel worktree attempts
-  /verbose       Live reasoning, todo ✓/○ checklists, tools, session meta
-  /quiet         Compact status only (default)
-  /voice         Record mic → STT for next turn (needs sox/ffmpeg + STT key)
-  /quit
+  /model [list|reset|<id>]
+  /browser …     /computer …     /research …
+  /permissions [auto|ask]   Tool approvals only (not Plan Build)
+  /memory …
+  /verbose  /quiet  /quit
 
-↑/↓ history · Tab completes /commands
+↑/↓ history · Tab completes /commands, models, sessions, @files
 """.strip()
 
 
@@ -126,7 +123,6 @@ async def run_chat_repl(
     auto_approve: bool = False,
     max_steps: int | None = None,
     quiet: bool = False,
-    kb: list[str] | None = None,
     voice: bool = False,
     project_root: str | None = None,
     attach: str | None = None,
@@ -146,10 +142,8 @@ async def run_chat_repl(
         except Exception as exc:  # noqa: BLE001
             print(f"ERROR: could not attach to App Server: {exc}")
             return
-    kbs = list(kb or []) + attached_kbs()
     skills = SkillRegistry()
     catalog = skills.catalog(limit=40)
-    pins = ", ".join(kbs) if kbs else ""
     memory = get_memory_service(start_worker=True)
     from kageha.chat.memory_commands import ChatMemorySettings
 
@@ -177,6 +171,10 @@ async def run_chat_repl(
     # Manus-style: conversation first. /verbose reveals routing + session meta.
     verbose = False
     voice_mode = bool(voice)
+    # Sticky after bare /plan|/goal|/normal until changed or /new.
+    sticky_agent_mode: str | None = None
+    # One-shot Plan Build gate (set by /build).
+    build_once = False
     if resume:
         workspace = open_workspace(resume)
         model_override = workspace.get_model_override()
@@ -187,8 +185,9 @@ async def run_chat_repl(
         print("Kageha chat · type a request, or /help")
     if voice_mode:
         print(
-            "Voice mode on — empty Enter records mic; type to send text. "
-            "Toggle with /voice. Replies spoken when KAGEHA_VOICE_REPLY=1."
+            "Voice mode on — empty Enter records mic (needs ffmpeg/sox + mic). "
+            "Type to send text. Toggle with /voice. "
+            "Spoken replies when KAGEHA_VOICE_REPLY=1."
         )
 
     setup_line_editing()
@@ -260,8 +259,26 @@ async def run_chat_repl(
             model_override = None
             model_once = None
             model_role_overrides = {}
+            sticky_agent_mode = None
+            build_once = False
             print("Ready for a new task.")
             continue
+        if low == "/build" or low.startswith("/build "):
+            if not run_id or workspace is None:
+                print("Nothing to build — run /plan <task> first.")
+                continue
+            from kageha.loop.mode_policy import plan_already_approved
+
+            plan_path = workspace.root / "plan.md"
+            if not plan_path.is_file() and not plan_already_approved(workspace.root):
+                print("No plan.md yet — run /plan <task> first.")
+                continue
+            build_once = True
+            sticky_agent_mode = sticky_agent_mode or "plan"
+            rest = line.split(maxsplit=1)[1].strip() if " " in line.strip() else ""
+            line = rest or "Execute the approved plan."
+            low = line.lower()
+            print("[kageha] Building — approving plan and executing…")
         if low == "/model" or low.startswith("/model ") or low in {"/models"} or low.startswith(
             "/models "
         ):
@@ -396,38 +413,24 @@ async def run_chat_repl(
                     )
                 )
             continue
-        if (
-            low.startswith("/project:")
-            or low.startswith("/cmd ")
-            or low == "/best-of-n"
-            or low.startswith("/best-of-n ")
-        ):
-            from kageha.chat.project_commands import handle_project_command
+        # Mode switches: /plan|/goal|/normal — not "unknown commands".
+        from kageha.loop.mode_policy import (
+            is_mode_only_message,
+            mode_only_ack,
+            parse_mode_slash,
+            write_agent_mode_flag,
+        )
 
-            handled, message = handle_project_command(
-                line, project_root=cwd
-            )
-            if handled:
-                if message.startswith("__BEST_OF_N__:"):
-                    from kageha.project.best_of_n import format_best_of_n, run_best_of_n
-
-                    objective = message.split(":", 1)[1]
-                    print(f"[kageha] best-of-n → {objective[:120]}")
-                    try:
-                        result = await run_best_of_n(
-                            objective=objective,
-                            project_root=cwd,
-                            n=2,
-                            auto_approve=approve_all,
-                        )
-                        print_chat_reply(format_best_of_n(result))
-                    except Exception as exc:  # noqa: BLE001
-                        print(f"ERROR: {exc}")
-                    continue
-                # Expand project slash recipe into the user turn.
-                line = message
-                low = line.lower()
-        if line.startswith("/"):
+        slash_mode = parse_mode_slash(line)
+        if slash_mode is not None:
+            sticky_agent_mode = slash_mode
+            if workspace is not None:
+                write_agent_mode_flag(workspace.root, slash_mode)
+            if is_mode_only_message(line):
+                print_chat_reply(mode_only_ack(slash_mode))
+                continue
+            # /plan do X — fall through into the agent turn below.
+        elif line.startswith("/"):
             print(f"Unknown command: {line}  (/help)")
             continue
 
@@ -475,7 +478,9 @@ async def run_chat_repl(
         )
         from kageha.chat.turn_manager import prefer_agent_mode
 
-        agent_mode = prefer_agent_mode(line, workspace=workspace)
+        agent_mode = prefer_agent_mode(
+            line, workspace=workspace, explicit=sticky_agent_mode
+        )
         loop_mode = prefer_loop_mode(
             line,
             decision,
@@ -641,11 +646,11 @@ async def run_chat_repl(
                 "\n\nYou are in interactive chat with a full tool + skill harness. "
                 "Be concise and human. Lead with absolute file paths when "
                 "reporting deliverables. Avoid markdown tables unless asked. "
-                "You HAVE browser_* (if pack enabled), skill_run for network_scan / "
-                "sony_bravia / android_tv, "
+                "You HAVE browser_* (if pack enabled), skill_run for bundled "
+                "skills, "
                 "bash/shell, skill_load/skill_run, and can write/execute scripts. "
-                "Never claim you cannot open a browser, scan the LAN, or control "
-                "a paired device when those tools/skills exist — use them (or "
+                "Never claim you cannot open a browser or use available tools "
+                "when those tools/skills exist — use them (or "
                 "load the matching skill) instead of refusing. "
                 "If unsure whether you can help, try the tools. "
                 "Remember facts and decisions from the recent conversation above."
@@ -697,21 +702,21 @@ async def run_chat_repl(
                     "agent_id": "main",
                     "project_root": cwd,
                     "auto_approve": approve_all,
+                    "auto_build": bool(build_once),
                     "security_profile": SecurityProfile(security_profile()),
                     "max_steps": max_steps or 40,
-                    "knowledge_bases": tuple(kbs),
                     "skill_catalog": catalog,
-                    "kb_pins": pins,
                     "system_extra": memory_extra,
                     "model_override": model_override or "",
                     "live": not quiet,
                     "log_handler": progress.update,
                     "defer_human_input": True,
                     "platform": "cli",
-                    # Codex-style: act/followup by default; full for plan/spec/goal.
+                    # Act/followup by default; full for plan/goal.
                     "loop_mode": loop_mode,
                     "agent_mode": agent_mode,
                 }
+                build_once = False
                 if attach:
                     from kageha.chat.remote_turn import remote_turn
                     from types import SimpleNamespace
@@ -723,6 +728,7 @@ async def run_chat_repl(
                         session_id=run_id if use_existing else None,
                         project_root=cwd,
                         auto_approve=approve_all,
+                        auto_build=bool(request_args.get("auto_build")),
                         agent_mode=agent_mode,
                         loop_mode=loop_mode,
                         max_steps=int(max_steps or 40),
@@ -829,6 +835,10 @@ async def run_chat_repl(
                 )
             )
             highlight = new_arts if before_mtimes else all_arts[:6]
+            if (result.status or "").lower() == "awaiting_plan_approval":
+                # Plan phase deliverable is plan.md — not "partial unverified" noise.
+                if (workspace.root / "plan.md").is_file():
+                    highlight = ["plan.md"]
             summary = humanize_turn_reply(
                 message=result.message or "",
                 status=result.status,

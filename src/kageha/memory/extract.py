@@ -1,4 +1,4 @@
-"""Optional LLM memory extractor (Claude/Codex-style) with regex-safe fallback."""
+"""Optional LLM memory extractor with regex-safe fallback."""
 
 from __future__ import annotations
 

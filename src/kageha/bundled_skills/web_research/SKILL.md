@@ -48,3 +48,7 @@ For multi-angle topics, spawn subagents each calling `research_run` on a differe
 - The chat answer (or `research/brief.md` when requested) answers the question
 - Prefer page-sourced quotes over search snippets alone
 - Inline `[n]` markers + `## Sources` with real URLs when research tools were used
+
+## Observations
+
+- (2026-07-27) Observed pitfall: research_run/web_search failed twice with 'GEMINI_API_KEY not configured' and DDG fallback returned no results. Procedure should not rely on web_search when the configured search backend is unavailable; instead, fall back to direct URL fetches/headless reads for known domains and use browser-based search only if necessary. Add a note to prefer web_fetch/headless_fetch on explicit URLs and to treat search backend errors as a signal to switch methods rather than retrying the same query.

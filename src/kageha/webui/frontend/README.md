@@ -1,39 +1,12 @@
-# Kageha WebUI (React)
+# WebUI frontend
 
-Production React frontend for the Kageha agent WebUI.
+React + Vite SPA for `kageha webui`.
 
-**How to start and use the product UI:** see [`docs/WEBUI.md`](../../../../docs/WEBUI.md) (from repo root: `docs/WEBUI.md`).
-
-## Stack
-
-- React 19 + TypeScript + Vite 8
-- Zustand store (split under `src/store/`)
-- Vitest for unit tests
-
-## Features
-
-- Modes, slash commands, `@` files, Cmd/Ctrl+K
-- HITL approvals, Design panel, multitask tabs
-- Settings (density, Ask/Auto default, default mode, reduce motion, tool cards)
-- Session pin / archive / delete (context menu + buttons)
-- Lazy-mounted drawers, error boundary, connection banner
-- Stick-to-bottom streaming, skeletons, copy/retry
-
-## Develop
+Product setup and usage: [docs/SETUP.md](../../../../docs/SETUP.md), [docs/USAGE.md](../../../../docs/USAGE.md).
 
 ```bash
-# From repo root — API
-uv run kageha webui --port 8788
-
-# In this directory — HMR
-npm run dev
-```
-
-## Build / test
-
-```bash
-npm run build
+npm install
+npm run build    # production assets → dist/
+npm run dev      # hot reload (API via kageha webui)
 npm test
 ```
-
-Production assets land in `dist/` and are served by `kageha webui` at `/`.

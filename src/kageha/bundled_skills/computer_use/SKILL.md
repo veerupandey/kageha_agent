@@ -12,7 +12,6 @@ triggers:
   - cua-driver
   - ax tree
   - phone call
-  - call
   - dial
   - facetime
   - video call

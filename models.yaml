@@ -7,6 +7,11 @@ providers:
     protocol: openai_compat
     base_url: https://api.openai.com/v1
     api_key_env: OPENAI_API_KEY
+  # Azure OpenAI (deployment name goes in model:; key in AZURE_OPENAI_API_KEY)
+  azure:
+    protocol: openai_compat
+    base_url: https://test-rakesh-openai.openai.azure.com/openai/v1
+    api_key_env: AZURE_OPENAI_API_KEY
   # ChatGPT / Codex subscription OAuth (import: kageha models auth import chatgpt)
   # Model slugs from ~/.codex/models_cache.json (fetched locally).
   openai-codex:
@@ -30,6 +35,14 @@ providers:
     api_key_env: ANTIGRAVITY_CLI  # sentinel; session owned by gemini CLI
 
 models:
+  # --- Azure OpenAI (deployment = model field) ---
+  - id: azure-mini
+    provider: azure
+    model: gpt-5.4-mini
+    roles: [default, planning, coding, fast_worker, tool_calling, monitor]
+    capabilities: [tool_calling, vision, structured_output]
+    context_window: 200000
+
   # --- Gemini API key path (generativelanguage.googleapis.com list confirmed) ---
   - id: gemini-pro
     provider: gemini
@@ -165,16 +178,12 @@ models:
     context_window: 200000
 
 embedding:
-  # Gemini-first (matches default chat stack). Used for KB + skill retrieval.
-  # Override in ~/.kageha/models.yaml or via env:
-  #   KAGEHA_EMBEDDING_PROVIDER=gemini
-  #   KAGEHA_EMBEDDING_MODEL=gemini-embedding-001
-  #   KAGEHA_EMBEDDING_DIMENSIONS=768
-  # Falls back to openai/siliconflow when GEMINI_API_KEY is missing.
+  # Azure when AZURE_OPENAI_API_KEY is set; else Gemini / OpenAI fallbacks.
+  # Override: KAGEHA_EMBEDDING_PROVIDER=azure KAGEHA_EMBEDDING_MODEL=text-embedding-3-large
   # Disable skill embeddings: KAGEHA_SKILL_EMBEDDINGS=off
-  provider: gemini
-  model: gemini-embedding-001
-  dimensions: 768
+  provider: azure
+  model: text-embedding-3-large
+  dimensions: 3072
 
 voice:
   # Gemini TTS (preview). Tool: gemini_tts. Override in ~/.kageha/models.yaml or:
@@ -188,12 +197,12 @@ voice:
 # Role ladders — prefer native tool-capable API models first.
 # Antigravity/gemini-cli is text-only (no Kageha tool loops); keep as fallback.
 roles:
-  default: [gemini-flash, kimi-plan, gemini-pro, antigravity-flash, antigravity]
-  planning: [kimi-plan, gemini-pro, antigravity, gemini-flash]
-  fast_worker: [gemini-flash, gpt-fast, antigravity-flash]
-  monitor: [gemini-flash, gpt-fast, antigravity-flash]
-  tool_calling: [gemini-flash, kimi-plan, gemini-pro, gpt-5.4-mini]
-  coding: [gemini-pro, kimi-plan, gemini-flash, claude-sonnet, antigravity]
+  default: [azure-mini, gemini-flash, kimi-plan, gemini-pro, antigravity-flash, antigravity]
+  planning: [azure-mini, kimi-plan, gemini-pro, antigravity, gemini-flash]
+  fast_worker: [azure-mini, gemini-flash, gpt-fast, antigravity-flash]
+  monitor: [azure-mini, gemini-flash, gpt-fast, antigravity-flash]
+  tool_calling: [azure-mini, gemini-flash, kimi-plan, gemini-pro, gpt-5.4-mini]
+  coding: [azure-mini, gemini-pro, kimi-plan, gemini-flash, claude-sonnet, antigravity]
 
 # Optional /model allowlist (OpenClaw-style). Empty / omitted = all configured models.
 # model_policy:

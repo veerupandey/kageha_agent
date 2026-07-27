@@ -1,4 +1,4 @@
-"""Agent mode policy: normal | plan | spec | goal (trimmed harness).
+"""Agent mode policy: normal | plan | goal (trimmed harness).
 
 Modes are different *machines* (artifacts + gates), not prompt variants.
 One LoopController; mode selects design artifacts, approval, and execute rights.
@@ -6,23 +6,18 @@ One LoopController; mode selects design artifacts, approval, and execute rights.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any, Literal
 
-AgentMode = Literal["normal", "plan", "spec", "goal"]
+AgentMode = Literal["normal", "plan", "goal"]
 
-AGENT_MODES: frozenset[str] = frozenset({"normal", "plan", "spec", "goal"})
+AGENT_MODES: frozenset[str] = frozenset({"normal", "plan", "goal"})
 
 AGENT_MODE_FLAG = "agent_mode.flag"
 PLAN_APPROVED_FLAG = "plan_approved.flag"
-
-# Spec machine: three artifacts required before Build/execute.
-SPEC_ARTIFACTS: tuple[str, ...] = (
-    "requirements.md",
-    "plan.md",
-    "skill_gaps.md",
-)
+CLARIFY_PENDING = "clarify_pending.json"
 
 # Tools that mutate project/source — blocked in Plan design until approved.
 PLAN_DESIGN_BLOCKED_TOOLS: frozenset[str] = frozenset(
@@ -42,8 +37,8 @@ PLAN_DESIGN_BLOCKED_TOOLS: frozenset[str] = frozenset(
     }
 )
 
-_MODE_CMD_RE = re.compile(r"^/(plan|spec|goal|normal)\b", re.I)
-_MODE_ONLY_RE = re.compile(r"^/?(plan|spec|goal|normal)\s*$", re.I)
+_MODE_CMD_RE = re.compile(r"^/(plan|goal|normal)\b", re.I)
+_MODE_ONLY_RE = re.compile(r"^/?(plan|goal|normal)\s*$", re.I)
 
 _ARTIFACTS_DEFAULT = (
     "File deliverables DEFAULT to `artifacts/` (e.g. `artifacts/deck.pptx`, "
@@ -56,45 +51,30 @@ MODE_PROMPTS: dict[str, str] = {
         "Conversational self-depth. Answer simply in chat when possible — "
         "do not create unsolicited .md deliverables for small talk or factual Q&A. "
         f"{_ARTIFACTS_DEFAULT} "
-        "Escalate with escalate_plan(mode='plan'|'spec'|'goal') or tell the user "
-        "to send /plan, /spec, or /goal for deeper work."
+        "Escalate with escalate_plan(mode='plan'|'goal') or tell the user "
+        "to send /plan or /goal for deeper work."
     ),
     "plan": (
-        "## Agent mode: plan (design machine)\n"
-        "HARD RULE: read-only explore → write plan.md → wait for Build.\n"
-        "You may list_dir/read_file/web_search during design. "
-        "Mutating tools (write/edit/bash/spawn/skill_run) are HARD-DENIED until "
-        "the user Builds. After Build, execute the approved plan and put "
-        f"user-facing outputs under `artifacts/`. {_ARTIFACTS_DEFAULT}"
-    ),
-    "spec": (
-        "## Agent mode: spec (requirements machine — Kiro-style phases)\n"
-        "Phases: requirements → clarify → plan → skill_gaps → build.\n"
-        "Ask concrete clarifying questions when the task is underspecified "
-        "before finalizing plan.md; record assumptions when none are needed.\n"
-        "Read-only research is allowed before Build; mutations are HARD-DENIED. "
-        "No fan-out execution until all three artifacts exist and the user Builds. "
-        f"After Build, {_ARTIFACTS_DEFAULT}"
+        "## Agent mode: plan\n"
+        "Clarify when ambiguous → read-only research → write plan.md → wait for "
+        "Build. Mutating tools are HARD-DENIED until Build/Approve. User may edit "
+        "plan.md or reply/Suggest to revise without executing. After Build, "
+        f"execute and put outputs under `artifacts/`. {_ARTIFACTS_DEFAULT}"
     ),
     "goal": (
         "## Agent mode: goal\n"
-        "Maximize autonomy toward a verifiable outcome (ship/verify), not Q&A. "
-        "Maintain a living goal card and task DAG. Invent skills/forge under HITL "
-        "when gaps block progress. Hard risk classes (destructive shell, elevated, "
-        "messaging, skill writes) still require human approval. Stop only on goal "
-        "SUCCESS or explicit cancel.\n"
-        f"{_ARTIFACTS_DEFAULT} "
-        "If the user asks a pure informational question, answer briefly like Normal "
-        "— do not invent skills or DAG theater."
+        "Execute now toward a verifiable outcome — no Build gate. Keep a living "
+        "goal card + todos; verify continuously. Ask only when blocked. Hard risk "
+        "classes still need HITL (Approve/Deny/Suggest). Stop on SUCCESS/cancel.\n"
+        f"{_ARTIFACTS_DEFAULT} Pure Q&A → answer briefly like Normal."
     ),
 }
 
 # WebUI / slash helper copy (keep in sync with static catalog fallbacks).
 MODE_CHIP_DESCRIPTIONS: dict[str, str] = {
     "normal": "Normal mode — standard chat",
-    "plan": "Plan mode — design before acting",
-    "spec": "Spec mode — detailed requirements",
-    "goal": "Goal — verifiable outcome, not Q&A",
+    "plan": "Plan — clarify, research, then Build",
+    "goal": "Goal — execute now with HITL when needed",
 }
 
 GOAL_QA_MISFIT_MESSAGE = "This looks like Normal"
@@ -125,7 +105,7 @@ def parse_mode_slash(message: str) -> AgentMode | None:
 
 
 def strip_mode_slash(message: str) -> str:
-    """Remove a leading ``/plan|/spec|/goal|/normal`` token.
+    """Remove a leading ``/plan|/goal|/normal`` token.
 
     Mode-only messages (``/plan`` with no task) return ``\"\"`` — never echo
     the mode token back as the objective (that produced junk plan.md).
@@ -157,19 +137,15 @@ def mode_only_ack(agent_mode: AgentMode | str) -> str:
         return "Normal mode on. Send your next message."
     if mode == "plan":
         return (
-            "Plan mode on — design only until you Build.\n\n"
+            "Plan mode on — clarify → research → plan.md → Build.\n\n"
             "Send the **real objective** next (what to plan). "
             "Do not send just `/plan` or `plan`."
         )
-    if mode == "spec":
-        return (
-            "Spec mode on — requirements → clarify → plan → skill gaps → Build.\n\n"
-            "Send the **real objective** next. Do not send just `/spec`."
-        )
     if mode == "goal":
         return (
-            "Goal mode on — verifiable outcome, not Q&A.\n\n"
-            "Send a ship/verify objective next. Pure questions fit Normal better."
+            "Goal mode on — execute now toward a verifiable outcome.\n\n"
+            "Send a ship/verify objective next. Risky actions still ask for "
+            "Approve / Deny / Suggest. Pure questions fit Normal better."
         )
     return (
         f"{label} mode on.\n\n"
@@ -232,8 +208,104 @@ def mode_system_extra(agent_mode: AgentMode | str) -> str:
 
 
 def requires_plan_approval(agent_mode: AgentMode | str) -> bool:
-    """Plan/Spec are design machines — Build/approve is required before act."""
-    return normalize_agent_mode(str(agent_mode)) in {"plan", "spec"}
+    """Plan is a design machine — Build/approve is required before acting."""
+    return normalize_agent_mode(str(agent_mode)) == "plan"
+
+
+def is_plan_build_prompt(text: str) -> bool:
+    """True for /build execute prompts (not plan-revise follow-ups)."""
+    t = (text or "").strip().lower()
+    return bool(t) and (
+        t in {"build", "/build"} or t.startswith("execute the approved plan")
+    )
+
+
+_FILE_CUES = (".py", ".ts", ".tsx", ".js", ".go", ".rs", "src/", "tests/", "`", "file ")
+_ACTION_CUES = (
+    "create ", "write ", "add ", "implement ", "fix ", "refactor ",
+    "build ", "make ", "ship ", "research ",
+)
+_AMBIGUOUS_CUES = (
+    " or ", "either ", "maybe ", "best way", "how should", "what should",
+    "which approach", "options", "architecture", "prefer ", "not sure",
+    "whatever", " somehow",
+)
+
+
+def plan_needs_clarify(text: str) -> bool:
+    """Pause when the objective is underspecified."""
+    q = (text or "").strip().lower()
+    if len(q) < 24:
+        return True
+    has_file = any(m in q for m in _FILE_CUES)
+    action = any(v in q for v in _ACTION_CUES)
+    if has_file and (action or len(q) >= 40):
+        return False
+    if any(c in q for c in _AMBIGUOUS_CUES) and not has_file:
+        return True
+    return not has_file and not action and len(q) < 120
+
+
+def plan_clarify_question(objective: str) -> str:
+    return (
+        "Before I draft the plan, one clarification:\n\n"
+        f"Objective: {(objective or '')[:600]}\n\n"
+        "What constraints or preferred approach should I lock in "
+        "(stack, scope, must-haves, or out-of-scope)? Reply with one short answer."
+    )
+
+
+def read_clarify_pending(workspace_root: Path) -> dict[str, str] | None:
+    path = workspace_root / CLARIFY_PENDING
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
+def write_clarify_pending(
+    workspace_root: Path, *, objective: str, question: str
+) -> None:
+    path = workspace_root / CLARIFY_PENDING
+    path.write_text(
+        json.dumps({"objective": objective, "question": question}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def clear_clarify_pending(workspace_root: Path) -> None:
+    try:
+        (workspace_root / CLARIFY_PENDING).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def fold_clarify_answer(objective: str, answer: str) -> str:
+    base = (objective or "").strip()
+    ans = (answer or "").strip()
+    if not ans:
+        return base
+    return f"{base}\n\nClarification from user: {ans}".strip()
+
+
+def is_plan_revise_turn(
+    workspace_root: Path,
+    agent_mode: AgentMode | str,
+    text: str,
+    *,
+    auto_build: bool = False,
+) -> bool:
+    """Follow-up while plan.md awaits Build (not /build itself)."""
+    return (
+        requires_plan_approval(agent_mode)
+        and not plan_already_approved(workspace_root)
+        and (workspace_root / "plan.md").is_file()
+        and not is_plan_build_prompt(text)
+        and not auto_build
+    )
 
 
 def is_informational_qa_prompt(text: str) -> bool:
@@ -255,6 +327,33 @@ def goal_qa_misfit(agent_mode: AgentMode | str, text: str) -> bool:
 
 def plan_already_approved(workspace_root: Path) -> bool:
     return (workspace_root / PLAN_APPROVED_FLAG).is_file()
+
+
+def plan_skill_match_text(workspace_root: Path, task: str = "") -> str:
+    """Skill-autoload query: prefer plan.md Objective/TL;DR when building.
+
+    Bare ``Execute the approved plan.`` has no research/desktop cues, so
+    matching against the saved objective avoids wrong skill routing on /build.
+    """
+    bits: list[str] = []
+    plan_path = workspace_root / "plan.md"
+    if plan_path.is_file():
+        try:
+            text = plan_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("**Objective:**"):
+                bits.append(stripped[len("**Objective:**") :].strip())
+            elif stripped.startswith("**TL;DR:**"):
+                bits.append(stripped[len("**TL;DR:**") :].strip())
+        if not bits and text.strip():
+            bits.append(text.strip()[:1500])
+    task_s = (task or "").strip()
+    if task_s and task_s not in bits:
+        bits.append(task_s)
+    return "\n".join(b for b in bits if b).strip()
 
 
 def mark_plan_approved(workspace_root: Path) -> None:
@@ -304,7 +403,7 @@ def render_plan_markdown(
         lines.extend([f"**Objective:** {task.strip()}", ""])
     brief = (tldr or summary or "").strip()
     if brief:
-        # Codex-style short checkpoint before the step list.
+        # Short checkpoint before the step list.
         one_line = " ".join(brief.split())
         if len(one_line) > 280:
             one_line = one_line[:277] + "…"
@@ -324,8 +423,8 @@ def render_plan_markdown(
         lines.extend(["", "## Explore notes", "", explore_notes.strip()[:2500]])
     lines.append("")
     lines.append(
-        "_Approve / Build to execute. Until then this session stays read-only "
-        "for project mutations._"
+        "_Approve / Build to execute, or reply with changes / Suggest to revise. "
+        "Until then this session stays read-only for project mutations._"
     )
     return "\n".join(lines) + "\n"
 
@@ -424,83 +523,6 @@ def render_skill_gaps_markdown(
         )
     lines.append("")
     return "\n".join(lines) + "\n"
-
-
-def write_spec_artifacts(
-    workspace_root: Path,
-    *,
-    task: str,
-    summary: str,
-    steps: list[Any],
-    milestones: list[str] | None = None,
-    explore_notes: str = "",
-    open_questions: list[str] | None = None,
-    matched_skills: list[Any] | None = None,
-    catalog_preview: str = "",
-) -> list[str]:
-    """Spec machine: requirements.md + plan.md + skill_gaps.md (phase-real)."""
-    written: list[str] = []
-    ms = [m for m in (milestones or []) if str(m).strip()]
-    questions = [q for q in (open_questions or []) if str(q).strip()]
-    if not questions:
-        # Prefer clarify-phase skip label over a forever stub.
-        from kageha.loop.spec_clarify import SKIP_CONTINUE_LABEL
-
-        questions = [SKIP_CONTINUE_LABEL]
-    req_lines = [
-        "# Requirements",
-        "",
-        "## Phase",
-        "requirements — Spec machine",
-        "",
-        "## Objective",
-        (task or "").strip() or "(unspecified)",
-        "",
-        "## Acceptance criteria",
-    ]
-    if ms:
-        req_lines.extend(f"- {m}" for m in ms)
-    else:
-        req_lines.append("- Deliverables match the objective and plan steps.")
-    req_lines.extend(["", "## Open questions"])
-    req_lines.extend(f"- {q}" for q in questions)
-    if (explore_notes or "").strip():
-        req_lines.extend(
-            ["", "## Explore notes", "", explore_notes.strip()[:2000], ""]
-        )
-    else:
-        req_lines.append("")
-    (workspace_root / "requirements.md").write_text(
-        "\n".join(req_lines), encoding="utf-8"
-    )
-    written.append("requirements.md")
-    write_plan_artifact(
-        workspace_root,
-        "spec",
-        summary=summary,
-        steps=steps,
-        task=task,
-        tldr=summary,
-        explore_notes=explore_notes,
-    )
-    written.append("plan.md")
-    gaps = render_skill_gaps_markdown(
-        task=task,
-        steps=steps,
-        matched=matched_skills,
-        catalog_preview=catalog_preview,
-    )
-    (workspace_root / "skill_gaps.md").write_text(gaps, encoding="utf-8")
-    written.append("skill_gaps.md")
-    return written
-
-
-def spec_artifacts_ready(workspace_root: Path) -> bool:
-    return all((workspace_root / name).is_file() for name in SPEC_ARTIFACTS)
-
-
-def missing_spec_artifacts(workspace_root: Path) -> list[str]:
-    return [n for n in SPEC_ARTIFACTS if not (workspace_root / n).is_file()]
 
 
 # Checklist lines written by render_plan_markdown / common edits.

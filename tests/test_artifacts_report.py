@@ -68,6 +68,26 @@ def test_highlight_new_this_turn(tmp_path, monkeypatch):
     assert "earlier" in text
 
 
+def test_humanize_awaiting_plan_approval(tmp_path):
+    (tmp_path / "plan.md").write_text(
+        "# Plan\n\n**TL;DR:** Research the two sites.\n\n## Steps\n- [ ] s1: look\n",
+        encoding="utf-8",
+    )
+    reply = humanize_turn_reply(
+        message="Plan ready — awaiting Build/Approve…",
+        status="awaiting_plan_approval",
+        user_line="/plan research sites",
+        new_artifacts=["plan.md", "explore_notes.md", "goal_card_prior.json"],
+        workspace_root=tmp_path,
+    )
+    assert "couldn't verify" not in reply.lower()
+    assert "Plan ready" in reply
+    assert "/build" in reply
+    assert "Partial files" not in reply
+    assert "Research the two sites" in reply
+    assert str((tmp_path / "plan.md").resolve()) in reply
+
+
 def test_humanize_stop_jargon(tmp_path):
     reply = humanize_turn_reply(
         message="Goals validated with evidence",
@@ -206,6 +226,42 @@ def test_compact_empty():
         "artifacts/bridges/whatsapp-baileys/node_modules/.bin/pino"
     )
     assert not is_user_artifact("artifacts/src/kageha/__pycache__/x.pyc")
+    # Mirrored package source must never count as a session deliverable.
+    assert not is_user_artifact("artifacts/src/kageha/loop/mode_policy.py")
+    assert not is_user_artifact("src/kageha/loop/mode_policy.py")
+    assert not is_user_artifact("tests/test_hitl.py")
+
+
+def test_mirror_skips_repo_source_trees(tmp_path, monkeypatch):
+    from kageha.loop.artifacts import should_mirror_to_session
+
+    monkeypatch.setenv("KAGEHA_HOME", str(tmp_path / "home"))
+    project = tmp_path / "proj"
+    src = project / "src" / "kageha" / "loop"
+    src.mkdir(parents=True)
+    (src / "mode_policy.py").write_text("x=1\n", encoding="utf-8")
+    deck = project / "artifacts" / "deck.pptx"
+    deck.parent.mkdir(parents=True)
+    deck.write_bytes(b"PK")
+    root_deck = project / "pitch.pptx"
+    root_deck.write_bytes(b"PK2")
+
+    assert not should_mirror_to_session("src/kageha/loop/mode_policy.py")
+    assert should_mirror_to_session("artifacts/deck.pptx")
+    assert should_mirror_to_session("pitch.pptx")
+
+    ws = SessionWorkspace.create("sess-no-src")
+    mirrored = mirror_deliverables_into_session(
+        ws,
+        source_root=project,
+        relative_paths={
+            "src/kageha/loop/mode_policy.py",
+            "artifacts/deck.pptx",
+            "pitch.pptx",
+        },
+    )
+    assert set(mirrored) == {"artifacts/deck.pptx", "artifacts/pitch.pptx"}
+    assert not ws.path("artifacts/src/kageha/loop/mode_policy.py").is_file()
 
 
 def test_mirror_skips_dependency_trees(tmp_path, monkeypatch):

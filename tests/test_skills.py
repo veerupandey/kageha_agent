@@ -4,14 +4,14 @@ from kageha.memory.skills import SkillRegistry
 
 def test_bundled_skills_discoverable():
     reg = SkillRegistry()
-    assert "getting_started" in reg.skills
-    assert "web_research" in reg.skills
-    assert "pdf_ingest" in reg.skills
-    assert "memory" in reg.skills
-    assert "make_diagram" in reg.skills
-    assert "make_presentation" in reg.skills
-    assert "make_infographic" in reg.skills
-    assert "make_social_carousel" in reg.skills
+    for name in (
+        "getting_started",
+        "web_research",
+        "web_browse",
+        "memory",
+        "computer_use",
+    ):
+        assert name in reg.skills
     catalog = reg.catalog()
     assert "web_research" in catalog
     assert "getting_started" in catalog

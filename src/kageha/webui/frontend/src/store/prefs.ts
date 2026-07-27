@@ -12,7 +12,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   showToolCards: true,
 };
 
-const AGENT_MODES: AgentMode[] = ["normal", "plan", "spec", "goal"];
+const AGENT_MODES: AgentMode[] = ["normal", "plan", "goal"];
 
 function isDensity(v: unknown): v is Density {
   return v === "comfortable" || v === "compact";

@@ -37,38 +37,11 @@ otel = [
   "opentelemetry-sdk>=1.25",
   "opentelemetry-exporter-otlp-proto-http>=1.25",
 ]
-channels = ["aiohttp>=3.9"]
-discord = ["discord.py>=2.3"]
-slack = ["slack-bolt>=1.18"]
-signal = []  # uses httpx + external signal-cli daemon
-matrix = []  # Client-Server sync via httpx
-"matrix-e2ee" = ["matrix-nio[e2e]>=0.25"]  # Olm/Megolm (needs libolm on host)
-email = []  # stdlib imaplib/smtplib; Gmail OAuth via connections extra
-imessage = ["aiohttp>=3.9"]  # BlueBubbles webhook (+ httpx send)
-irc = []  # asyncio TCP
-mattermost = []  # httpx REST
-teams = ["aiohttp>=3.9"]
 setup = ["textual>=0.80"]
 mcp = ["mcp>=1.6,<2"]
 sandbox = ["modal>=0.64"]
 server-ws = ["websockets>=12"]
-connections = [
-  "google-auth>=2.29",
-  "google-auth-oauthlib>=1.2",
-  "google-auth-httplib2>=0.2",
-]
-gmail = [
-  "google-auth>=2.29",
-  "google-auth-oauthlib>=1.2",
-  "google-auth-httplib2>=0.2",
-]
 all = [
-  "aiohttp>=3.9",
-  "discord.py>=2.3",
-  "google-auth>=2.29",
-  "google-auth-oauthlib>=1.2",
-  "google-auth-httplib2>=0.2",
-  "matrix-nio[e2e]>=0.25",
   "mcp>=1.6,<2",
   "modal>=0.64",
   "opentelemetry-api>=1.25",
@@ -78,9 +51,9 @@ all = [
   "playwright>=1.44",
   "pyautogui>=0.9",
   "pypdf>=4.0",
-  "slack-bolt>=1.18",
   "textual>=0.80",
   "vector-graph-rag>=0.2",
+  "websockets>=12",
   "zvec>=0.1",
 ]
 
@@ -106,20 +79,6 @@ core = "kageha.harness.tools.builtin:register"
 zvec = "kageha.knowledge.zvec_engine:ZvecEngine"
 vgrag = "kageha.knowledge.vgrag_engine:VgragEngine"
 
-[project.entry-points."kageha.channels"]
-telegram = "kageha.channels.telegram:TelegramChannel"
-whatsapp = "kageha.channels.whatsapp:WhatsAppChannel"
-whatsapp_qr = "kageha.channels.whatsapp_qr:WhatsAppQRChannel"
-discord = "kageha.channels.discord:DiscordChannel"
-slack = "kageha.channels.slack:SlackChannel"
-signal = "kageha.channels.signal:SignalChannel"
-matrix = "kageha.channels.matrix:MatrixChannel"
-email = "kageha.channels.email:EmailChannel"
-imessage = "kageha.channels.imessage:iMessageChannel"
-irc = "kageha.channels.irc:IRCChannel"
-mattermost = "kageha.channels.mattermost:MattermostChannel"
-teams = "kageha.channels.teams:TeamsChannel"
-
 [tool.uv]
 default-groups = ["dev"]
 package = true
@@ -144,7 +103,7 @@ select = ["E4", "E7", "E9", "F"]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"
 include = ["src/kageha"]
-exclude = ["bridges", "outputs"]
+exclude = ["outputs"]
 reportMissingTypeStubs = false
 reportUnknownMemberType = false
 reportUnknownArgumentType = false

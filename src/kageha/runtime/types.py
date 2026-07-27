@@ -105,9 +105,9 @@ class TurnRequest:
     metadata: dict[str, Any] = field(default_factory=dict)
     idempotency_key: str = ""
     # full = plan+verify+monitor
-    # followup|act = one-step plan, sparse gates (Codex-style default for chat)
+    # followup|act = one-step plan, sparse gates (default for chat)
     loop_mode: str = "full"
-    # normal|plan|spec|goal — policy layer over loop_mode (trimmed harness)
+    # normal|plan|goal — policy layer over loop_mode (trimmed harness)
     agent_mode: str = "normal"
 
 

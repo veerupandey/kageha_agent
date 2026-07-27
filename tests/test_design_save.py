@@ -115,12 +115,11 @@ def test_design_put_saves_plan_md(webui_app: WebUIApp):
     assert again["awaiting_build"] is True
 
 
-def test_design_put_allows_spec_artifacts(webui_app: WebUIApp):
-    sid = "design-save-spec"
+def test_design_put_allows_explore_notes(webui_app: WebUIApp):
+    sid = "design-save-explore"
     ws = SessionWorkspace.create(sid)
-    (ws.root / "requirements.md").write_text("# Requirements\n\nold\n", encoding="utf-8")
-    (ws.root / "plan.md").write_text("# Plan (spec)\n\nold\n", encoding="utf-8")
-    (ws.root / "skill_gaps.md").write_text("# Skill gaps\n\nold\n", encoding="utf-8")
+    (ws.root / "plan.md").write_text("# Plan (plan)\n\nold\n", encoding="utf-8")
+    (ws.root / "explore_notes.md").write_text("# Explore\n\nold\n", encoding="utf-8")
 
     status, payload = _call(
         webui_app,
@@ -128,15 +127,15 @@ def test_design_put_allows_spec_artifacts(webui_app: WebUIApp):
         f"/api/sessions/{sid}/design",
         body={
             "files": {
-                "requirements.md": "# Requirements\n\nnew req\n",
-                "skill_gaps.md": "# Skill gaps\n\nnew gaps\n",
+                "plan.md": "# Plan (plan)\n\nnew plan\n",
+                "explore_notes.md": "# Explore\n\nnew notes\n",
             }
         },
     )
     assert status == 200
-    assert set(payload["saved"]) == {"requirements.md", "skill_gaps.md"}
-    assert "new req" in (ws.root / "requirements.md").read_text(encoding="utf-8")
-    assert "new gaps" in (ws.root / "skill_gaps.md").read_text(encoding="utf-8")
+    assert set(payload["saved"]) == {"plan.md", "explore_notes.md"}
+    assert "new plan" in (ws.root / "plan.md").read_text(encoding="utf-8")
+    assert "new notes" in (ws.root / "explore_notes.md").read_text(encoding="utf-8")
 
 
 def test_design_put_rejects_non_allowlisted(webui_app: WebUIApp):
@@ -146,7 +145,7 @@ def test_design_put_rejects_non_allowlisted(webui_app: WebUIApp):
         webui_app,
         "PUT",
         f"/api/sessions/{sid}/design",
-        body={"file": "explore_notes.md", "content": "nope"},
+        body={"file": "requirements.md", "content": "nope"},
     )
     assert status == 400
     assert "not editable" in payload["error"]

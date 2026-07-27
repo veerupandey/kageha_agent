@@ -6,21 +6,14 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     id: "plan",
     label: "/plan",
     title: "Plan",
-    description: "Plan mode — design before acting",
-    kind: "mode",
-  },
-  {
-    id: "spec",
-    label: "/spec",
-    title: "Spec",
-    description: "Spec mode — detailed requirements",
+    description: "Plan — clarify, research, then Build",
     kind: "mode",
   },
   {
     id: "goal",
     label: "/goal",
     title: "Goal",
-    description: "Goal — verifiable outcome, not Q&A",
+    description: "Goal — execute now with HITL when needed",
     kind: "mode",
   },
   {
@@ -87,36 +80,6 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     label: "/permissions auto",
     description: "Auto-approve risky tools",
     kind: "prefs",
-  },
-  {
-    id: "labs",
-    label: "/labs",
-    description: "Open Project Labs",
-    kind: "labs",
-  },
-  {
-    id: "best-of-n",
-    label: "/best-of-n",
-    description: "Best-of-N · open stage workbench",
-    kind: "labs",
-  },
-  {
-    id: "review",
-    label: "/review",
-    description: "Review diff · open stage workbench",
-    kind: "labs",
-  },
-  {
-    id: "memory",
-    label: "/memory",
-    description: "Open memory search",
-    kind: "labs",
-  },
-  {
-    id: "artifacts",
-    label: "/artifacts",
-    description: "Open artifacts drawer",
-    kind: "labs",
   },
   {
     id: "attach",
@@ -257,6 +220,16 @@ function normalizeCommand(raw: unknown): SlashCommand | null {
 }
 
 /** Merge server catalog over hardcoded fallback (server wins on same id). */
+const LEAN_UI_EXCLUDED_IDS = new Set([
+  "labs",
+  "best-of-n",
+  "review",
+  "memory",
+  "artifacts",
+  "spec",
+  "workbench",
+]);
+
 export function mergeServerCatalog(
   serverCommands: unknown[] | null | undefined,
   fallback: SlashCommand[] = SLASH_COMMANDS,
@@ -268,8 +241,10 @@ export function mergeServerCatalog(
   for (const cmd of fallback) byId.set(cmd.id, cmd);
   for (const raw of serverCommands) {
     const cmd = normalizeCommand(raw);
-    if (cmd) byId.set(cmd.id, cmd);
+    if (!cmd || LEAN_UI_EXCLUDED_IDS.has(cmd.id) || cmd.kind === "labs") continue;
+    byId.set(cmd.id, cmd);
   }
+  for (const id of LEAN_UI_EXCLUDED_IDS) byId.delete(id);
   return [...byId.values()];
 }
 

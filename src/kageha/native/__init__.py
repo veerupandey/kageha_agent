@@ -4,8 +4,8 @@ Hot paths may load a compiled extension when present and when the
 ``native-index`` feature / ``KAGEHA_NATIVE_INDEX`` flag allows it. CI and
 default installs stay green with no Rust toolchain.
 
-See ``docs/WEBUI.md`` — ship a Rust crate only when warm ``@`` query p95
-exceeds the ~20ms budget on a large monorepo.
+Ship a Rust crate only when warm ``@`` query p95 exceeds ~20ms on a large
+monorepo. See ``docs/USAGE.md`` (WebUI) and ``scripts/bench_webui_hotpaths.py``.
 """
 
 from __future__ import annotations

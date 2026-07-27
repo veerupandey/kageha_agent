@@ -1,4 +1,4 @@
-"""Core vs optional tool-pack gating."""
+"""Core vs optional tool-pack gating (lean kernel)."""
 
 from __future__ import annotations
 
@@ -28,14 +28,18 @@ def _ctx(tmp_path: Path) -> HarnessContext:
     )
 
 
+def test_optional_packs_are_browser_and_computer_only():
+    assert OPTIONAL_PACK_NAMES == frozenset({"browser", "computer"})
+    assert "media" not in OPTIONAL_PACK_NAMES
+    assert "kb" not in OPTIONAL_PACK_NAMES
+    assert "pdf" not in OPTIONAL_PACK_NAMES
+
+
 def test_resolve_default_core_only(monkeypatch, tmp_path):
     monkeypatch.setenv("KAGEHA_HOME", str(tmp_path / "home"))
     monkeypatch.delenv("KAGEHA_TOOL_PACKS", raising=False)
     monkeypatch.setenv("KAGEHA_BROWSER_PACK", "0")
     monkeypatch.setenv("KAGEHA_COMPUTER", "0")
-    monkeypatch.setattr(
-        "kageha.harness.tools.computer_driver.driver_available", lambda: False
-    )
     enabled = resolve_enabled_packs(policy={})
     assert set(enabled) == CORE_PACK_NAMES
     assert "browser" not in enabled
@@ -44,39 +48,37 @@ def test_resolve_default_core_only(monkeypatch, tmp_path):
 
 def test_resolve_env_all(monkeypatch):
     monkeypatch.setenv("KAGEHA_TOOL_PACKS", "all")
+    monkeypatch.setenv("KAGEHA_COMPUTER", "0")
     enabled = resolve_enabled_packs(policy={"packs": ["browser"]})
     assert CORE_PACK_NAMES <= set(enabled)
-    assert OPTIONAL_PACK_NAMES <= set(enabled)
+    assert "browser" in enabled
+    assert "computer" not in enabled  # force-disabled
 
 
 def test_resolve_env_beats_yaml(monkeypatch, tmp_path):
     monkeypatch.setenv("KAGEHA_HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("KAGEHA_TOOL_PACKS", "media")
+    monkeypatch.setenv("KAGEHA_TOOL_PACKS", "computer")
     monkeypatch.setenv("KAGEHA_BROWSER_PACK", "0")
-    monkeypatch.setenv("KAGEHA_COMPUTER", "0")
-    monkeypatch.setattr(
-        "kageha.harness.tools.computer_driver.driver_available", lambda: False
-    )
-    enabled = resolve_enabled_packs(policy={"packs": ["browser", "pdf"]})
-    assert "media" in enabled
+    monkeypatch.delenv("KAGEHA_COMPUTER", raising=False)
+    enabled = resolve_enabled_packs(policy={"packs": ["browser"]})
+    assert "computer" in enabled
     assert "browser" not in enabled
 
 
 def test_resolve_yaml_packs(monkeypatch):
     monkeypatch.delenv("KAGEHA_TOOL_PACKS", raising=False)
     monkeypatch.setenv("KAGEHA_COMPUTER", "0")
-    monkeypatch.setattr(
-        "kageha.harness.tools.computer_driver.driver_available", lambda: False
-    )
-    enabled = resolve_enabled_packs(policy={"packs": ["browser", "kb"]})
+    enabled = resolve_enabled_packs(policy={"packs": ["browser", "kb", "media"]})
     assert "browser" in enabled
-    assert "kb" in enabled
+    # Unknown / removed packs are ignored.
+    assert "kb" not in enabled
     assert "media" not in enabled
 
 
-def test_auto_enable_computer_when_driver_present(monkeypatch):
+def test_driver_presence_does_not_auto_enable_computer(monkeypatch):
     monkeypatch.delenv("KAGEHA_TOOL_PACKS", raising=False)
     monkeypatch.delenv("KAGEHA_COMPUTER", raising=False)
+    monkeypatch.setenv("KAGEHA_BROWSER_PACK", "0")
     monkeypatch.setattr(
         "kageha.harness.tool_packs.platform.system", lambda: "Darwin"
     )
@@ -84,17 +86,11 @@ def test_auto_enable_computer_when_driver_present(monkeypatch):
         "kageha.harness.tools.computer_driver.driver_available", lambda: True
     )
     enabled = resolve_enabled_packs(policy={})
-    assert "computer" in enabled
+    assert "computer" not in enabled
 
 
-def test_opt_out_computer_auto_enable(monkeypatch):
+def test_opt_out_computer(monkeypatch):
     monkeypatch.setenv("KAGEHA_TOOL_PACKS", "browser,-computer")
-    monkeypatch.setattr(
-        "kageha.harness.tool_packs.platform.system", lambda: "Darwin"
-    )
-    monkeypatch.setattr(
-        "kageha.harness.tools.computer_driver.driver_available", lambda: True
-    )
     enabled = resolve_enabled_packs(policy={})
     assert "browser" in enabled
     assert "computer" not in enabled
@@ -105,9 +101,6 @@ def test_default_load_excludes_optional(tmp_path, monkeypatch):
     monkeypatch.delenv("KAGEHA_TOOL_PACKS", raising=False)
     monkeypatch.setenv("KAGEHA_BROWSER_PACK", "0")
     monkeypatch.setenv("KAGEHA_COMPUTER", "0")
-    monkeypatch.setattr(
-        "kageha.harness.tools.computer_driver.driver_available", lambda: False
-    )
     ctx = _ctx(tmp_path)
     reg = load_entry_point_tools(ctx)
     names = set(reg.names())
@@ -117,20 +110,16 @@ def test_default_load_excludes_optional(tmp_path, monkeypatch):
     assert "spawn_subagent" in names
     assert "mcp_list_servers" in names
     assert "browser_open" not in names
-    assert "pdf_extract" not in names
-    assert "gemini_generate_image" not in names
-    assert "kb_search" not in names
     assert ctx.meta.get("tool_packs_enabled")
     assert "browser" not in (ctx.meta.get("tool_packs_enabled") or [])
     assert summarize_packs(ctx.meta["tool_packs_enabled"])
 
 
-def test_opt_in_media_and_browser(tmp_path, monkeypatch):
+def test_opt_in_browser(tmp_path, monkeypatch):
     monkeypatch.setenv("KAGEHA_HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("KAGEHA_TOOL_PACKS", "media,browser")
+    monkeypatch.setenv("KAGEHA_TOOL_PACKS", "browser")
+    monkeypatch.setenv("KAGEHA_COMPUTER", "0")
     ctx = _ctx(tmp_path)
     reg = load_entry_point_tools(ctx)
     names = set(reg.names())
-    assert "gemini_generate_image" in names
     assert "browser_open" in names
-    assert "pdf_extract" not in names

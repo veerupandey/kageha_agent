@@ -1558,7 +1558,7 @@ body {
   background: var(--panel);
 }
 
-/* Anchor for Cursor-style floating / and @ pickers above the input. */
+/* Anchor for Floating / and @ pickers above the input. */
 .composer-stage {
   position: relative;
   z-index: 5;
@@ -1682,7 +1682,7 @@ body {
   min-width: 0;
 }
 
-/* Cursor-style: soft hover preview, strong is-active = keyboard/selected row */
+/* Soft hover preview, strong is-active = keyboard/selected row */
 .slash-picker-item:hover:not(.is-active),
 .at-picker-item:hover:not(.is-active) {
   background: rgba(201, 164, 92, 0.07);

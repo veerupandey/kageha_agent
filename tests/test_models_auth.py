@@ -303,10 +303,10 @@ def test_model_auth_setup_step_noninteractive(auth_home, monkeypatch, tmp_path):
     assert result["probe"]["cursor_oauth"] is False
 
 
-def test_setup_wizard_importable():
-    from kageha.setup_wizard import run_setup_wizard
+def test_models_setup_command_exists():
+    from kageha.cli import models_setup
 
-    assert callable(run_setup_wizard)
+    assert callable(models_setup)
 
 
 def test_cli_models_auth_help():

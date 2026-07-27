@@ -133,7 +133,7 @@ def register_skills_tools(ctx: "HarnessContext") -> ToolRegistry:
             )
         )
         if not ok:
-            return "DENIED: skill_run not approved"
+            return ctx.approvals.denial_message("skill_run")
         _activate(name)
         cmd = f"python {shlex.quote(str(resolved))}"
         if args.strip():
@@ -207,7 +207,7 @@ def register_skills_tools(ctx: "HarnessContext") -> ToolRegistry:
                 )
             )
             if not ok:
-                return "DENIED: skill_manage not approved"
+                return ctx.approvals.denial_message("skill_manage")
             return skills.manage(action, name, content, approved=True)
         if action in hard_mutators:
             unattended = (
@@ -230,7 +230,7 @@ def register_skills_tools(ctx: "HarnessContext") -> ToolRegistry:
                 )
             )
             if not ok:
-                return "DENIED: skill_manage not approved"
+                return ctx.approvals.denial_message("skill_manage")
             return skills.manage(action, name, content, approved=True)
         if action == "load":
             body = skills.load_body(name)
@@ -258,7 +258,7 @@ def register_skills_tools(ctx: "HarnessContext") -> ToolRegistry:
             )
         )
         if not ok:
-            return "DENIED: skill_install not approved"
+            return ctx.approvals.denial_message("skill_install")
         only_list = [x.strip() for x in only.split(",") if x.strip()] or None
         try:
             result = install_skills(spec, only=only_list, force=force, registry=skills)

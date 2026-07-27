@@ -1,53 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
-import type { DrawerName } from "./api/types";
-import { ArtifactsDrawer } from "./components/ArtifactsDrawer";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConnectionBanner } from "./components/ConnectionBanner";
 import { DropOverlay } from "./components/DropOverlay";
-import { JobsDrawer } from "./components/JobsDrawer";
-import { LabsDrawer } from "./components/LabsDrawer";
-import { MemoryDrawer } from "./components/MemoryDrawer";
 import { SessionsRail } from "./components/SessionsRail";
-import { SettingsDrawer } from "./components/SettingsDrawer";
 import { Stage } from "./components/Stage";
 import { Toasts } from "./components/Toasts";
 import { useAppStore } from "./store";
 import "./styles/legacy.css";
 import "./styles/react.css";
 
-const LAZY_DRAWERS: DrawerName[] = [
-  "artifacts",
-  "memory",
-  "jobs",
-  "labs",
-  "settings",
-];
-
 export default function App() {
   const boot = useAppStore((s) => s.boot);
-  const drawers = useAppStore((s) => s.drawers);
-  const closeDrawer = useAppStore((s) => s.closeDrawer);
   const addPendingFiles = useAppStore((s) => s.addPendingFiles);
   const setConnectionOnline = useAppStore((s) => s.setConnectionOnline);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [dropping, setDropping] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
-  const [mounted, setMounted] = useState<Partial<Record<DrawerName, boolean>>>(
-    {},
-  );
 
   useEffect(() => {
     boot().catch((err) => console.warn("boot failed", err));
   }, [boot]);
-
-  useEffect(() => {
-    for (const name of LAZY_DRAWERS) {
-      if (drawers[name]) {
-        setMounted((m) => (m[name] ? m : { ...m, [name]: true }));
-      }
-    }
-  }, [drawers]);
 
   useEffect(() => {
     const onOnline = () => setConnectionOnline(true);
@@ -64,20 +37,7 @@ export default function App() {
   const closeAllOverlays = useCallback(() => {
     setPaletteOpen(false);
     setSessionsOpen(false);
-    (
-      [
-        "design",
-        "artifacts",
-        "memory",
-        "jobs",
-        "labs",
-        "workbench",
-        "settings",
-      ] as const
-    ).forEach((name) => {
-      if (useAppStore.getState().drawers[name]) closeDrawer(name);
-    });
-  }, [closeDrawer]);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -154,13 +114,6 @@ export default function App() {
     };
   }, [addPendingFiles]);
 
-  const anyDrawerOpen =
-    drawers.artifacts ||
-    drawers.memory ||
-    drawers.jobs ||
-    drawers.labs ||
-    drawers.settings;
-
   return (
     <>
       <div className="atmosphere" aria-hidden="true" />
@@ -171,20 +124,14 @@ export default function App() {
           onClose={() => setSessionsOpen(false)}
         />
         <Stage
-          sessionsOpen={sessionsOpen}
           onToggleSessions={() => setSessionsOpen((v) => !v)}
         />
-        {mounted.artifacts ? <ArtifactsDrawer /> : null}
-        {mounted.memory ? <MemoryDrawer /> : null}
-        {mounted.jobs ? <JobsDrawer /> : null}
-        {mounted.labs ? <LabsDrawer /> : null}
-        {mounted.settings ? <SettingsDrawer /> : null}
       </div>
 
       <div
         className="backdrop"
         id="backdrop"
-        hidden={!anyDrawerOpen && !sessionsOpen}
+        hidden={!sessionsOpen}
         onClick={closeAllOverlays}
       />
 

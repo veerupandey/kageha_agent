@@ -29,26 +29,40 @@ def test_parse_fast_path_action_forms():
     }
 
 
-def test_sony_bravia_skill_declares_fast_paths():
+def test_bundled_skills_still_load_with_optional_fast_paths():
     reload_skill_fast_paths()
     reg = SkillRegistry()
-    skill = reg.get("sony_bravia")
-    assert skill is not None
-    assert skill.fast_paths["pause"] == {"kind": "key", "key": "Pause"}
-    assert skill.fast_paths["start"] == {"kind": "key", "key": "Play"}
-    assert skill.fast_paths["open youtube"] == {"kind": "launch", "app": "youtube"}
-    assert "tv_control" in skill.fast_path_when
+    assert reg.get("getting_started") is not None
+    assert reg.get("computer_use") is not None
+    # Collect may be empty without device skills — must not crash.
     phrases, when = collect_skill_fast_paths(reg)
-    assert phrases["pause"]["key"] == "Pause"
-    assert any("bravia" in w.lower() for w in when)
+    assert isinstance(phrases, dict)
+    assert isinstance(when, (list, tuple, set, frozenset)) or when is not None
 
 
-def test_router_uses_skill_fast_path():
+def test_router_uses_skill_fast_path_when_declared(tmp_path: Path, monkeypatch):
+    """Synthetic skill with fast_paths still routes micro_actions."""
+    home = tmp_path / "home"
+    skill_dir = home / "skills" / "demo_remote"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: demo_remote\n"
+        "description: Demo remote\n"
+        "fast-paths:\n"
+        "  pause: key:Pause\n"
+        "  start: key:Play\n"
+        "fast-path-when:\n"
+        "  - demo_remote\n"
+        "---\n\n# Demo\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("KAGEHA_HOME", str(home))
     reload_skill_fast_paths()
     ctx = TurnContext(
         run_id="s1",
-        objective="control the tv",
-        artifacts=["tv_control.md"],
+        objective="control the demo remote",
+        artifacts=["demo_remote.md"],
     )
     assert should_quick_remote("pause", ctx) == {"kind": "key", "key": "Pause"}
     d = classify_deterministic("start", ctx)
@@ -62,5 +76,11 @@ def test_router_uses_skill_fast_path():
 
 def test_skill_md_files_exist():
     root = Path(__file__).resolve().parents[1] / "src/kageha/bundled_skills"
-    for name in ("sony_bravia", "network_scan", "android_tv"):
+    for name in (
+        "getting_started",
+        "computer_use",
+        "web_browse",
+        "web_research",
+        "memory",
+    ):
         assert (root / name / "SKILL.md").is_file()

@@ -1,4 +1,4 @@
-"""Embedding config resolution and Gemini-first defaults."""
+"""Embedding config resolution (Azure-first when configured)."""
 
 from __future__ import annotations
 
@@ -15,18 +15,45 @@ def registry() -> ModelRegistry:
     return ModelRegistry.load(Path(__file__).resolve().parents[1] / "models.yaml")
 
 
-def test_models_yaml_defaults_to_gemini_embedding(registry: ModelRegistry) -> None:
-    assert registry.embedding.get("provider") == "gemini"
-    assert registry.embedding.get("model") == "gemini-embedding-001"
-    assert int(registry.embedding.get("dimensions") or 0) == 768
+def _clear_embedding_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in (
+        "GEMINI_API_KEY",
+        "OPENAI_API_KEY",
+        "SILICONFLOW_API_KEY",
+        "AZURE_OPENAI_API_KEY",
+        "KAGEHA_EMBEDDING_PROVIDER",
+        "KAGEHA_EMBEDDING_MODEL",
+        "KAGEHA_EMBEDDING_DIMENSIONS",
+    ):
+        monkeypatch.delenv(key, raising=False)
 
 
-def test_resolve_prefers_gemini_when_key_present(
+def test_models_yaml_defaults_to_azure_embedding(registry: ModelRegistry) -> None:
+    assert registry.embedding.get("provider") == "azure"
+    assert registry.embedding.get("model") == "text-embedding-3-large"
+    assert int(registry.embedding.get("dimensions") or 0) == 3072
+
+
+def test_resolve_prefers_azure_when_key_present(
     registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _clear_embedding_env(monkeypatch)
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "az-test")
+    cfg = resolve_embedding_config(registry)
+    assert cfg is not None
+    assert cfg.provider == "azure"
+    assert cfg.model == "text-embedding-3-large"
+    assert cfg.dimensions == 3072
+
+
+def test_resolve_prefers_gemini_when_preferred(
+    registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _clear_embedding_env(monkeypatch)
     monkeypatch.setenv("GEMINI_API_KEY", "g-test")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
+    monkeypatch.setenv("KAGEHA_EMBEDDING_PROVIDER", "gemini")
+    monkeypatch.setenv("KAGEHA_EMBEDDING_MODEL", "gemini-embedding-001")
+    monkeypatch.setenv("KAGEHA_EMBEDDING_DIMENSIONS", "768")
     cfg = resolve_embedding_config(registry)
     assert cfg is not None
     assert cfg.provider == "gemini"
@@ -37,9 +64,10 @@ def test_resolve_prefers_gemini_when_key_present(
 def test_resolve_falls_back_to_openai(
     registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    _clear_embedding_env(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "o-test")
-    monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
+    monkeypatch.setenv("KAGEHA_EMBEDDING_PROVIDER", "openai")
+    monkeypatch.setenv("KAGEHA_EMBEDDING_MODEL", "text-embedding-3-small")
     cfg = resolve_embedding_config(registry)
     assert cfg is not None
     assert cfg.provider == "openai"
@@ -49,10 +77,7 @@ def test_resolve_falls_back_to_openai(
 def test_resolve_none_without_keys(
     registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
-    monkeypatch.delenv("KAGEHA_EMBEDDING_MODEL", raising=False)
+    _clear_embedding_env(monkeypatch)
     assert resolve_embedding_config(registry) is None
     assert EmbeddingClient.from_registry(registry) is None
 
@@ -60,6 +85,7 @@ def test_resolve_none_without_keys(
 def test_env_model_override(
     registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _clear_embedding_env(monkeypatch)
     monkeypatch.setenv("GEMINI_API_KEY", "g-test")
     monkeypatch.setenv("KAGEHA_EMBEDDING_PROVIDER", "gemini")
     monkeypatch.setenv("KAGEHA_EMBEDDING_MODEL", "gemini-embedding-exp")

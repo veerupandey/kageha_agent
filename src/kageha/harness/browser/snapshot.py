@@ -1,6 +1,6 @@
 """Accessibility + interactive snapshots with stable eN refs.
 
-Primary path: Chromium Accessibility.getFullAXTree via CDP (Cursor-style).
+Primary path: Chromium Accessibility.getFullAXTree via CDP.
 Fallback: DOM query of interactive elements (legacy, still useful for plain HTML).
 """
 

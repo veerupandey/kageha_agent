@@ -29,7 +29,7 @@ def register_forge_tools(ctx: "HarnessContext") -> ToolRegistry:
                 )
             )
             if not ok:
-                return "DENIED: forge_tool not approved"
+                return ctx.approvals.denial_message("forge_tool")
         tools_dir = ctx.workspace.root / "forged"
         tools_dir.mkdir(exist_ok=True)
         path = tools_dir / f"{name}.py"

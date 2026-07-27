@@ -8,8 +8,7 @@ import sys
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from kageha.channels.whatsapp_setup import read_env_value
-from kageha.config import models_yaml_paths, tools_policy_paths
+from kageha.config import models_yaml_paths, read_env_value, tools_policy_paths
 from kageha.harness.shell_sandbox import sandbox_status, workspace_access
 from kageha.harness.tool_policy import load_tools_policy
 from kageha.models.registry import ModelRegistry

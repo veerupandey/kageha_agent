@@ -46,10 +46,8 @@ _MEDIA_EXTS = _IMAGE_EXTS | _VIDEO_EXTS
 _DESIGN_ARTIFACT_NAMES = frozenset(
     {"plan.md", "requirements.md", "skill_gaps.md", "explore_notes.md"}
 )
-# User-editable Design panel files (session workspace only; not project code).
-_DESIGN_EDITABLE_NAMES = frozenset(
-    {"plan.md", "requirements.md", "skill_gaps.md"}
-)
+# User-editable plan design files (session workspace only; not project code).
+_DESIGN_EDITABLE_NAMES = frozenset({"plan.md", "explore_notes.md"})
 _MAX_DESIGN_FILE_CHARS = 80_000
 
 _ARTIFACT_SKIP_DIRS = frozenset(
@@ -159,9 +157,8 @@ def _mode_slash_description(mode: str) -> str:
         return MODE_CHIP_DESCRIPTIONS.get(mode, f"{mode.capitalize()} mode")
     except Exception:  # noqa: BLE001
         fallback = {
-            "plan": "Plan mode — design before acting",
-            "spec": "Spec mode — detailed requirements",
-            "goal": "Goal — verifiable outcome, not Q&A",
+            "plan": "Plan — clarify, research, then Build",
+            "goal": "Goal — execute now with HITL when needed",
             "normal": "Normal mode — standard chat",
         }
         return fallback.get(mode, f"{mode.capitalize()} mode")
@@ -175,13 +172,6 @@ _WEBUI_SLASH_BASE: tuple[dict[str, str], ...] = (
         "description": _mode_slash_description("plan"),
         "kind": "mode",
         "title": "Plan",
-    },
-    {
-        "id": "spec",
-        "label": "/spec",
-        "description": _mode_slash_description("spec"),
-        "kind": "mode",
-        "title": "Spec",
     },
     {
         "id": "goal",
@@ -255,36 +245,6 @@ _WEBUI_SLASH_BASE: tuple[dict[str, str], ...] = (
         "label": "/permissions auto",
         "description": "Auto-approve risky tools",
         "kind": "prefs",
-    },
-    {
-        "id": "labs",
-        "label": "/labs",
-        "description": "Open Project Labs",
-        "kind": "labs",
-    },
-    {
-        "id": "best-of-n",
-        "label": "/best-of-n",
-        "description": "Best-of-N · open Labs form",
-        "kind": "labs",
-    },
-    {
-        "id": "review",
-        "label": "/review",
-        "description": "Review diff · open Labs form",
-        "kind": "labs",
-    },
-    {
-        "id": "memory",
-        "label": "/memory",
-        "description": "Open memory search",
-        "kind": "labs",
-    },
-    {
-        "id": "artifacts",
-        "label": "/artifacts",
-        "description": "Open artifacts drawer",
-        "kind": "labs",
     },
     {
         "id": "attach",
@@ -425,27 +385,7 @@ def _webui_slash_catalog(*, project_root: str | None = None) -> dict[str, Any]:
     )
     commands.extend(dict(c) for c in _WEBUI_SLASH_COMPUTER)
 
-    project_cmds: list[str] = []
-    try:
-        from kageha.project.brain import load_project_brain
-
-        brain = load_project_brain(project_root or Path.cwd())
-        if brain and brain.command_names:
-            project_cmds = list(brain.command_names)
-            for name in project_cmds:
-                safe = re.sub(r"[^\w.\-]+", "-", str(name).strip()).strip("-") or "cmd"
-                commands.append(
-                    {
-                        "id": f"cmd-{safe}",
-                        "label": f"/cmd {name}",
-                        "description": f"Project recipe · {name}",
-                        "kind": "project",
-                    }
-                )
-    except Exception as exc:  # noqa: BLE001 — optional enrichment
-        print(f"[kageha-webui] slash-catalog project cmds failed: {exc}")
-
-    # Explicit skill invocations (/make_reel, /skill name) — Cursor/Codex parity.
+    # Explicit skill invocations (/skill-name).
     try:
         from kageha.memory.skills import SkillRegistry
 
@@ -474,17 +414,13 @@ def _webui_slash_catalog(*, project_root: str | None = None) -> dict[str, Any]:
         "computer": True,
         "models": True,
         "permissions": True,  # aliased to ask/auto in WebUI
-        "cmd": bool(project_cmds),
         "memory": True,
-        "labs": True,
-        "artifacts": True,
         "skills": True,
     }
     return {
         "ok": True,
         "commands": commands,
         "capabilities": capabilities,
-        "project_commands": project_cmds,
     }
 
 
@@ -1578,10 +1514,7 @@ class WebUIApp:
                     "media_exts": sorted(_MEDIA_EXTS),
                     "project_root": project_root,
                     "features": {
-                        "review": True,
-                        "best_of_n": True,
-                        "babysit": True,
-                        "cloud_jobs": True,
+                        "jobs": True,
                         "worktrees": True,
                         "project_brain": True,
                         "hooks": True,
@@ -1642,7 +1575,7 @@ class WebUIApp:
                 raise ValueError("invalid session_id")
             # Stable thread binding: reopen uses the same id (or session.json).
             thread_id = str(payload.get("thread_id") or f"web-{session_id}")
-            started = self.rpc("thread/start", {"thread_id": thread_id})
+            self.rpc("thread/start", {"thread_id": thread_id})
             self._session_workspace(session_id)
             self._persist_thread_binding(session_id, thread_id)
             self.server.threads[thread_id] = {
@@ -1865,6 +1798,7 @@ class WebUIApp:
                     {
                         "approval_id": approval_id,
                         "approved": bool(payload.get("approved", False)),
+                        "feedback": str(payload.get("feedback") or "").strip(),
                     },
                 )
             )
@@ -1874,40 +1808,8 @@ class WebUIApp:
             user_title_source = str(
                 payload.get("message") or payload.get("task") or ""
             ).strip()
-            # Native slash: /browser · /research · /computer · /cmd (no agent loop)
+            # Native slash: /browser · /research · /computer (no agent loop)
             low_msg = user_title_source.lower()
-            if (
-                low_msg.startswith("/cmd ")
-                or low_msg.startswith("/project:")
-            ):
-                from kageha.chat.project_commands import handle_project_command
-
-                handled, message = handle_project_command(
-                    user_title_source,
-                    project_root=self._default_project_root(payload),
-                )
-                if handled:
-                    # Expand recipe into a real turn when we got prompt body.
-                    if message and not message.startswith("Unknown project command"):
-                        payload = dict(payload)
-                        payload["message"] = message
-                        user_title_source = message
-                    else:
-                        return _json_bytes(
-                            {
-                                "thread_id": str(
-                                    payload.get("thread_id") or "web-default"
-                                ),
-                                "session_id": payload.get("session_id"),
-                                "run_id": payload.get("session_id"),
-                                "status": "ok",
-                                "message": message,
-                                "artifacts": [],
-                                "attachments": [],
-                                "loop_mode": "quick",
-                                "quick": True,
-                            }
-                        )
             if (
                 low_msg == "/browser"
                 or low_msg.startswith("/browser ")
@@ -1985,40 +1887,6 @@ class WebUIApp:
         if method == "GET" and path == "/api/memory/list":
             return _json_bytes(self._memory_list(query))
 
-        if method == "POST" and path == "/api/review":
-            payload = self._json_body(body)
-            result = self.rpc(
-                "project/review",
-                {
-                    "project_root": str(
-                        payload.get("project_root") or Path.cwd()
-                    ),
-                    "base": str(payload.get("base") or "main"),
-                    "head": str(payload.get("head") or "HEAD"),
-                    "promote_rules": bool(payload.get("promote_rules")),
-                    "auto_approve": bool(payload.get("auto_approve", True)),
-                },
-            )
-            return _json_bytes(result)
-
-        if method == "POST" and path == "/api/babysit":
-            payload = self._json_body(body)
-            pr = str(payload.get("pr") or "").strip()
-            if not pr:
-                raise ValueError("pr required")
-            result = self.rpc(
-                "project/babysit",
-                {
-                    "pr": pr,
-                    "project_root": str(
-                        payload.get("project_root") or Path.cwd()
-                    ),
-                    "max_rounds": int(payload.get("max_rounds") or 3),
-                    "auto_approve": bool(payload.get("auto_approve", True)),
-                },
-            )
-            return _json_bytes(result)
-
         if method == "GET" and path == "/api/worktrees":
             from kageha.project.worktree import list_worktrees
 
@@ -2077,7 +1945,7 @@ class WebUIApp:
                 }
             )
 
-        # Cursor-like @ file search (WS1). UI wiring lives in the React frontend.
+        # @ file search. UI wiring lives in the React frontend.
         if method == "GET" and path == "/api/project/files":
             from kageha.project.file_index import get_file_index
 
@@ -2101,35 +1969,9 @@ class WebUIApp:
                 }
             )
 
-        if method == "POST" and path == "/api/best-of-n":
-            payload = self._json_body(body)
-            objective = str(payload.get("objective") or payload.get("message") or "").strip()
-            if not objective:
-                raise ValueError("objective required")
-            result = self.rpc(
-                "project/best_of_n",
-                {
-                    "objective": objective,
-                    "project_root": str(
-                        payload.get("project_root") or Path.cwd()
-                    ),
-                    "n": int(payload.get("n") or 2),
-                    "max_steps": int(payload.get("max_steps") or 24),
-                    "auto_approve": bool(payload.get("auto_approve", True)),
-                    "keep_losers": bool(payload.get("keep_losers")),
-                },
-            )
-            return _json_bytes(result)
-
-        if method == "POST" and path == "/api/best-of-n/stream":
-            return _error(
-                "use streaming HTTP handler for /api/best-of-n/stream",
-                status=405,
-            )
-
         if method == "GET" and path == "/api/jobs":
             result = self.rpc(
-                "cloud/list",
+                "jobs/list",
                 {
                     "limit": self._qi(query, "limit", 40),
                     "status": self._q(query, "status"),
@@ -2143,7 +1985,7 @@ class WebUIApp:
             if not objective:
                 raise ValueError("objective required")
             result = self.rpc(
-                "cloud/run",
+                "jobs/run",
                 {
                     "objective": objective,
                     "project_root": str(
@@ -2160,7 +2002,7 @@ class WebUIApp:
         if method == "POST" and m_job_cancel:
             job_id = m_job_cancel.group(1)
             try:
-                result = self.rpc("cloud/cancel", {"job_id": job_id})
+                result = self.rpc("jobs/cancel", {"job_id": job_id})
             except RpcError as exc:
                 if str(exc.detail.get("error_type") or "") == "FileNotFoundError":
                     raise KeyError(f"job not found: {job_id}") from exc
@@ -2171,7 +2013,7 @@ class WebUIApp:
         if method == "GET" and m_job_attach:
             job_id = m_job_attach.group(1)
             try:
-                result = self.rpc("cloud/attach", {"job_id": job_id})
+                result = self.rpc("jobs/attach", {"job_id": job_id})
             except RpcError as exc:
                 if str(exc.detail.get("error_type") or "") == "FileNotFoundError":
                     raise KeyError(f"job not found: {job_id}") from exc
@@ -2213,7 +2055,7 @@ class WebUIApp:
         if method == "GET" and m_job:
             job_id = m_job.group(1)
             try:
-                result = self.rpc("cloud/status", {"job_id": job_id})
+                result = self.rpc("jobs/status", {"job_id": job_id})
             except RpcError as exc:
                 if str(exc.detail.get("error_type") or "") == "FileNotFoundError":
                     raise KeyError(f"job not found: {job_id}") from exc
@@ -2438,8 +2280,8 @@ class WebUIApp:
             state["_prev_turn_id"] = prev_turn
         state["turn_id"] = ""
 
-        # Default to chat-speed followup. Deep modes (plan/spec/goal) use full loop.
-        # Slash prefixes (/plan|/spec|/goal) win over payload agent_mode.
+        # Default to chat-speed followup. Deep modes (plan/goal) use full loop.
+        # Slash prefixes (/plan|/goal) win over payload agent_mode.
         from kageha.loop.mode_policy import (
             loop_mode_for,
             normalize_agent_mode,
@@ -2834,78 +2676,6 @@ class WebUIApp:
         )
         emit("done", done)
 
-    def stream_best_of_n(
-        self,
-        body: bytes,
-        emit: Callable[[str, dict[str, Any]], None],
-        *,
-        poll_interval: float = 0.12,
-    ) -> None:
-        """Run best-of-N with progressive SSE frames (started/attempt_*/done)."""
-        from kageha.project.best_of_n import run_best_of_n
-
-        try:
-            payload = self._json_body(body)
-            objective = str(
-                payload.get("objective") or payload.get("message") or ""
-            ).strip()
-            if not objective:
-                raise ValueError("objective required")
-            n = max(2, min(int(payload.get("n") or 2), 5))
-            project_root = str(
-                payload.get("project_root") or self.project_root or Path.cwd()
-            )
-        except ValueError as exc:
-            emit("error", {"error": str(exc)})
-            return
-        except Exception as exc:  # noqa: BLE001
-            emit("error", {"error": f"{type(exc).__name__}: {exc}"})
-            return
-
-        emit("status", {"phase": "starting", "label": f"Best-of-{n}…", "n": n})
-        queue: list[dict[str, Any]] = []
-        lock = threading.Lock()
-
-        def on_progress(event: dict[str, Any]) -> None:
-            with lock:
-                queue.append(dict(event or {}))
-
-        future = asyncio.run_coroutine_threadsafe(
-            run_best_of_n(
-                objective=objective,
-                project_root=project_root,
-                n=n,
-                max_steps=int(payload.get("max_steps") or 24),
-                auto_approve=bool(payload.get("auto_approve", True)),
-                keep_losers=bool(payload.get("keep_losers")),
-                base_ref=str(payload.get("base") or "HEAD"),
-                on_progress=on_progress,
-            ),
-            self._loop,
-        )
-        try:
-            while not future.done():
-                with lock:
-                    batch = queue[:]
-                    queue.clear()
-                for item in batch:
-                    name = str(item.get("event") or "progress")
-                    emit(name, item)
-                time.sleep(max(0.05, float(poll_interval)))
-            result = future.result(timeout=5)
-        except Exception as exc:  # noqa: BLE001
-            emit("error", {"error": f"{type(exc).__name__}: {exc}"})
-            return
-
-        with lock:
-            batch = queue[:]
-            queue.clear()
-        for item in batch:
-            name = str(item.get("event") or "progress")
-            emit(name, item)
-        payload_done = result.to_dict() if hasattr(result, "to_dict") else result
-        emit("done", payload_done if isinstance(payload_done, dict) else {"result": payload_done})
-
     def _session_workspace(self, session_id: str):
         from kageha.harness.sandbox import SessionWorkspace
 
@@ -3009,16 +2779,11 @@ class WebUIApp:
         return parse_todo_file(root / "todo.md", label="todos")
 
     def _session_design_payload(self, session_id: str) -> dict[str, Any]:
-        """Plan/Spec design artifacts for the WebUI Design panel."""
+        """Plan design artifacts for the session (plan.md + explore notes)."""
         ws = self._session_workspace(session_id)
         root = ws.root
         files: dict[str, str] = {}
-        for name in (
-            "plan.md",
-            "requirements.md",
-            "skill_gaps.md",
-            "explore_notes.md",
-        ):
+        for name in ("plan.md", "explore_notes.md"):
             path = root / name
             if path.is_file():
                 try:
@@ -3027,18 +2792,9 @@ class WebUIApp:
                     ]
                 except OSError:
                     continue
-        agent_mode = "plan"
-        if "requirements.md" in files or "skill_gaps.md" in files:
-            agent_mode = "spec"
-        elif "plan.md" in files:
-            agent_mode = "plan"
+        agent_mode = "plan" if "plan.md" in files else "normal"
         approved = (root / "plan_approved.flag").is_file()
-        if agent_mode == "spec":
-            from kageha.loop.spec_clarify import SPEC_DESIGN_PHASES
-
-            phases = list(SPEC_DESIGN_PHASES)
-        else:
-            phases = ["explore", "plan", "build"]
+        phases = ["explore", "plan", "build"]
         thread_id = str(
             self._load_thread_binding(session_id) or f"web-{session_id}"
         )
@@ -3047,15 +2803,6 @@ class WebUIApp:
         )
         # Sticky Build whenever design artifacts exist and are not approved.
         awaiting_build = bool(files) and not approved
-        awaiting_clarify = False
-        if isinstance(pending, dict):
-            awaiting_clarify = (
-                str(pending.get("risk_class") or "") == "clarify"
-                or str(pending.get("action") or "") == "spec_clarify"
-            )
-        if awaiting_clarify:
-            # Clarify pauses before plan.md — Build foot stays hidden.
-            awaiting_build = False
         explore_status: dict[str, Any] = {}
         status_path = root / "explore_status.json"
         if status_path.is_file():
@@ -3076,20 +2823,6 @@ class WebUIApp:
                     }
             except (OSError, ValueError, TypeError):
                 explore_status = {}
-        clarify_status: dict[str, Any] | None = None
-        clarify_path = root / "clarify_status.json"
-        if clarify_path.is_file():
-            try:
-                raw_c = json.loads(
-                    clarify_path.read_text(encoding="utf-8", errors="replace")
-                )
-                if isinstance(raw_c, dict):
-                    clarify_status = {
-                        "status": str(raw_c.get("status") or ""),
-                        "message": str(raw_c.get("message") or "")[:400],
-                    }
-            except (OSError, ValueError, TypeError):
-                clarify_status = None
         return {
             "session_id": session_id,
             "agent_mode": agent_mode,
@@ -3098,21 +2831,23 @@ class WebUIApp:
             "editable": sorted(_DESIGN_EDITABLE_NAMES),
             "approved": approved,
             "awaiting_build": awaiting_build,
-            "awaiting_clarify": awaiting_clarify,
+            "awaiting_clarify": bool(
+                (root / "clarify_pending.json").is_file()
+            ),
             "pending_approval": pending if isinstance(pending, dict) else None,
             "explore_status": explore_status or None,
             "explore_degraded": bool(
                 explore_status.get("degraded") if explore_status else False
             ),
-            "clarify_status": clarify_status,
+            "clarify_status": None,
         }
 
     def _save_session_design(
         self, session_id: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        """Persist allowlisted Design panel markdown into the session workspace.
+        """Persist allowlisted plan design markdown into the session workspace.
 
-        Writes only session artifacts (plan.md / requirements.md / skill_gaps.md).
+        Writes only session artifacts (plan.md / explore_notes.md).
         Does not touch the project root. Locked after Build (plan_approved.flag).
         """
         ws = self._session_workspace(session_id)
@@ -3756,9 +3491,6 @@ def make_handler(app: WebUIApp):
             if self.command == "POST" and parsed.path == "/api/chat/stream":
                 self._stream_chat(body)
                 return
-            if self.command == "POST" and parsed.path == "/api/best-of-n/stream":
-                self._stream_best_of_n(body)
-                return
             hdrs = {k: v for k, v in self.headers.items()}
             result = app.handle(
                 self.command,
@@ -3813,33 +3545,6 @@ def make_handler(app: WebUIApp):
 
             try:
                 app.stream_chat(body, emit)
-            except Exception as exc:  # noqa: BLE001
-                emit("error", {"error": f"{type(exc).__name__}: {exc}"})
-
-        def _stream_best_of_n(self, body: bytes) -> None:
-            self.close_connection = True
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-            self.send_header("Cache-Control", "no-cache, no-store")
-            self.send_header("Connection", "close")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("X-Accel-Buffering", "no")
-            self.end_headers()
-
-            closed = False
-
-            def emit(event: str, data: dict[str, Any]) -> None:
-                nonlocal closed
-                if closed:
-                    return
-                try:
-                    self.wfile.write(_sse_bytes(event, data))
-                    self.wfile.flush()
-                except (BrokenPipeError, ConnectionResetError, OSError):
-                    closed = True
-
-            try:
-                app.stream_best_of_n(body, emit)
             except Exception as exc:  # noqa: BLE001
                 emit("error", {"error": f"{type(exc).__name__}: {exc}"})
 
@@ -3903,7 +3608,6 @@ def serve_webui(
     print(
         "API: /api/sessions  /api/chat  /api/chat/stream"
         "  /api/sessions/{id}/events  /api/approvals"
-        "  /api/best-of-n[/stream]"
         "  /api/jobs[/{id}|/{id}/attach|/{id}/cancel]"
     )
     print(

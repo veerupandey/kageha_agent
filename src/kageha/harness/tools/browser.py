@@ -1,9 +1,9 @@
-"""Interactive Playwright browser tools (optional extra) — Cursor-class control.
+"""Interactive Playwright browser tools (optional extra).
 
 Backends:
   - headless (default): fresh Chromium, no cookies/login
   - comet/cdp: attach to running Comet/Chrome via CDP (uses your login)
-  - docker: Chromium in a hardened container with CDP (OpenClaw-style)
+  - docker: Chromium in a hardened container with CDP
 
 Env:
   KAGEHA_BROWSER_MODE=headless|comet|cdp|docker

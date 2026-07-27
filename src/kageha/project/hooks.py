@@ -136,7 +136,7 @@ def _load_hooks_file(path: Path) -> list[HookSpec]:
         return []
     items: list[Any]
     if isinstance(raw, dict):
-        # Cursor-style: {"hooks": {"preToolUse": [...]}} or flat list under "hooks"
+        # Shape: {"hooks": {"preToolUse": [...]}} or flat list under "hooks"
         nested = raw.get("hooks")
         if isinstance(nested, dict):
             items = []

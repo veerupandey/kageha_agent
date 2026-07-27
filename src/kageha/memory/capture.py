@@ -293,7 +293,7 @@ class MemoryCaptureMixin:
                 source_role="verifier",
             )
 
-        # Claude/Codex-style LLM extract (union with regex). Bounded so the
+        # LLM extract (union with regex). Bounded so the
         # capture worker never stalls the job queue on model latency.
         try:
             from kageha.memory.extract import extract_memories_llm, llm_extract_enabled

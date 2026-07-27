@@ -1,8 +1,8 @@
 """High-performance browser control for Kageha agents.
 
-Design goals (beat Cursor / Claude Code / Codex / Perplexity browsing):
+Design goals:
   1. Tiered I/O — web_fetch (HTTP) before launching Chromium.
-  2. AX-tree snapshots with stable refs (Cursor-class).
+  2. AX-tree snapshots with stable refs.
   3. Persistent multi-tab session + lock (no cold relaunch per step).
   4. Cheap act loop — snapshot without mandatory screenshots.
   5. Escape hatches — JS evaluate + raw CDP.

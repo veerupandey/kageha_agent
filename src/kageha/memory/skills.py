@@ -28,21 +28,9 @@ EMBED_BOOST_FLOOR = 0.30
 TRIGGER_PHRASE_SCORE = 4.0
 TRIGGER_MULTIWORD_BONUS = 2.0
 
-# Mutually exclusive skill families (Codex-style routing): first winner blocks siblings.
+# Mutually exclusive skill families: first winner blocks siblings.
 EXCLUSIVE_SKILL_GROUPS: tuple[frozenset[str], ...] = (
     frozenset({"computer_use", "web_browse", "web_research"}),
-    frozenset(
-        {
-            "make_reel",
-            "make_social_carousel",
-            "make_brand_carousel",
-            "make_presentation",
-            "make_infographic",
-            "make_diagram",
-            "generate_image_gemini",
-            "generate_media",
-        }
-    ),
 )
 
 # Intent cues for research (HTTP research_run) vs interactive browse (CDP).
@@ -80,6 +68,27 @@ _BROWSE_CUES: tuple[str, ...] = (
     "click through",
 )
 
+# Explicit opt-outs — do not autoload computer_use when the user rejects it.
+_COMPUTER_NEGATION_CUES: tuple[str, ...] = (
+    "do not need computer",
+    "don't need computer",
+    "dont need computer",
+    "without computer",
+    "no computer use",
+    "not computer use",
+    "skip computer",
+    "don't use computer",
+    "do not use computer",
+)
+
+
+def _whole_word_in(haystack: str, needle: str) -> bool:
+    """True when ``needle`` appears as a whole token (not inside useful/callback)."""
+    n = (needle or "").strip().lower()
+    if not n or not haystack:
+        return False
+    return re.search(rf"(?<![a-z0-9_]){re.escape(n)}(?![a-z0-9_])", haystack) is not None
+
 
 @dataclass
 class AutoLoadResult:
@@ -107,7 +116,7 @@ class Skill:
     fast_path_when: list[str] = field(default_factory=list)
     # Intent phrases for automatic L1/L2 matching (declarative, per-skill).
     triggers: list[str] = field(default_factory=list)
-    # Cursor-style path globs — implicit match only when path_hints intersect.
+    # Path globs — implicit match only when path_hints intersect.
     paths: list[str] = field(default_factory=list)
     # When True, skip implicit autoload (explicit /skill or $skill only).
     disable_model_invocation: bool = False
@@ -252,7 +261,7 @@ def _parse_paths(raw: Any) -> list[str]:
 
 
 def _parse_disable_model_invocation(meta: dict[str, Any]) -> bool:
-    """Cursor ``disable-model-invocation`` + Codex ``allow_implicit_invocation: false``."""
+    """``disable-model-invocation`` / ``allow_implicit_invocation: false``."""
     if bool(meta.get("disable-model-invocation") or meta.get("disable_model_invocation")):
         return True
     if meta.get("allow_implicit_invocation") is False:
@@ -269,7 +278,6 @@ def _parse_disable_model_invocation(meta: dict[str, Any]) -> bool:
 _RESERVED_SLASH_TOKENS = frozenset(
     {
         "plan",
-        "spec",
         "goal",
         "normal",
         "multitask",
@@ -289,8 +297,6 @@ _RESERVED_SLASH_TOKENS = frozenset(
         "artifacts",
         "jobs",
         "workbench",
-        "best-of-n",
-        "best_of_n",
         "skill",
         "skills",
         "help",
@@ -456,7 +462,11 @@ def autoload_min_score() -> float:
 
 
 def _trigger_score(triggers: list[str], query_lower: str) -> float:
-    """Score declarative trigger phrases against the task text."""
+    """Score declarative trigger phrases against the task text.
+
+    Matches use whole-word boundaries so ``call`` ≠ ``callback`` and
+    skill-name token ``use`` ≠ ``useful``.
+    """
     if not triggers or not query_lower:
         return 0.0
     score = 0.0
@@ -465,7 +475,9 @@ def _trigger_score(triggers: list[str], query_lower: str) -> float:
         p = (phrase or "").strip().lower()
         if not p or p in hit_phrases:
             continue
-        if p in query_lower:
+        if _whole_word_in(query_lower, p) or (
+            (" " in p or "-" in p) and p in query_lower
+        ):
             hit_phrases.add(p)
             score += TRIGGER_PHRASE_SCORE
             if " " in p or "-" in p:
@@ -473,7 +485,7 @@ def _trigger_score(triggers: list[str], query_lower: str) -> float:
             continue
         # Multi-token soft hit: all significant tokens present (order-free).
         parts = [t for t in re.findall(r"[a-z0-9_]+", p) if len(t) > 2]
-        if len(parts) >= 2 and all(t in query_lower for t in parts):
+        if len(parts) >= 2 and all(_whole_word_in(query_lower, t) for t in parts):
             hit_phrases.add(p)
             score += TRIGGER_PHRASE_SCORE * 0.75
     return score
@@ -661,45 +673,25 @@ class SkillRegistry:
         for skill in self.skills.values():
             blob = f"{skill.name} {skill.description}".lower()
             score = float(sum(1 for t in tokens if t in blob))
-            if skill.name.lower() in q:
+            if skill.name.lower() in q or skill.name.lower().replace("_", "-") in q:
                 score += 5
+            # Whole-word name tokens only — "use" must not match "useful".
             for word in skill.name.lower().replace("-", "_").split("_"):
-                if len(word) > 2 and word in q:
+                if len(word) > 2 and _whole_word_in(q, word):
                     score += 2
             score += _trigger_score(skill.triggers, q)
             score += _research_browse_adjustment(skill.name, q)
-            # Prefer Bravia IP control over adb for consumer Sony TV tasks.
-            if skill.name == "sony_bravia" and any(
-                k in q
-                for k in ("tv", "bravia", "sonyliv", "sony liv", "volume", "remote")
-            ):
-                score += 6
-            if skill.name == "android_tv" and "adb" not in q and "bravia" in q:
-                score = max(0.0, score - 2)
-            # LAN discovery questions.
-            if skill.name == "network_scan" and any(
-                k in q
-                for k in (
-                    "network",
-                    "wifi",
-                    "wi-fi",
-                    "lan",
-                    "scan",
-                    "discover",
-                    "available",
-                    "subnet",
-                    "devices on",
-                )
-            ):
-                score += 7
-            # Native macOS desktop computer-use (Codex-class).
+            computer_negated = skill.name == "computer_use" and any(
+                cue in q for cue in _COMPUTER_NEGATION_CUES
+            )
+            # Native macOS desktop computer-use.
             try:
                 from kageha.harness.tools.computer_ready import task_wants_computer
 
                 desktop_intent = task_wants_computer(q)
             except Exception:  # noqa: BLE001
                 desktop_intent = False
-            if skill.name == "computer_use" and (
+            if skill.name == "computer_use" and not computer_negated and (
                 desktop_intent
                 or any(
                     k in q
@@ -724,8 +716,12 @@ class SkillRegistry:
                 )
             ):
                 score += 12
+            if computer_negated:
+                score = 0.0
             # Prefer computer_use over web_browse for desktop apps (no URL).
-            if skill.name == "web_browse" and desktop_intent:
+            if skill.name == "web_browse" and desktop_intent and not any(
+                cue in q for cue in _COMPUTER_NEGATION_CUES
+            ):
                 score = max(0.0, score - 12)
             elif skill.name == "web_browse" and any(
                 k in q
@@ -1047,7 +1043,7 @@ class SkillRegistry:
 
         if is_pinned(name):
             raise PermissionError(
-                f"Skill {name} is pinned — run `kageha curator unpin {name}` first"
+                f"Skill {name} is pinned — unpin it under ~/.kageha before remove"
             )
         shutil.rmtree(skill.path)
         self.reload()
@@ -1102,7 +1098,7 @@ class SkillRegistry:
             if is_pinned(name):
                 return (
                     f"ERROR: skill {name} is pinned — "
-                    f"run `kageha curator unpin {name}` before delete"
+                    f"unpin skill {name} under ~/.kageha before delete"
                 )
             self.remove(name)
             return f"Deleted skill {name}"

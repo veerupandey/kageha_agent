@@ -1,4 +1,4 @@
-"""Router hard-denies mutating tools during Plan/Spec design."""
+"""Router hard-denies mutating tools during Plan design."""
 
 from __future__ import annotations
 

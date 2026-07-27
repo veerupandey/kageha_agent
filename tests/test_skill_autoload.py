@@ -127,33 +127,33 @@ def test_browse_beats_research_for_login(tmp_path: Path, monkeypatch):
     assert "web_research" not in loaded.names
 
 
-def test_creative_exclusive_picks_one_make_skill(tmp_path: Path, monkeypatch):
+def test_web_family_exclusive_picks_one(tmp_path: Path, monkeypatch):
     root = tmp_path / "skills"
     _write_skill(
         root,
-        "make_reel",
-        "Create short video reels",
-        triggers=["reel", "short video"],
+        "web_research",
+        "Blink-speed research via research_run",
+        triggers=["research", "look up", "find sources"],
     )
     _write_skill(
         root,
-        "make_social_carousel",
-        "Instagram social carousel slides",
-        triggers=["carousel", "instagram carousel"],
+        "web_browse",
+        "Interactive browsing with browser_connect",
+        triggers=["open the site", "log in", "browse to"],
     )
     _write_skill(
         root,
-        "make_presentation",
-        "Pitch deck presentations",
-        triggers=["presentation", "pitch deck"],
+        "computer_use",
+        "macOS desktop computer-use",
+        triggers=["computer_use", "desktop app"],
     )
     reg = _registry(tmp_path, monkeypatch)
     loaded = reg.auto_load_for_task(
-        "Make an Instagram carousel about matcha", limit=4
+        "research background on this company with citations", limit=4
     )
-    assert loaded.names == ["make_social_carousel"]
-    assert "make_reel" not in loaded.names
-    assert "make_presentation" not in loaded.names
+    assert loaded.names == ["web_research"]
+    assert "web_browse" not in loaded.names
+    assert "computer_use" not in loaded.names
 
 
 def test_triggers_frontmatter_parsed(tmp_path: Path, monkeypatch):
@@ -218,7 +218,7 @@ def test_explicit_slash_bypasses_floor_and_disable(tmp_path: Path, monkeypatch):
     assert "Explicit invocation" in loaded.text
     assert strip_skill_invocations(msg, forced) == "ship the change carefully"
 
-    # Codex-style $name and /skill name
+    # Explicit $name and /skill name
     assert parse_skill_invocations("$danger_ops do it", reg) == ["danger_ops"]
     assert parse_skill_invocations("/skill danger_ops do it", reg) == ["danger_ops"]
 
@@ -257,3 +257,53 @@ def test_paths_scope_blocks_without_hints(tmp_path: Path, monkeypatch):
         limit=4,
     )
     assert forced.names == ["py_review"]
+
+
+def test_name_token_does_not_match_substring(tmp_path: Path, monkeypatch):
+    """``computer_use`` must not autoload from ``useful`` / execute-plan fluff."""
+    root = tmp_path / "skills"
+    _write_skill(
+        root,
+        "computer_use",
+        "macOS desktop computer-use via cua-driver",
+        triggers=["computer_use", "desktop app", "phone call"],
+    )
+    _write_skill(
+        root,
+        "web_research",
+        "Blink-speed research via research_run",
+        triggers=["research", "look up", "find sources"],
+    )
+    reg = _registry(tmp_path, monkeypatch)
+
+    build_fluff = (
+        "Execute the approved plan.\n\n"
+        "(Prior session id: abc. Start a new plan for this request; "
+        "do not continue the old plan. You may reuse files from that "
+        "session only if explicitly useful.)"
+    )
+    loaded = reg.auto_load_for_task(build_fluff, limit=4)
+    assert "computer_use" not in loaded.names
+
+    denied = reg.auto_load_for_task(
+        "research these companies; you do not need computer use",
+        limit=4,
+    )
+    assert "computer_use" not in denied.names
+    assert "web_research" in denied.names
+
+
+def test_trigger_call_is_whole_word(tmp_path: Path, monkeypatch):
+    root = tmp_path / "skills"
+    _write_skill(
+        root,
+        "computer_use",
+        "macOS desktop",
+        triggers=["call", "phone call"],
+    )
+    reg = _registry(tmp_path, monkeypatch)
+    # Substring inside another word must not count.
+    weak = reg.auto_load_for_task("please recall the earlier answer", limit=4)
+    assert weak.names == []
+    strong = reg.auto_load_for_task("make a phone call to mom", limit=4)
+    assert strong.names == ["computer_use"]

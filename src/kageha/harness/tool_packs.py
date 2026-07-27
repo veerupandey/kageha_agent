@@ -27,23 +27,11 @@ CORE_PACK_IMPORTS: list[tuple[str, str]] = [
     ("research", "kageha.harness.tools.research:register_research_tools"),
 ]
 
-# Device control (bravia/android_tv/network_scan) lives in skills + kageha.devices —
-# never as harness tool packs.
+# Device control lives in skills. Browser and computer are the only optional
+# native packs retained by the lightweight core.
 OPTIONAL_PACK_IMPORTS: list[tuple[str, str]] = [
-    ("kb", "kageha.knowledge.tools:register_kb_tools"),
     ("browser", "kageha.harness.tools.browser:register_browser_tools"),
-    ("pdf", "kageha.harness.tools.pdf:register_pdf_tools"),
     ("computer", "kageha.harness.tools.computer:register_computer_tools"),
-    ("media", "kageha.harness.tools.media:register_media_tools"),
-    ("diagram", "kageha.harness.tools.diagram:register_diagram_tools"),
-    (
-        "product_import",
-        "kageha.harness.tools.product_import:register_product_import_tools",
-    ),
-    (
-        "connections",
-        "kageha.harness.tools.connections_tools:register_connections_tools",
-    ),
 ]
 
 CORE_PACK_NAMES: frozenset[str] = frozenset(n for n, _ in CORE_PACK_IMPORTS)
@@ -105,12 +93,8 @@ def _should_auto_enable_computer(
         pass
     if _computer_opted_out(tokens, environ):
         return False
-    try:
-        from kageha.harness.tools.computer_driver import driver_available
-
-        return bool(driver_available())
-    except Exception:  # noqa: BLE001
-        return False
+    # Driver presence alone must not enlarge the default process.
+    return False
 
 
 def _browser_opted_out(tokens: list[str] | None, environ: dict[str, str]) -> bool:

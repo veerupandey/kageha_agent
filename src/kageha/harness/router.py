@@ -234,7 +234,9 @@ async def execute_tool_calls(
                         )
                     )
                     if not ok:
-                        content = f"DENIED: {tool.name} ({risk}) not approved"
+                        content = approvals.denial_message(
+                            f"{tool.name} ({risk})"
+                        )
                     else:
                         _t0 = _time.perf_counter()
                         content = await _call_tool_journaled(

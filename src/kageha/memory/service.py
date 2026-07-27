@@ -86,7 +86,7 @@ class MemoryService(MemoryCaptureMixin, MemoryRecallMixin, MemoryMutationsMixin)
                 idle_ticks = 0
                 continue
             idle_ticks += 1
-            # Soft-forget + consolidate on a slow cadence (Codex-style phase-2).
+            # Soft-forget + consolidate on a slow cadence.
             if idle_ticks >= 40:
                 try:
                     self.prune_idle()

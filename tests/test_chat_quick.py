@@ -21,7 +21,7 @@ def test_quick_chat_reply_greetings():
     assert "welcome" in (quick_chat_reply("thanks") or "").lower()
     assert (quick_chat_reply("Who are you?") or "").startswith("I'm Kageha")
     assert "Plan" in (quick_chat_reply("what can you do?") or "")
-    assert "WhatsApp" in (quick_chat_reply("ping", channel="whatsapp") or "")
+    assert "pong" in (quick_chat_reply("ping", channel="whatsapp") or "").lower()
     assert "ready" in (quick_chat_reply("how's it going?") or "").lower()
     assert "ready" in (quick_chat_reply("hi — just checking you're there") or "").lower()
     assert "ready" in (quick_chat_reply("you there?") or "").lower()

@@ -30,7 +30,6 @@ IDEMPOTENT_TOOL_NAMES = frozenset(
         "memory_recall",
         "memory_fetch",
         "memory_inspect",
-        "kb_search",
         "skill_list",
         # computer_get_state is intentionally NOT idempotent-guarded: the
         # observe→act→observe CUA loop must re-snapshot every turn.

@@ -43,7 +43,7 @@ describe("streamChat", () => {
       ),
     );
     await expect(
-      streamChat({ thread_id: "t", message: "hi" }, {}),
+      streamChat({ thread_id: "t", session_id: "s", message: "hi" }, {}),
     ).rejects.toThrow(/empty response/);
   });
 
@@ -63,7 +63,7 @@ describe("streamChat", () => {
       ),
     );
     await expect(
-      streamChat({ thread_id: "t", message: "hi" }, {}),
+      streamChat({ thread_id: "t", session_id: "s", message: "hi" }, {}),
     ).rejects.toThrow(/ended without result.*Starting/);
   });
 
@@ -83,7 +83,7 @@ describe("streamChat", () => {
         ),
       ),
     );
-    const done = await streamChat({ thread_id: "t", message: "hi" }, {});
+    const done = await streamChat({ thread_id: "t", session_id: "s", message: "hi" }, {});
     expect(done).toEqual({ status: "success", message: "Hello" });
   });
 });

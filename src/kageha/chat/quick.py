@@ -34,13 +34,10 @@ def quick_chat_reply(text: str, *, channel: str = "") -> str | None:
     if not t or len(t) > 80:
         return None
     low = t.lower().rstrip("!.? ")
-    ch = (channel or "").strip().lower()
-    wa = ch in {"whatsapp", "wa", "whatsapp_qr"}
     if low in {"who are you", "what are you", "who is this"}:
-        where = "this WhatsApp session" if wa else "this session"
         return (
             "I'm Kageha, your AI agent. I can research, use tools, create files, "
-            f"and continue work across {where}."
+            "and continue work across this session."
         )
     if low in {
         "what can you do",
@@ -51,16 +48,14 @@ def quick_chat_reply(text: str, *, channel: str = "") -> str | None:
     }:
         return (
             "I can chat, research the web (with citations), browse, edit files, "
-            "run shell, use skills/MCP, and run Plan/Spec/Goal loops for bigger work. "
-            "Ask a task, or pick Plan / Spec / Goal in the WebUI."
+            "run shell, use skills/MCP, and run Plan/Goal loops for bigger work. "
+            "Ask a task, or pick Plan / Goal in the WebUI."
         )
     if not _QUICK_GREETING_RE.match(t):
         return None
     if low in {"thanks", "thank you", "thx"}:
         return "You're welcome — send another message anytime."
     if low in {"test", "ping"}:
-        if wa:
-            return "pong — WhatsApp bridge is live."
         return "pong — I'm here."
     if re.search(
         r"how'?s\s+it\s+going|how\s+are\s+you|you\s+there|just\s+checking|checking\s+in",

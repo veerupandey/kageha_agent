@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../store";
 
 function detailText(detail: string | string[] | undefined): string {
@@ -10,11 +10,11 @@ function detailText(detail: string | string[] | undefined): string {
 export function ApprovalBanner() {
   const pending = useAppStore((s) => s.pendingApproval);
   const resolveApproval = useAppStore((s) => s.resolveApproval);
-  const openDrawer = useAppStore((s) => s.openDrawer);
-  const loadDesign = useAppStore((s) => s.loadDesign);
   const approveRef = useRef<HTMLButtonElement>(null);
+  const [suggestion, setSuggestion] = useState("");
 
   useEffect(() => {
+    setSuggestion("");
     if (pending?.approval_id) {
       requestAnimationFrame(() => approveRef.current?.focus());
     }
@@ -24,14 +24,9 @@ export function ApprovalBanner() {
 
   const isPlan =
     pending.risk_class === "plan" || pending.action === "approve_plan";
-  const isClarify =
-    pending.risk_class === "clarify" || pending.action === "spec_clarify";
-
-  const title = isClarify
-    ? "Clarify requirements"
-    : isPlan
-      ? "Approve plan to build"
-      : pending.label || pending.action || "Approval needed";
+  const title = isPlan
+    ? "Approve plan to build"
+    : pending.label || pending.action || "Approval needed";
 
   const detail = detailText(pending.detail);
 
@@ -53,25 +48,50 @@ export function ApprovalBanner() {
             {detail}
           </p>
         ) : null}
+        <label className="approval-suggest-label" htmlFor="approval-suggest">
+          Suggest (optional)
+        </label>
+        <input
+          id="approval-suggest"
+          className="approval-suggest-input"
+          type="text"
+          value={suggestion}
+          placeholder={
+            isPlan
+              ? "e.g. prefer Redis; skip step 3…"
+              : "e.g. use a safer command…"
+          }
+          onChange={(e) => setSuggestion(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && suggestion.trim()) {
+              e.preventDefault();
+              void resolveApproval(false, suggestion.trim());
+            }
+          }}
+        />
       </div>
       <div className="approval-actions">
-        {isPlan || isClarify ? (
+        {isPlan ? (
           <button
             type="button"
             className="btn ghost"
             id="btn-approval-view-plan"
-            onClick={() => {
-              openDrawer("design");
-              void loadDesign({
-                activeFile: isClarify ? "requirements.md" : "plan.md",
-                awaitingClarify: isClarify,
-                forceBuild: isPlan,
-              });
-            }}
+            onClick={() => void resolveApproval(true)}
           >
-            View plan
+            Approve plan
           </button>
         ) : null}
+        <button
+          type="button"
+          className="btn ghost"
+          id="btn-approval-suggest"
+          disabled={!suggestion.trim()}
+          onClick={() => {
+            void resolveApproval(false, suggestion.trim());
+          }}
+        >
+          Suggest
+        </button>
         <button
           type="button"
           className="btn ghost"
@@ -91,7 +111,7 @@ export function ApprovalBanner() {
             void resolveApproval(true);
           }}
         >
-          {isClarify ? "Continue" : "Approve"}
+          {isPlan ? "Build" : "Approve"}
         </button>
       </div>
     </div>

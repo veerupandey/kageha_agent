@@ -1,4 +1,4 @@
-"""Codex-style tool output budgets: read_file / list_dir / router envelope."""
+"""Tool output budgets: read_file / list_dir / router envelope."""
 
 from __future__ import annotations
 

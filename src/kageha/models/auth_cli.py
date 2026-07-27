@@ -172,7 +172,7 @@ def run_model_auth_setup_step(*, interactive: bool = True) -> dict[str, Any]:
         result["skipped"] = True
         return result
     if action == "api-gemini":
-        from kageha.channels.whatsapp_setup import upsert_env_key
+        from kageha.config import upsert_env_key
         import os
 
         key = input("GEMINI_API_KEY: ").strip()

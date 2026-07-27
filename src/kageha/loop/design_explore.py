@@ -1,7 +1,6 @@
-"""Explore-then-plan: read-only research before Plan/Spec Build.
+"""Explore-then-plan: read-only research before Plan Build.
 
-Mirrors Cursor research-before-edit and Codex explore-first: the model may
-list/read/search during design, but mutating tools are denied until Build.
+The model may list/read/search during design; mutating tools are denied until Build.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ DESIGN_EXPLORE_MAX_STEPS = 4
 
 
 def filter_design_tool_specs(specs: list[ToolSpec]) -> list[ToolSpec]:
-    """Keep only tools allowed during Plan/Spec design (read/search)."""
+    """Keep only tools allowed during Plan design (read/search)."""
     return [
         s for s in specs if not tool_blocked_in_plan_design(s.name, approved=False)
     ]

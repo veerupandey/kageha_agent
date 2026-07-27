@@ -213,9 +213,6 @@ export async function runTurn(
             });
           }
 
-          if (kind === "todo_board") {
-            get().applyTodoBoard(payload, sessionId);
-          }
           if (kind === "goal_qa_misfit") {
             const msg = String(
               payload.message || data.label || "This looks like Normal",
@@ -240,13 +237,8 @@ export async function runTurn(
               const isPlanBuild =
                 pending.risk_class === "plan" ||
                 pending.action === "approve_plan";
-              const isClarify =
-                pending.risk_class === "clarify" ||
-                pending.action === "spec_clarify";
               if (isPlanBuild && get().agentMode === "normal") {
                 get().setAgentMode("plan");
-              } else if (isClarify && get().agentMode === "normal") {
-                get().setAgentMode("spec");
               }
               updateRun(sessionId, (r) => ({
                 ...r,
@@ -342,6 +334,7 @@ export async function runTurn(
     );
     const status = String(done.status || "success");
     const awaitingBuild = status === "awaiting_plan_approval";
+    const awaitingClarify = status === "awaiting_clarify";
     if (awaitingBuild && get().agentMode === "normal") {
       get().setAgentMode("plan");
     }
@@ -356,7 +349,9 @@ export async function runTurn(
             ? "Error"
             : awaitingBuild
               ? "Awaiting Build"
-              : "Done",
+              : awaitingClarify
+                ? "Awaiting clarification"
+                : "Done",
     });
     updateRun(sessionId, (r) => ({
       ...r,
@@ -365,7 +360,7 @@ export async function runTurn(
       waitingApproval: awaitingBuild,
       status: status === "cancelled"
         ? "cancelled"
-        : awaitingBuild
+        : awaitingBuild || awaitingClarify
           ? "waiting_approval"
           : "success",
       statusLabel:
@@ -373,7 +368,9 @@ export async function runTurn(
           ? "Cancelled"
           : awaitingBuild
             ? "Awaiting Build"
-            : "Done",
+            : awaitingClarify
+              ? "Awaiting clarification"
+              : "Done",
       needsAttention: sessionId !== get().sessionId,
     }));
     // Ensure chrome status clears off Working… after success.
@@ -394,7 +391,6 @@ export async function runTurn(
     }
     await get().refreshSessions();
     if (sessionId === get().sessionId) {
-      await get().refreshArtifacts().catch(() => {});
       await flushQueue(sessionId);
     }
   } catch (err) {

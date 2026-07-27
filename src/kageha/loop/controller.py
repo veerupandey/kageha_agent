@@ -61,7 +61,6 @@ from kageha.loop.tool_guardrails import (
 from kageha.loop.verifier import (
     VerifyResult,
     build_workspace_evidence,
-    is_lookup_status_goal,
     verify_with_defects,
 )
 from kageha.models.base import ChatMessage
@@ -412,7 +411,7 @@ class LoopController:
         project_root: str = "",
     ) -> None:
         self.auto_approve = auto_approve
-        # Plan/Spec Build gate — independent of tool auto_approve.
+        # Plan Build gate — independent of tool auto_approve.
         self.auto_build = auto_build
         self.approver = approver or (None if auto_approve else cli_approver)
         self.attached_kbs = attached_kbs or []
@@ -643,24 +642,30 @@ class LoopController:
         from kageha.loop.mode_policy import (
             GOAL_QA_MISFIT_MESSAGE,
             clear_agent_mode_flag,
+            clear_clarify_pending,
             clear_plan_approved,
+            fold_clarify_answer,
             goal_qa_misfit,
             is_mode_only_message,
+            is_plan_build_prompt,
+            is_plan_revise_turn,
             loop_mode_for,
             mark_plan_approved,
-            missing_spec_artifacts,
             mode_only_ack,
             mode_system_extra,
             mutations_blocked_until_approve,
             normalize_agent_mode,
             parse_mode_slash,
             plan_already_approved,
+            plan_clarify_question,
+            plan_needs_clarify,
+            read_clarify_pending,
             requires_plan_approval,
             resolve_agent_mode,
             strip_mode_slash,
+            write_clarify_pending,
             write_agent_mode_flag,
             write_plan_artifact,
-            write_spec_artifacts,
         )
 
         # Precedence: slash on raw message → explicit API/CLI → workspace flag.
@@ -699,7 +704,7 @@ class LoopController:
         # Drop leftover flag even when explicit/slash won, so it cannot stick.
         clear_agent_mode_flag(workspace.root)
 
-        # Fresh Plan/Spec design must re-gate Build — never reuse a prior
+        # Fresh Plan design must re-gate Build — never reuse a prior
         # plan_approved.flag from an earlier turn in this session.
         if fresh_turn and requires_plan_approval(resolved_agent_mode):
             clear_plan_approved(workspace.root)
@@ -710,7 +715,7 @@ class LoopController:
             resolved_agent_mode = "normal"
 
         mode = (loop_mode or "").strip().lower()
-        # act = Codex-style alias for followup (one-step plan, sparse verify).
+        # act = alias for followup (one-step plan, sparse verify).
         if mode == "act":
             mode = "followup"
         if mode not in {"full", "followup"}:
@@ -755,7 +760,7 @@ class LoopController:
         if mode == "followup":
             effort = "low"
         elif resolved_agent_mode != "normal" and effort == "low":
-            # Short prompts must not collapse plan/spec/goal into followup-like
+            # Short prompts must not collapse plan/goal into followup-like
             # sparse verify — deep modes need a real plan→verify cadence.
             effort = "medium"
         turn_snapshot = _workspace_file_snapshot(workspace.root)
@@ -883,6 +888,7 @@ class LoopController:
             events.emit("project_brain_error", {"error": str(e)})
         auto_skill_names: list[str] = []
         try:
+            from kageha.loop.mode_policy import plan_skill_match_text
             from kageha.memory.skills import (
                 SkillRegistry,
                 extract_path_hints,
@@ -891,11 +897,12 @@ class LoopController:
 
             reg = SkillRegistry()
             forced = parse_skill_invocations(task, reg)
+            skill_query = plan_skill_match_text(workspace.root, task) or task
             path_hints = extract_path_hints(
-                task, project_root=self.project_root or None
+                skill_query, project_root=self.project_root or None
             )
             auto_load = reg.auto_load_for_task(
-                task,
+                skill_query,
                 limit=4,
                 max_chars=8000,
                 force_names=forced or None,
@@ -912,6 +919,7 @@ class LoopController:
                         "scores": dict(auto_load.scores),
                         "forced": list(forced),
                         "path_hints": path_hints[:12],
+                        "query_preview": skill_query[:240],
                         "preview": auto_load.text[:200],
                     },
                 )
@@ -1056,57 +1064,71 @@ class LoopController:
             if wants_computer:
                 if "computer" not in packs_enabled:
                     msg = (
-                        "Computer-use requires the computer tool pack. "
-                        "On macOS with cua-driver installed it auto-enables; "
-                        "or set tools.yaml packs: [computer] / "
+                        "Computer-use pack is not enabled — continuing without "
+                        "desktop tools. On macOS with cua-driver installed it "
+                        "auto-enables; or set tools.yaml packs: [computer] / "
                         "KAGEHA_TOOL_PACKS=computer."
                     )
                     events.emit(
                         "computer_ready",
-                        {"ok": False, "pack_enabled": False, "message": msg},
+                        {
+                            "ok": False,
+                            "pack_enabled": False,
+                            "skipped": True,
+                            "message": msg,
+                        },
                     )
-                    self._log(f"[kageha] computer_ready fail: {msg}")
-                    return RunResult(
-                        run_id=workspace.run_id,
-                        status="error",
-                        message=msg,
-                        goal=GoalCard.from_task(turn_task or task),
-                        steps=0,
-                        spent_usd=0.0,
-                        turn_id=turn_id,
-                        active_skills=list(auto_skill_names),
-                    )
-                # Exclusive: drop web_browse allowlist so computer_* never vanish.
-                ctx.meta["active_skills"] = []
-                ctx.meta["skill_allowed_tools"] = None
-                activate_skills(ctx, ["computer_use"])
-                auto_skill_names = ["computer_use"]
-                ready = await ensure_computer_ready(pack_enabled=True)
-                events.emit("computer_ready", ready.as_dict())
-                self._log(f"[kageha] computer_ready: {ready.message}")
-                if not ready.ok:
-                    return RunResult(
-                        run_id=workspace.run_id,
-                        status="error",
-                        message=ready.message,
-                        goal=GoalCard.from_task(turn_task or task),
-                        steps=0,
-                        spent_usd=0.0,
-                        turn_id=turn_id,
-                        active_skills=["computer_use"],
-                    )
-                # Prefer a native tool model for this run when session pin is CLI-only.
-                pin = router.session_override
-                if (
-                    ready.tool_model_id
-                    and pin
-                    and not router._model_supports_tool_calling(pin)
-                ):
-                    router.set_once_override(ready.tool_model_id)
-                    self._log(
-                        f"[kageha] computer_use model once={ready.tool_model_id} "
-                        f"(session pin {pin} cannot call tools)"
-                    )
+                    self._log(f"[kageha] computer_ready skip: {msg}")
+                    # Soft-skip: drop computer_use so web_research/browser can run.
+                    auto_skill_names = [
+                        n for n in auto_skill_names if n != "computer_use"
+                    ]
+                    active = list(ctx.meta.get("active_skills") or [])
+                    if "computer_use" in active:
+                        ctx.meta["active_skills"] = [
+                            n for n in active if n != "computer_use"
+                        ]
+                    # Drop already-injected computer_use skill body from context.
+                    if system_extra and "### skill:computer_use" in system_extra:
+                        parts = system_extra.split("### skill:")
+                        kept = [parts[0]]
+                        for chunk in parts[1:]:
+                            if chunk.startswith("computer_use"):
+                                continue
+                            kept.append("### skill:" + chunk)
+                        system_extra = "".join(kept)
+                else:
+                    # Exclusive: drop web_browse allowlist so computer_* never vanish.
+                    ctx.meta["active_skills"] = []
+                    ctx.meta["skill_allowed_tools"] = None
+                    activate_skills(ctx, ["computer_use"])
+                    auto_skill_names = ["computer_use"]
+                    ready = await ensure_computer_ready(pack_enabled=True)
+                    events.emit("computer_ready", ready.as_dict())
+                    self._log(f"[kageha] computer_ready: {ready.message}")
+                    if not ready.ok:
+                        return RunResult(
+                            run_id=workspace.run_id,
+                            status="error",
+                            message=ready.message,
+                            goal=GoalCard.from_task(turn_task or task),
+                            steps=0,
+                            spent_usd=0.0,
+                            turn_id=turn_id,
+                            active_skills=["computer_use"],
+                        )
+                    # Prefer a native tool model for this run when session pin is CLI-only.
+                    pin = router.session_override
+                    if (
+                        ready.tool_model_id
+                        and pin
+                        and not router._model_supports_tool_calling(pin)
+                    ):
+                        router.set_once_override(ready.tool_model_id)
+                        self._log(
+                            f"[kageha] computer_use model once={ready.tool_model_id} "
+                            f"(session pin {pin} cannot call tools)"
+                        )
         except Exception as e:  # noqa: BLE001
             events.emit("computer_ready_error", {"error": str(e)})
             self._log(f"[kageha] computer_ready skipped: {e}")
@@ -1116,8 +1138,7 @@ class LoopController:
         goal_path = workspace.path("goal_card.json")
         plan_path = workspace.path("plan.json")
         explore_notes = ""
-        clarify_open_questions: list[str] = []
-        # Plan/Spec + new objective on a resumed session → full explore/plan.md,
+        # Plan + new objective on a resumed session → full explore/plan.md,
         # never a followup stub written as plan.md before the real plan exists.
         if (
             mode != "followup"
@@ -1136,7 +1157,7 @@ class LoopController:
                 ).strip()
                 if _new_task and _prior_task and _prior_task != _new_task:
                     self._log(
-                        "[kageha] different ask on Plan/Spec — fresh design turn "
+                        "[kageha] different ask on Plan — fresh design turn "
                         f"(prior={_prior_task[:80]!r})"
                     )
                     try:
@@ -1218,7 +1239,7 @@ class LoopController:
             # Any divergent ask on full-mode resume isolates the turn. Completed
             # goals / validation-pass are the common sticky case that made
             # stop_rules SUCCESS immediately; also reset for in-progress priors.
-            # (Plan/Spec different-ask already forced fresh_turn above.)
+            # (Plan different-ask already forced fresh_turn above.)
             if different_ask:
                 self._log(
                     "[kageha] different ask on resumed full mode — "
@@ -1285,10 +1306,87 @@ class LoopController:
                     )
         else:
             self._log(f"[kageha] planning… (effort={effort})")
-            # Cursor/Codex explore-first: read-only tools before plan.md / Build.
+            # Plan: fold clarify answer, ask if needed, or revise awaiting plan.
+            revising = is_plan_revise_turn(
+                workspace.root,
+                resolved_agent_mode,
+                turn_objective,
+                auto_build=self.auto_build,
+            )
+            pending = (
+                read_clarify_pending(workspace.root)
+                if requires_plan_approval(resolved_agent_mode)
+                else None
+            )
+            if pending:
+                answer = turn_objective.strip()
+                turn_objective = fold_clarify_answer(
+                    str(pending.get("objective") or turn_objective), answer
+                )
+                clear_clarify_pending(workspace.root)
+                events.emit("clarify", {"status": "answered", "chars": len(answer)})
+                self._log("[kageha] plan clarify answered — continuing design")
+            elif (
+                requires_plan_approval(resolved_agent_mode)
+                and not plan_already_approved(workspace.root)
+                and not revising
+                and not is_plan_build_prompt(turn_objective)
+                and plan_needs_clarify(turn_objective)
+            ):
+                question = plan_clarify_question(turn_objective)
+                events.emit(
+                    "clarify", {"status": "asking", "question": question[:500]}
+                )
+                if self.defer_human_input:
+                    try:
+                        write_clarify_pending(
+                            workspace.root,
+                            objective=turn_objective,
+                            question=question,
+                        )
+                    except OSError:
+                        pass
+                    self._log("[kageha] plan clarify — awaiting answer")
+                    return RunResult(
+                        run_id=workspace.run_id,
+                        status="awaiting_clarify",
+                        message=question,
+                        goal=GoalCard.from_task(turn_objective),
+                        steps=0,
+                        spent_usd=0.0,
+                        artifacts=[],
+                        turn_id=turn_id,
+                        active_skills=list(auto_skill_names),
+                    )
+                from kageha.harness.approvals import cli_ask_human
+
+                answer = (await cli_ask_human(question)).strip() or (
+                    "(no preference — pick a sensible default)"
+                )
+                turn_objective = fold_clarify_answer(turn_objective, answer)
+                events.emit("clarify", {"status": "answered", "chars": len(answer)})
+            if revising:
+                ctx.meta["plan_approved"] = False
+                ctx.meta["design_phase"] = True
+                events.emit(
+                    "plan_revise",
+                    {
+                        "agent_mode": resolved_agent_mode,
+                        "feedback_preview": turn_objective[:240],
+                    },
+                )
+                self._log("[kageha] revising plan.md (still awaiting Build)")
+                try:
+                    en = workspace.root / "explore_notes.md"
+                    if en.is_file():
+                        explore_notes = en.read_text(encoding="utf-8")
+                except OSError:
+                    pass
+            # Explore-first: read-only tools before plan.md / Build.
             if (
                 requires_plan_approval(resolved_agent_mode)
                 and not plan_already_approved(workspace.root)
+                and not revising
             ):
                 from kageha.loop.design_explore import explore_before_plan
 
@@ -1386,52 +1484,6 @@ class LoopController:
                 except Exception:  # noqa: BLE001
                     pass
 
-            # Spec: interactive clarify before plan.md (Kiro-style).
-            if resolved_agent_mode == "spec":
-                from kageha.loop.spec_clarify import (
-                    SPEC_DESIGN_PHASES,
-                    run_spec_clarify_phase,
-                )
-
-                clarify = await run_spec_clarify_phase(
-                    task=turn_objective,
-                    workspace_root=workspace.root,
-                    router=router,
-                    events=events,
-                    approvals=gate,
-                    explore_notes=explore_notes,
-                    role=self.planning_role,
-                    auto_continue=bool(self.auto_build),
-                    defer_human_input=bool(self.defer_human_input),
-                    log=self._log,
-                )
-                clarify_open_questions = list(clarify.open_questions or [])
-                if clarify.answers:
-                    # Feed answers into planner context.
-                    ans_block = "\n".join(
-                        f"- {a}" for a in clarify.answers if str(a).strip()
-                    )
-                    explore_notes = (
-                        (explore_notes or "").rstrip()
-                        + "\n\n## Spec clarify answers\n"
-                        + ans_block
-                    ).strip()
-                elif clarify.assumptions:
-                    asm = "\n".join(
-                        f"- {a}" for a in clarify.assumptions if str(a).strip()
-                    )
-                    explore_notes = (
-                        (explore_notes or "").rstrip()
-                        + "\n\n## Spec clarify assumptions\n"
-                        + asm
-                    ).strip()
-                ctx.meta["spec_clarify"] = {
-                    "skipped": clarify.skipped,
-                    "questions": list(clarify.questions),
-                    "answered": bool(clarify.answers),
-                    "phases": list(SPEC_DESIGN_PHASES),
-                }
-
             plan = await make_plan(
                 turn_objective,
                 router,
@@ -1477,65 +1529,36 @@ class LoopController:
             },
         )
 
-        # Design machines: materialize visible artifacts, then hard-gate Build.
-        # auto_approve (tool HITL) must NOT skip this — Plan/Spec ≠ Normal.
+        # Plan mode materializes a visible artifact, then hard-gates Build.
+        # auto_approve (tool HITL) must NOT skip this — Plan ≠ Normal.
         plan_md_text = ""
         design_artifacts: list[str] = []
         if mode == "full" and requires_plan_approval(resolved_agent_mode):
-            matched_skills: list[Any] = []
-            catalog_preview = ""
-            if resolved_agent_mode == "spec":
-                try:
-                    from kageha.memory.skills import SkillRegistry
-
-                    reg = SkillRegistry()
-                    matched_skills = reg.match(turn_objective, limit=8)
-                    catalog_preview = reg.catalog(limit=24)
-                except Exception as exc:  # noqa: BLE001
-                    events.emit("skill_gaps_error", {"error": str(exc)[:300]})
-                design_artifacts = write_spec_artifacts(
-                    workspace.root,
-                    task=turn_objective,
-                    summary=plan.summary,
-                    steps=plan.steps,
-                    milestones=list(plan.milestones or []),
-                    explore_notes=explore_notes,
-                    open_questions=clarify_open_questions or None,
-                    matched_skills=matched_skills,
-                    catalog_preview=catalog_preview,
+            # Never publish a one-step followup stub as the Build plan.md.
+            if getattr(plan, "source", "") == "followup":
+                self._log(
+                    "[kageha] rejecting followup stub for Plan design — re-planning"
                 )
-                plan_md_text = (workspace.root / "plan.md").read_text(
-                    encoding="utf-8"
-                )
-            else:
-                # Never publish a one-step followup stub as the Build plan.md.
-                if getattr(plan, "source", "") == "followup":
-                    self._log(
-                        "[kageha] rejecting followup stub for Plan design — "
-                        "re-planning"
-                    )
-                    plan = await make_plan(
-                        turn_objective,
-                        router,
-                        role=self.planning_role,
-                        available_tools={
-                            spec.name for spec in ctx.tools.specs()
-                        },
-                        effort=effort,
-                        explore_notes=explore_notes,
-                    )
-                plan_md_text = write_plan_artifact(
-                    workspace.root,
-                    resolved_agent_mode,
-                    summary=plan.summary,
-                    steps=plan.steps,
-                    task=turn_objective,
-                    tldr=plan.summary,
+                plan = await make_plan(
+                    turn_objective,
+                    router,
+                    role=self.planning_role,
+                    available_tools={spec.name for spec in ctx.tools.specs()},
+                    effort=effort,
                     explore_notes=explore_notes,
                 )
-                design_artifacts = ["plan.md"]
-                if (workspace.root / "explore_notes.md").is_file():
-                    design_artifacts.append("explore_notes.md")
+            plan_md_text = write_plan_artifact(
+                workspace.root,
+                resolved_agent_mode,
+                summary=plan.summary,
+                steps=plan.steps,
+                task=turn_objective,
+                tldr=plan.summary,
+                explore_notes=explore_notes,
+            )
+            design_artifacts = ["plan.md"]
+            if (workspace.root / "explore_notes.md").is_file():
+                design_artifacts.append("explore_notes.md")
             explore_banner = ""
             explore_degraded = False
             try:
@@ -1550,12 +1573,7 @@ class LoopController:
                         )
             except Exception:  # noqa: BLE001
                 pass
-            if resolved_agent_mode == "spec":
-                from kageha.loop.spec_clarify import SPEC_DESIGN_PHASES
-
-                design_phases = list(SPEC_DESIGN_PHASES)
-            else:
-                design_phases = ["explore", "plan", "build"]
+            design_phases = ["explore", "plan", "build"]
             events.emit(
                 "design_artifacts",
                 {
@@ -1577,53 +1595,62 @@ class LoopController:
             and requires_plan_approval(resolved_agent_mode)
             and not plan_already_approved(workspace.root)
         ):
-            if resolved_agent_mode == "spec":
-                missing = missing_spec_artifacts(workspace.root)
-                if missing:
-                    msg = (
-                        "Spec machine incomplete — missing "
-                        + ", ".join(missing)
-                        + ". No execution started."
-                    )
-                    events.emit(
-                        "spec_incomplete",
-                        {"missing": missing, "agent_mode": "spec"},
-                    )
-                    return RunResult(
-                        run_id=workspace.run_id,
-                        status="awaiting_plan_approval",
-                        message=msg,
-                        goal=goal,
-                        steps=0,
-                        spent_usd=0.0,
-                        artifacts=design_artifacts,
-                        turn_id=turn_id,
-                    )
-
             approved = False
             if self.auto_build:
                 approved = True
                 self._log("[kageha] auto_build — approving plan without HITL")
             else:
-                # Shared approval bus (require_explicit): ignores tool
-                # auto_approve, audits pending→approval_id for WebUI SSE /
-                # CLI, same path as the request_approval tool.
                 from kageha.harness.approvals import ApprovalRequest
 
-                req = ApprovalRequest(
-                    action="approve_plan",
-                    detail=(plan_md_text or plan.summary)[:4000],
-                    risk_class="plan",
-                )
-                self._log("[kageha] waiting for plan approval (Build)…")
-                events.emit(
-                    "plan_approval_required",
-                    {
-                        "agent_mode": resolved_agent_mode,
-                        "artifacts": design_artifacts,
-                    },
-                )
-                approved = bool(await ctx.approvals.require_explicit(req))
+                for suggest_round in range(4):
+                    events.emit(
+                        "plan_approval_required",
+                        {
+                            "agent_mode": resolved_agent_mode,
+                            "artifacts": design_artifacts,
+                        },
+                    )
+                    self._log("[kageha] waiting for plan approval (Build)…")
+                    outcome = await ctx.approvals.require_explicit(
+                        ApprovalRequest(
+                            action="approve_plan",
+                            detail=(plan_md_text or plan.summary)[:4000],
+                            risk_class="plan",
+                        )
+                    )
+                    if outcome.approved:
+                        approved = True
+                        break
+                    feedback = (outcome.feedback or "").strip()
+                    if not feedback or suggest_round >= 3:
+                        break
+                    events.emit(
+                        "plan_suggest",
+                        {
+                            "round": suggest_round + 1,
+                            "feedback_preview": feedback[:240],
+                        },
+                    )
+                    self._log(
+                        f"[kageha] plan Suggest — revising (round {suggest_round + 1})"
+                    )
+                    plan = await make_plan(
+                        f"{turn_objective}\n\nUser suggestion for the plan: {feedback}",
+                        router,
+                        role=self.planning_role,
+                        available_tools={spec.name for spec in ctx.tools.specs()},
+                        effort=effort,
+                        explore_notes=explore_notes,
+                    )
+                    plan_md_text = write_plan_artifact(
+                        workspace.root,
+                        resolved_agent_mode,
+                        summary=plan.summary,
+                        steps=plan.steps,
+                        task=turn_objective,
+                        tldr=plan.summary,
+                        explore_notes=explore_notes,
+                    )
 
             if not approved:
                 clear_plan_approved(workspace.root)
@@ -1635,11 +1662,11 @@ class LoopController:
                 if len(preview) > 3500:
                     preview = preview[:3500] + "\n…"
                 message = (
-                    f"{resolved_agent_mode.capitalize()} ready — awaiting Build/"
-                    "Approve. No project mutations were executed.\n\n"
+                    "Plan ready — awaiting Build/Approve. "
+                    "No project mutations were executed.\n\n"
                     f"{preview}\n\n"
-                    "Approve in the UI, or resume with `--build` "
-                    f"(session `{workspace.run_id}`)."
+                    "Edit plan.md, reply with changes, Approve in the UI, "
+                    f"or `/build` (session `{workspace.run_id}`)."
                 )
                 return RunResult(
                     run_id=workspace.run_id,
@@ -1975,7 +2002,7 @@ class LoopController:
                 )
                 allowed_calls = []
                 blocked_by_id: dict[str, ChatMessage] = {}
-                # Hard gate: Plan/Spec must not mutate sources until Build.
+                # Hard gate: Plan must not mutate sources until Build.
                 # Primary stop is awaiting_plan_approval before the act loop;
                 # this blocks tools if that gate is ever bypassed.
                 from kageha.loop.mode_policy import (
@@ -1995,7 +2022,7 @@ class LoopController:
                             name=tc.name,
                             tool_call_id=tc.id,
                             content=(
-                                "DENIED: Plan/Spec design is read-only until "
+                                "DENIED: Plan design is read-only until "
                                 "Build/Approve. Mutating tools are blocked."
                             ),
                         )
@@ -2444,7 +2471,7 @@ class LoopController:
                     answer_text = _latest_turn_assistant_text(
                         history, turn_start=turn_history_start
                     )
-                # Codex-style act: skip verifier LLM unless a tool failed.
+                # act: skip verifier LLM unless a tool failed.
                 # Never false-succeed action turns that claimed done with no tools
                 # and no new deliverables (Antigravity/text-only regressions).
                 # Computer grouped-action early-stop also skips verifier LLM

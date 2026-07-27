@@ -75,17 +75,21 @@ def resolve_embedding_config(registry: ModelRegistry | None = None) -> Embedding
             d = default_dim
         candidates.append((provider, m, d, key, pc.base_url or ""))
 
-    # Prefer configured provider first, then Gemini, then openai-compat.
+    # Prefer configured provider first, then Gemini, then openai-compat (incl. Azure).
     order = [preferred]
-    for p in ("gemini", "openai", "siliconflow"):
+    for p in ("gemini", "azure", "openai", "siliconflow"):
         if p not in order:
             order.append(p)
 
     for p in order:
         if p == "gemini":
             _add("gemini", _DEFAULT_GEMINI_MODEL, _DEFAULT_GEMINI_DIM)
-        elif p in ("openai", "siliconflow"):
-            _add(p, _DEFAULT_OPENAI_MODEL, _DEFAULT_OPENAI_DIM)
+        elif p in ("openai", "siliconflow", "azure"):
+            default_model = (
+                "text-embedding-3-large" if p == "azure" else _DEFAULT_OPENAI_MODEL
+            )
+            default_dim = 3072 if p == "azure" else _DEFAULT_OPENAI_DIM
+            _add(p, default_model, default_dim)
 
     if not candidates:
         return None
@@ -199,6 +203,16 @@ class EmbeddingClient:
             "Authorization": f"Bearer {self.config.api_key}",
             "Content-Type": "application/json",
         }
+        if self.config.provider == "azure" or "openai.azure.com" in self.config.base_url:
+            import os
+
+            headers["api-key"] = self.config.api_key
+            # /openai/v1 rejects api-version; classic deployments need it.
+            if "/openai/v1" not in self.config.base_url:
+                ver = (os.environ.get("AZURE_OPENAI_API_VERSION") or "").strip()
+                if ver and "api-version=" not in url:
+                    sep = "&" if "?" in url else "?"
+                    url = f"{url}{sep}api-version={ver}"
         payload: dict[str, Any] = {
             "model": self.config.model,
             "input": texts,

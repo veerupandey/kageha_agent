@@ -34,7 +34,7 @@ Produce what was asked (notes, brief, extracted facts, screenshots). Do **not** 
 
 When the user asks to open/browse a specific site, **do the navigation** — do not list Kageha capabilities instead.
 
-## Loop (Cursor/Codex-class, fast)
+## Loop
 
 1. Prefer `web_fetch` first when the URL is public.
 2. Else `browser_lock(lock)` then `browser_open(url)` — reuses one Chromium session on an **agent-owned tab** (Comet/CDP opens a new tab; never navigates the user's focused tab); returns AX snapshot refs.

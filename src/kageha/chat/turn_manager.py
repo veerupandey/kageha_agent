@@ -1,6 +1,6 @@
 """Turn manager — micro-paths or one self-depth agent turn.
 
-Design (Codex/Claude-style):
+Design:
   - Remotes / cancel / where / status → zero-LLM micro-paths
   - Everything else → agent with tools in act (followup) mode
   - The acting model decides 0 / 1 / N tool steps and stops when done
@@ -256,7 +256,7 @@ _HOST_RE = re.compile(
     re.I,
 )
 
-_PLAN_CMD_RE = re.compile(r"^/(plan|spec|goal)\b", re.I)
+_PLAN_CMD_RE = re.compile(r"^/(plan|goal)\b", re.I)
 
 ESCALATE_PLAN_FLAG = "escalate_plan.flag"
 
@@ -407,17 +407,17 @@ def build_turn_context(workspace: SessionWorkspace | None) -> TurnContext:
             pass
     arts: list[str] = []
     try:
-        arts = [
-            f
-            for f in workspace.list_files()
-            if not f.startswith(("events", "chat.", "result.", "goal_", "plan.", "task_"))
-        ][:40]
+        from kageha.loop.artifacts import classify_artifacts
+
+        arts = classify_artifacts(workspace.list_files())[:40]
     except Exception:  # noqa: BLE001
         arts = []
     recent_artifacts: list[str] = _recent_referenced_artifacts(workspace)
     turns_dir = workspace.root / "_turns"
     if not recent_artifacts and turns_dir.is_dir():
         try:
+            from kageha.loop.artifacts import is_user_artifact
+
             records = sorted(
                 (p for p in turns_dir.glob("*.json") if p.is_file()),
                 key=lambda p: p.stat().st_mtime_ns,
@@ -428,7 +428,7 @@ def build_turn_context(workspace: SessionWorkspace | None) -> TurnContext:
                 candidates = [
                     str(item)
                     for item in (payload.get("artifacts") or [])
-                    if str(item).strip()
+                    if str(item).strip() and is_user_artifact(str(item))
                 ]
                 if candidates:
                     recent_artifacts = candidates[:20]
@@ -545,10 +545,10 @@ def ground_artifact_followup(message: str, artifacts: list[str]) -> str:
 
 
 def wants_full_plan(message: str, workspace: SessionWorkspace | None = None) -> bool:
-    """True for ``/plan|/spec|/goal`` or a prior escalate_plan / agent_mode flag."""
+    """True for ``/plan|/goal`` or a prior escalate_plan / agent_mode flag."""
     from kageha.loop.mode_policy import parse_mode_slash, read_agent_mode_flag
 
-    if parse_mode_slash(message) in {"plan", "spec", "goal"}:
+    if parse_mode_slash(message) in {"plan", "goal"}:
         return True
     if _PLAN_CMD_RE.search((message or "").strip()):
         return True
@@ -556,7 +556,6 @@ def wants_full_plan(message: str, workspace: SessionWorkspace | None = None) -> 
         return True
     if workspace is not None and read_agent_mode_flag(workspace.root) in {
         "plan",
-        "spec",
         "goal",
     }:
         return True
@@ -569,7 +568,7 @@ def prefer_agent_mode(
     workspace: SessionWorkspace | None = None,
     explicit: str | None = None,
 ) -> str:
-    """Resolve normal|plan|spec|goal for this turn (does not consume flags)."""
+    """Resolve normal|plan|goal for this turn (does not consume flags)."""
     from kageha.loop.mode_policy import resolve_agent_mode
 
     root = workspace.root if workspace is not None else None
@@ -584,7 +583,7 @@ def prefer_loop_mode(
     workspace: SessionWorkspace | None = None,
     agent_mode: str | None = None,
 ) -> str:
-    """Act (followup) by default; full for plan/spec/goal."""
+    """Act (followup) by default; full for plan/goal."""
     from kageha.loop.mode_policy import loop_mode_for
 
     del decision  # unused — depth is the model's job
@@ -796,7 +795,7 @@ def expand_user_message(message: str, ctx: TurnContext) -> str:
     text = (message or "").strip()
     if not text:
         return text
-    # /plan|/spec|/goal are mode signals — strip before the agent sees the ask.
+    # /plan|/goal are mode signals — strip before the agent sees the ask.
     from kageha.loop.mode_policy import strip_mode_slash
 
     text = strip_mode_slash(text) or text

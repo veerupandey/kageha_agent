@@ -1,4 +1,4 @@
-"""Codex-style chat presentation — conversation first, receipts second."""
+"""Chat presentation — conversation first, receipts second."""
 
 from __future__ import annotations
 

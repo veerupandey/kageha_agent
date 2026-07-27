@@ -142,7 +142,7 @@ def register_memory_tools(ctx: "HarnessContext") -> ToolRegistry:
             )
         )
         if not ok:
-            return "DENIED: memory correction not approved"
+            return gate.denial_message("memory correction")
         record = service.mutate(
             MemoryMutation(
                 action="correct",
@@ -176,7 +176,7 @@ def register_memory_tools(ctx: "HarnessContext") -> ToolRegistry:
             )
         )
         if not ok:
-            return "DENIED: memory retraction not approved"
+            return gate.denial_message("memory retraction")
         record = service.mutate(
             MemoryMutation(
                 action="forget",

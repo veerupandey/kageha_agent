@@ -41,6 +41,21 @@ class ApprovalDecision(str, Enum):
 
 
 @dataclass
+class ApprovalOutcome:
+    """Result of an interactive approval prompt.
+
+    ``feedback`` is set when the human Suggests (deny + steering) instead of
+    a bare Approve/Deny — HITL with Suggest.
+    """
+
+    approved: bool
+    feedback: str = ""
+
+    def __bool__(self) -> bool:
+        return self.approved
+
+
+@dataclass
 class ApprovalRequest:
     action: str
     detail: str
@@ -48,7 +63,25 @@ class ApprovalRequest:
     default: ApprovalDecision = ApprovalDecision.ASK
 
 
-Approver = Callable[[ApprovalRequest], Awaitable[bool] | bool]
+Approver = Callable[
+    [ApprovalRequest],
+    Awaitable[bool | ApprovalOutcome] | bool | ApprovalOutcome,
+]
+
+
+def normalize_approval_result(result: Any) -> ApprovalOutcome:
+    if isinstance(result, ApprovalOutcome):
+        return ApprovalOutcome(
+            approved=bool(result.approved),
+            feedback=str(result.feedback or "").strip(),
+        )
+    if isinstance(result, dict):
+        return ApprovalOutcome(
+            approved=bool(result.get("approved", False)),
+            feedback=str(result.get("feedback") or "").strip(),
+        )
+    return ApprovalOutcome(approved=bool(result))
+
 
 
 _NET_SHELL = re.compile(
@@ -138,6 +171,17 @@ class ApprovalGate:
         self.log: list[ApprovalRequest] = []
         self._lock = asyncio.Lock()
         self._allowlist = _load_allowlist()
+        self.last_feedback: str = ""
+
+    def denial_message(self, what: str) -> str:
+        """User-facing denial; includes Suggest steering when present."""
+        fb = (self.last_feedback or "").strip()
+        if fb:
+            return (
+                f"DENIED: {what} not approved. "
+                f"User suggestion: {fb}. Adjust and retry (do not repeat the same action)."
+            )
+        return f"DENIED: {what} not approved"
 
     def classify_shell(self, command: str) -> ApprovalDecision:
         for segment in shell_segments(command):
@@ -169,6 +213,7 @@ class ApprovalGate:
         """Serialize human prompts so parallel tools cannot interleave HITL."""
         async with self._lock:
             self.log.append(req)
+            self.last_feedback = ""
             if self.auto_approve or req.default == ApprovalDecision.AUTO:
                 if self.audit is not None:
                     self.audit(req, "approved_auto")
@@ -182,43 +227,52 @@ class ApprovalGate:
                 if self.audit is not None:
                     self.audit(req, "approved_allowlist")
                 return True
-            return await self._ask(req, persist_allowlist=True)
+            outcome = await self._ask(req, persist_allowlist=True)
+            return bool(outcome)
 
-    async def require_explicit(self, req: ApprovalRequest) -> bool:
+    async def require_explicit(self, req: ApprovalRequest) -> ApprovalOutcome:
         """Always ask a human — ignores ``auto_approve`` and allowlist.
 
-        Shared bus for Plan/Spec Build, ``request_approval`` tool, and any
-        mode gate that must surface Approve/Deny even when tool auto-approve
-        is on. Audit ``pending`` stamps ``approval_id`` so WebUI SSE / CLI
-        can render controls before the approver blocks.
+        Shared bus for Plan Build, ``request_approval`` tool, and any mode
+        gate that must surface Approve/Deny/Suggest even when tool
+        auto-approve is on. Audit ``pending`` stamps ``approval_id`` so
+        WebUI SSE / CLI can render controls before the approver blocks.
         """
         async with self._lock:
             self.log.append(req)
+            self.last_feedback = ""
             if req.default == ApprovalDecision.DENY:
                 if self.audit is not None:
                     self.audit(req, "denied_policy")
-                return False
+                return ApprovalOutcome(False)
             return await self._ask(req, persist_allowlist=False)
 
     async def _ask(
         self, req: ApprovalRequest, *, persist_allowlist: bool
-    ) -> bool:
+    ) -> ApprovalOutcome:
         if self.approver is None:
             if self.audit is not None:
                 self.audit(req, "denied_no_approver")
-            return False
+            return ApprovalOutcome(False)
         if self.audit is not None:
             # Emits approval_required + approval_id (runtime approval_audit).
             self.audit(req, "pending")
         result = self.approver(req)
         if asyncio.iscoroutine(result) or isinstance(result, Awaitable):
-            ok = bool(await result)  # type: ignore[arg-type]
+            raw = await result  # type: ignore[arg-type]
         else:
-            ok = bool(result)
+            raw = result
+        outcome = normalize_approval_result(raw)
+        self.last_feedback = outcome.feedback
         if self.audit is not None:
-            self.audit(req, "approved" if ok else "denied")
+            if outcome.approved:
+                self.audit(req, "approved")
+            elif outcome.feedback:
+                self.audit(req, "suggested")
+            else:
+                self.audit(req, "denied")
         if (
-            ok
+            outcome.approved
             and persist_allowlist
             and (
                 req.action in {"bash", "shell"} or req.action.startswith("tool:")
@@ -232,7 +286,7 @@ class ApprovalGate:
                 _save_allowlist(self._allowlist)
             except Exception:  # noqa: BLE001
                 pass
-        return ok
+        return outcome
 
 
 def _hitl_dir() -> Path:
@@ -454,19 +508,34 @@ def race_tty_and_file(
     return ans
 
 
-async def cli_approver(req: ApprovalRequest) -> bool:
+async def cli_approver(req: ApprovalRequest) -> ApprovalOutcome:
     detail = (req.detail or "")[:400]
+    is_plan = (req.risk_class or "") == "plan" or req.action == "approve_plan"
     lines = [
-        f"Allow {req.action}?",
+        f"{'Build/approve this plan' if is_plan else f'Allow {req.action}'}?",
         f"  {detail}",
-        "[Y] Yes, allow once    [N] No",
+        "[Y] Yes    [N] No    [S] Suggest — type: s <feedback>",
     ]
 
-    def _ask() -> bool:
-        ans = race_tty_and_file(lines).strip().lower()
-        return ans in {"y", "yes", "approve", "ok"}
+    def _ask() -> ApprovalOutcome:
+        ans = race_tty_and_file(lines).strip()
+        low = ans.lower()
+        if low in {"y", "yes", "approve", "ok", "build"}:
+            return ApprovalOutcome(True)
+        if low in {"s", "suggest"}:
+            return ApprovalOutcome(
+                False, feedback="Please revise with clearer steps and constraints."
+            )
+        if low.startswith("s ") or low.startswith("suggest"):
+            fb = (
+                ans.split(":", 1)[1].strip()
+                if ":" in low and low.startswith("suggest")
+                else ans.split(None, 1)[1].strip()
+            )
+            return ApprovalOutcome(False, feedback=fb)
+        return ApprovalOutcome(False)
 
-    return bool(await asyncio.to_thread(_ask))
+    return await asyncio.to_thread(_ask)
 
 
 def _human_question_lines(

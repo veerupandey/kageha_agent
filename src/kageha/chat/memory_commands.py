@@ -1,4 +1,4 @@
-"""Codex-style `/memory` commands for the interactive chat."""
+"""`/memory` commands for the interactive chat."""
 
 from __future__ import annotations
 

@@ -33,9 +33,6 @@ export function CommandPalette({
   const slashCatalog = useAppStore((s) => s.slashCatalog);
   const capabilities = useAppStore((s) => s.capabilities);
   const newChat = useAppStore((s) => s.newChat);
-  const newSession = useAppStore((s) => s.newSession);
-  const openDrawer = useAppStore((s) => s.openDrawer);
-  const setWorkbenchTab = useAppStore((s) => s.setWorkbenchTab);
   const showToast = useAppStore((s) => s.showToast);
 
   const slashCommands = useMemo(
@@ -55,70 +52,8 @@ export function CommandPalette({
           showToast("New chat");
         },
       },
-      {
-        id: "action-parallel",
-        label: "Parallel task",
-        description: "Open multitask tab",
-        kind: "action",
-        run: () => {
-          void newSession({ parallel: true });
-          showToast("Multitask · parallel tab");
-        },
-      },
-      {
-        id: "action-workbench",
-        label: "Workbench",
-        description: "Best-of-N · review",
-        kind: "action",
-        run: () => {
-          setWorkbenchTab("bon");
-          openDrawer("workbench");
-        },
-      },
-      {
-        id: "action-jobs",
-        label: "Jobs",
-        description: "Background jobs",
-        kind: "action",
-        run: () => openDrawer("jobs"),
-      },
-      {
-        id: "action-labs",
-        label: "Labs",
-        description: "Project labs",
-        kind: "action",
-        run: () => openDrawer("labs"),
-      },
-      {
-        id: "action-design",
-        label: "Design",
-        description: "Plan / Spec panel",
-        kind: "action",
-        run: () => openDrawer("design"),
-      },
-      {
-        id: "action-artifacts",
-        label: "Artifacts",
-        description: "Session artifacts",
-        kind: "action",
-        run: () => openDrawer("artifacts"),
-      },
-      {
-        id: "action-memory",
-        label: "Memory",
-        description: "Search memory",
-        kind: "action",
-        run: () => openDrawer("memory"),
-      },
-      {
-        id: "action-settings",
-        label: "Settings",
-        description: "Density, defaults, motion",
-        kind: "action",
-        run: () => openDrawer("settings"),
-      },
     ],
-    [newChat, newSession, openDrawer, setWorkbenchTab, showToast],
+    [newChat, showToast],
   );
 
   const slashItems = useMemo(() => {

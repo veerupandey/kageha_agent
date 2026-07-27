@@ -70,9 +70,33 @@ def test_require_explicit_ignores_auto_approve():
                 risk_class="plan",
             )
         )
-        assert ok is True
+        assert ok.approved is True
         assert "pending" in decisions
         assert "approved" in decisions
+
+    asyncio.run(_run())
+
+
+def test_require_explicit_suggest_sets_feedback():
+    async def approver(_req: ApprovalRequest):
+        from kageha.harness.approvals import ApprovalOutcome
+
+        return ApprovalOutcome(False, feedback="prefer Redis")
+
+    gate = ApprovalGate(auto_approve=True, approver=approver)
+
+    async def _run():
+        ok = await gate.require_explicit(
+            ApprovalRequest(
+                action="approve_plan",
+                detail="plan",
+                risk_class="plan",
+            )
+        )
+        assert ok.approved is False
+        assert ok.feedback == "prefer Redis"
+        assert gate.last_feedback == "prefer Redis"
+        assert "Redis" in gate.denial_message("plan")
 
     asyncio.run(_run())
 
@@ -88,7 +112,7 @@ def test_require_explicit_fail_closed_without_approver():
                 risk_class="plan",
             )
         )
-        assert ok is False
+        assert ok.approved is False
 
     asyncio.run(_run())
 

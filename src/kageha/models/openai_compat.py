@@ -44,8 +44,40 @@ class OpenAICompatModel:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+        # Azure OpenAI accepts api-key as well as Bearer.
+        if self.provider == "azure" or "openai.azure.com" in self.base_url:
+            h["api-key"] = self.api_key
         h.update(self.extra_headers)
         return h
+
+    def _completions_url(self) -> str:
+        url = f"{self.base_url}/chat/completions"
+        # /openai/v1 rejects api-version; classic /deployments/... needs it.
+        if "/openai/v1" in self.base_url:
+            return url
+        if self.provider == "azure" or "openai.azure.com" in self.base_url:
+            import os
+
+            ver = (os.environ.get("AZURE_OPENAI_API_VERSION") or "").strip()
+            if ver and "api-version=" not in url:
+                sep = "&" if "?" in url else "?"
+                url = f"{url}{sep}api-version={ver}"
+        return url
+
+    def _token_limit_fields(self, max_tokens: int) -> dict[str, int]:
+        """gpt-5.* (incl. Azure) rejects max_tokens — use max_completion_tokens."""
+        model = (self.model or "").lower()
+        if (
+            self.provider == "azure"
+            or "openai.azure.com" in self.base_url
+            or model.startswith("gpt-5")
+            or "o1" == model
+            or model.startswith("o1-")
+            or model.startswith("o3")
+            or model.startswith("o4")
+        ):
+            return {"max_completion_tokens": max_tokens}
+        return {"max_tokens": max_tokens}
 
     def _serialize_messages(self, messages: list[ChatMessage]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -88,7 +120,7 @@ class OpenAICompatModel:
             "model": self.model,
             "messages": self._serialize_messages(messages),
             "temperature": temperature,
-            "max_tokens": max_tokens,
+            **self._token_limit_fields(max_tokens),
         }
         if tools:
             payload["tools"] = [t.openai_schema() for t in tools]
@@ -96,7 +128,7 @@ class OpenAICompatModel:
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(
-                f"{self.base_url}/chat/completions",
+                self._completions_url(),
                 headers=self._headers(),
                 json=payload,
             )
@@ -158,14 +190,14 @@ class OpenAICompatModel:
             "model": self.model,
             "messages": self._serialize_messages(messages),
             "temperature": temperature,
-            "max_tokens": max_tokens,
+            **self._token_limit_fields(max_tokens),
             "stream": True,
         }
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             async with client.stream(
                 "POST",
-                f"{self.base_url}/chat/completions",
+                self._completions_url(),
                 headers=self._headers(),
                 json=payload,
             ) as resp:

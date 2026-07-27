@@ -13,6 +13,7 @@ from kageha.loop.mode_policy import (
     clear_plan_approved,
     mark_plan_approved,
     plan_already_approved,
+    plan_skill_match_text,
     requires_plan_approval,
     resolve_agent_mode,
     tool_blocked_in_plan_design,
@@ -177,155 +178,6 @@ async def test_auto_approve_does_not_skip_plan_build(
         auto_build=False,
     )
     assert result.status == "awaiting_plan_approval"
-
-
-@pytest.mark.asyncio
-async def test_spec_writes_three_artifacts_without_build(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    result, ws, _p = await _run_mode(
-        tmp_path, monkeypatch, agent_mode="spec", auto_approve=True, auto_build=False
-    )
-    assert result.status == "awaiting_plan_approval"
-    assert (ws.root / "requirements.md").is_file()
-    assert (ws.root / "plan.md").is_file()
-    assert (ws.root / "skill_gaps.md").is_file()
-    assert not (ws.root / "task_state.json").is_file()
-    req = (ws.root / "requirements.md").read_text(encoding="utf-8")
-    # Concrete objective → skip clarify with visible continue label (not stub).
-    assert "No questions — Continue" in req
-    assert "None recorded" not in req
-
-
-@pytest.mark.asyncio
-async def test_spec_clarify_asks_before_plan_and_records_answer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Ambiguous Spec task: clarify gate → answer in Open questions → plan.md."""
-    from kageha.config import sessions_dir
-    from kageha.harness.approvals import ApprovalRequest
-    from kageha.loop.spec_clarify import SPEC_DESIGN_PHASES
-
-    plan_calls: list[str] = []
-    clarify_seen: list[ApprovalRequest] = []
-    saw_plan_md_at_plan_time = []
-
-    async def tracking_plan(task, *_a, **_k):
-        plan_calls.append(str(task))
-        saw_plan_md_at_plan_time.append(
-            any(sessions_dir().rglob("plan.md"))
-        )
-        return _stub_plan()
-
-    async def clarify_approver(req: ApprovalRequest) -> bool:
-        clarify_seen.append(req)
-        if req.action == "spec_clarify" or req.risk_class == "clarify":
-            # Simulate WebUI: user answers Open questions then Continues.
-            root = None
-            for cand in sessions_dir().rglob("requirements.md"):
-                root = cand.parent
-                break
-            assert root is not None, "requirements.md draft must exist at clarify"
-            assert not (root / "plan.md").is_file(), (
-                "plan.md must not exist before clarify Continue"
-            )
-            text = (root / "requirements.md").read_text(encoding="utf-8")
-            lines = text.splitlines()
-            out: list[str] = []
-            injected = False
-            for line in lines:
-                out.append(line)
-                if not injected and line.strip().startswith("- Q:"):
-                    out.append("  - A: Stripe")
-                    injected = True
-            if not injected:
-                out.append("- Q: Which payment provider?")
-                out.append("  - A: Stripe")
-            (root / "requirements.md").write_text("\n".join(out) + "\n", encoding="utf-8")
-            return True
-        # Build gate — deny so we stop at awaiting_plan_approval.
-        return False
-
-    # Force heuristic questions (no LLM propose).
-    async def fake_propose(task, **_k):
-        from kageha.loop.spec_clarify import ClarifyProposal, heuristic_questions
-
-        return ClarifyProposal(
-            questions=heuristic_questions(task),
-            assumptions=[],
-            skip=False,
-            source="test",
-        )
-
-    monkeypatch.setattr(
-        "kageha.loop.spec_clarify.propose_clarify", fake_propose
-    )
-
-    result, ws, project = await _run_mode(
-        tmp_path,
-        monkeypatch,
-        agent_mode="spec",
-        auto_approve=False,
-        auto_build=False,
-        objective="Build a checkout flow for our shop",
-        approver=clarify_approver,
-        plan_fn=tracking_plan,
-    )
-    assert result.status == "awaiting_plan_approval"
-    assert plan_calls, "make_plan should run after clarify"
-    assert any(
-        r.action == "spec_clarify" or r.risk_class == "clarify" for r in clarify_seen
-    )
-    assert clarify_seen[0].risk_class == "clarify" or clarify_seen[
-        0
-    ].action == "spec_clarify"
-    assert saw_plan_md_at_plan_time and saw_plan_md_at_plan_time[0] is False
-    req = (ws.root / "requirements.md").read_text(encoding="utf-8")
-    assert "## Open questions" in req
-    assert "None recorded" not in req
-    assert "Stripe" in req
-    assert (ws.root / "plan.md").is_file()
-    assert (ws.root / "skill_gaps.md").is_file()
-    gaps = (ws.root / "skill_gaps.md").read_text(encoding="utf-8")
-    assert "Skill gaps" in gaps
-    # No project mutations before Build.
-    assert (project / "README.md").read_text() == "proj\n"
-    assert list(SPEC_DESIGN_PHASES) == [
-        "requirements",
-        "clarify",
-        "plan",
-        "skill_gaps",
-        "build",
-    ]
-
-
-@pytest.mark.asyncio
-async def test_spec_clarify_skip_when_unambiguous(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    clarify_asks = []
-
-    async def tracking_approver(req) -> bool:
-        clarify_asks.append(req)
-        return False  # deny Build
-
-    result, ws, _p = await _run_mode(
-        tmp_path,
-        monkeypatch,
-        agent_mode="spec",
-        auto_approve=False,
-        auto_build=False,
-        objective="Create hello_clarify.py that prints hello",
-        approver=tracking_approver,
-    )
-    assert result.status == "awaiting_plan_approval"
-    assert not any(
-        getattr(r, "action", "") == "spec_clarify"
-        or getattr(r, "risk_class", "") == "clarify"
-        for r in clarify_asks
-    )
-    req = (ws.root / "requirements.md").read_text(encoding="utf-8")
-    assert "No questions — Continue" in req
 
 
 @pytest.mark.asyncio
@@ -580,7 +432,7 @@ def test_deep_modes_force_full_over_stale_followup():
     from kageha.app_server import _resolve_loop_mode
     from kageha.loop.mode_policy import loop_mode_for, normalize_agent_mode
 
-    for mode in ("plan", "spec", "goal"):
+    for mode in ("plan", "goal"):
         assert loop_mode_for(normalize_agent_mode(mode)) == "full"
         assert (
             _resolve_loop_mode(
@@ -590,3 +442,137 @@ def test_deep_modes_force_full_over_stale_followup():
             )
             == "full"
         )
+
+
+def test_plan_skill_match_text_prefers_objective(tmp_path: Path):
+    root = tmp_path / "session"
+    root.mkdir()
+    (root / "plan.md").write_text(
+        "# Plan (plan)\n\n"
+        "**Objective:** Research kageha.ca and Bare & Fair connections\n\n"
+        "**TL;DR:** Sourced findings report with relationship details.\n\n"
+        "summary\n",
+        encoding="utf-8",
+    )
+    text = plan_skill_match_text(root, "Execute the approved plan.")
+    assert "Research kageha.ca" in text
+    assert "Sourced findings" in text
+    assert "Execute the approved plan." in text
+
+
+def test_plan_needs_clarify_heuristic():
+    from kageha.loop.mode_policy import is_plan_build_prompt, plan_needs_clarify
+
+    assert plan_needs_clarify("add auth") is True
+    assert plan_needs_clarify("make the app better somehow") is True
+    assert (
+        plan_needs_clarify("Create hello_mode.py that prints hello") is False
+    )
+    assert is_plan_build_prompt("Execute the approved plan.") is True
+    assert is_plan_build_prompt("use Redis instead") is False
+
+
+@pytest.mark.asyncio
+async def test_plan_clarify_then_continue(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Ambiguous Plan ask pauses with awaiting_clarify; answer continues design."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("KAGEHA_HOME", str(home))
+    monkeypatch.setenv("KAGEHA_MAX_STEPS", "3")
+    monkeypatch.setenv("KAGEHA_MEMORY_ENABLED", "0")
+
+    async def fake_plan(*_a, **_k):
+        return _stub_plan()
+
+    monkeypatch.setattr("kageha.loop.controller.make_plan", fake_plan)
+
+    async def fake_explore(**_k):
+        return "explore ok"
+
+    monkeypatch.setattr(
+        "kageha.loop.design_explore.explore_before_plan", fake_explore
+    )
+    from kageha.harness.tools.base import ToolRegistry
+
+    monkeypatch.setattr(
+        "kageha.loop.controller.load_entry_point_tools",
+        lambda _ctx: ToolRegistry(),
+    )
+    project = tmp_path / "proj"
+    project.mkdir()
+    ws = SessionWorkspace.create("clarify-plan")
+    monkeypatch.setenv("KAGEHA_SESSION", str(ws.root))
+
+    ctrl = LoopController(
+        auto_approve=True,
+        auto_build=False,
+        live=False,
+        max_steps_limit=3,
+        project_root=str(project),
+        platform="cli",
+        defer_human_input=True,
+    )
+    r1 = await ctrl.run(
+        "authenticate users somehow with either JWT or sessions",
+        workspace=ws,
+        fresh_turn=True,
+        turn_task="authenticate users somehow with either JWT or sessions",
+        loop_mode="full",
+        agent_mode="plan",
+    )
+    assert r1.status == "awaiting_clarify"
+    assert (ws.root / "clarify_pending.json").is_file()
+
+    r2 = await ctrl.run(
+        "Use JWT with refresh tokens",
+        workspace=ws,
+        fresh_turn=False,
+        turn_task="Use JWT with refresh tokens",
+        loop_mode="full",
+        agent_mode="plan",
+    )
+    assert r2.status == "awaiting_plan_approval"
+    assert not (ws.root / "clarify_pending.json").is_file()
+    assert (ws.root / "plan.md").is_file()
+
+
+@pytest.mark.asyncio
+async def test_plan_suggest_revises_without_approving(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from kageha.harness.approvals import ApprovalOutcome
+
+    calls = {"n": 0}
+
+    async def fake_plan(task, *_a, **_k):
+        calls["n"] += 1
+        desc = "prefer Redis step" if "Redis" in str(task) else "Write hello.py"
+        return TaskPlan(
+            summary=f"plan-{calls['n']}",
+            steps=[PlanStep(id="s1", description=desc, tools=["write_file"])],
+            milestones=["done"],
+            source="template",
+        )
+
+    suggest_once = {"done": False}
+
+    async def approver(_req):
+        if not suggest_once["done"]:
+            suggest_once["done"] = True
+            return ApprovalOutcome(False, feedback="prefer Redis")
+        return ApprovalOutcome(False)  # bare deny after revise → awaiting
+
+    result, ws, _p = await _run_mode(
+        tmp_path,
+        monkeypatch,
+        agent_mode="plan",
+        auto_approve=False,
+        auto_build=False,
+        objective="Create hello_suggest.py that prints hello",
+        approver=approver,
+        plan_fn=fake_plan,
+    )
+    assert result.status == "awaiting_plan_approval"
+    assert calls["n"] >= 2
+    plan_md = (ws.root / "plan.md").read_text(encoding="utf-8")
+    assert "Redis" in plan_md or "prefer Redis" in plan_md

@@ -131,7 +131,7 @@ def test_thread_turn_real_task_still_uses_runtime(tmp_path, monkeypatch):
     server._runtime = runtime
     monkeypatch.setattr(
         "kageha.memory.skills.SkillRegistry.catalog",
-        lambda self, limit=40: "",
+        lambda self, limit=40, query=None: "",
     )
     monkeypatch.setattr(
         server.memory,

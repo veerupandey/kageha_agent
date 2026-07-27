@@ -63,7 +63,8 @@ def test_web_approver_surfaces_pending_and_resolves():
             }
         )
         assert resp["result"]["ok"] is True
-        assert await task is True
+        outcome = await task
+        assert outcome.approved is True
         assert "pending" in decisions
         assert "approved" in decisions
         assert (s.threads.get(thread_id) or {}).get("pending_approval") is None

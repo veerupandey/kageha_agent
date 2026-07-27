@@ -30,8 +30,37 @@ _INTERNAL_FILES = frozenset({
 _INTERNAL_ROOTS = frozenset({"_memory", "_turns", "checkpoints"})
 _SCRATCH_ROOTS = frozenset({"inputs", "scripts", "tmp", "temp"})
 _ROOT_SCRATCH_SUFFIXES = frozenset({
-    ".py", ".pyc", ".js", ".mjs", ".cjs", ".ts", ".sh", ".bash", ".zsh",
+    ".py", ".pyc", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx",
+    ".sh", ".bash", ".zsh", ".go", ".rs", ".java", ".kt",
 })
+# Repo source trees — edits belong in the project, not session Artifacts.
+_SOURCE_TREE_ROOTS = frozenset({
+    "src",
+    "tests",
+    "test",
+    "lib",
+    "packages",
+    "apps",
+    "cmd",
+    "internal",
+    "pkg",
+})
+# Only these leave the project root into session artifacts/ (WebUI downloads).
+_MIRROR_DELIVERABLE_EXTS = frozenset({
+    ".pptx", ".ppt", ".xlsx", ".xls", ".docx", ".doc", ".pdf",
+    ".html", ".htm", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg",
+    ".mp4", ".webm", ".mov", ".wav", ".mp3", ".zip", ".tar", ".gz",
+    ".md", ".txt", ".csv", ".json",
+})
+_MIRROR_OK_PREFIXES = (
+    "artifacts/",
+    "outputs/",
+    "diagrams/",
+    "carousel/",
+    "research/",
+    "slides/",
+    "deck/",
+)
 # Dependency / build trees — never treat as session deliverables.
 _NOISE_DIR_NAMES = frozenset({
     "node_modules",
@@ -63,10 +92,29 @@ _PRIORITY_PREFIXES = (
 )
 
 
-def is_user_artifact(rel: str) -> bool:
-    rel = rel.replace("\\", "/")
+def _normalize_rel(rel: str) -> str:
+    rel = (rel or "").replace("\\", "/")
     while rel.startswith("./"):
         rel = rel[2:]
+    return rel
+
+
+def _source_tree_parts(rel: str) -> tuple[str, ...]:
+    """Path parts with a leading ``artifacts/`` stripped for source-tree checks."""
+    parts = Path(_normalize_rel(rel)).parts
+    if parts and parts[0] == "artifacts":
+        parts = parts[1:]
+    return parts
+
+
+def looks_like_repo_source(rel: str) -> bool:
+    """True for ``src/…``, ``tests/…``, or ``artifacts/src/…`` package trees."""
+    parts = _source_tree_parts(rel)
+    return bool(parts) and parts[0] in _SOURCE_TREE_ROOTS
+
+
+def is_user_artifact(rel: str) -> bool:
+    rel = _normalize_rel(rel)
     if not rel or rel in _INTERNAL_FILES:
         return False
     if Path(rel).name in _INTERNAL_FILES or Path(rel).name == ".DS_Store":
@@ -83,9 +131,26 @@ def is_user_artifact(rel: str) -> bool:
     # explicit output directory (artifacts/, outputs/, etc.).
     if len(parts) == 1 and Path(rel).suffix.lower() in _ROOT_SCRATCH_SUFFIXES:
         return False
+    # Never treat mirrored package source (artifacts/src/…, src/…) as deliverables.
+    if looks_like_repo_source(rel):
+        return False
     if any(rel.startswith(p) for p in _NOISE_PREFIXES):
         return False
     return True
+
+
+def should_mirror_to_session(rel: str) -> bool:
+    """Project files that may be copied into the session ``artifacts/`` folder.
+
+    Source-tree edits stay in the repo. Only user-facing deliverables
+    (decks, docs, media, or paths already under artifacts/outputs/…) mirror.
+    """
+    rel = _normalize_rel(rel)
+    if not rel or looks_like_repo_source(rel) or not is_user_artifact(rel):
+        return False
+    if any(rel.startswith(p) for p in _MIRROR_OK_PREFIXES):
+        return True
+    return Path(rel).suffix.lower() in _MIRROR_DELIVERABLE_EXTS
 
 
 def classify_artifacts(paths: list[str]) -> list[str]:
@@ -271,7 +336,39 @@ def humanize_turn_reply(
             "error": "I couldn't complete that request because the run failed.",
             "hitl": "I need your input before I can complete that request.",
             "ask_user": "I need your input before I can complete that request.",
+            "awaiting_plan_approval": "",  # handled below
         }.get(normalized_status, "I couldn't verify that the request was completed.")
+        if normalized_status == "awaiting_plan_approval":
+            plan_path = root / "plan.md"
+            lines = [
+                "Plan ready — design only until you Build.",
+            ]
+            if plan_path.is_file():
+                lines.append(f"Plan: {plan_path.resolve()}")
+            # Pull a short TL;DR from plan.md when present.
+            try:
+                if plan_path.is_file():
+                    for raw_line in plan_path.read_text(encoding="utf-8").splitlines():
+                        if raw_line.strip().startswith("**TL;DR:**"):
+                            tldr = raw_line.split(":**", 1)[-1].strip()
+                            if tldr:
+                                lines.append(f"TL;DR: {tldr}")
+                            break
+            except OSError:
+                pass
+            lines.append(
+                "Edit plan.md, reply with changes to revise, or type /build to execute. "
+                "(/permissions auto skips risky-tool prompts — not Build.)"
+            )
+            return "\n".join(lines)
+        if normalized_status == "awaiting_clarify":
+            q = (msg or "").strip()
+            if q:
+                return q
+            return (
+                "I need one clarification before drafting the plan. "
+                "Reply with constraints or preferred approach."
+            )
         # Surface the real cause (e.g. model routing) so chat doesn't invent
         # "no tools configured" after a failed run that did use tools.
         if normalized_status == "error" and msg and not _is_stop_jargon(msg):
@@ -363,6 +460,7 @@ def mirror_deliverables_into_session(
 
     When ``project_root`` is bound, tools write under the repo; the WebUI serves
     ``~/.kageha/sessions/{id}/`` only. Mirroring keeps Artifacts + /files/ working.
+    Never mirrors package source trees (``src/``, ``tests/``, …).
     """
     root = source_root.expanduser().resolve()
     if not root.is_dir():
@@ -370,8 +468,8 @@ def mirror_deliverables_into_session(
     mirrored: list[str] = []
     seen: set[str] = set()
     for raw in relative_paths:
-        rel = str(raw or "").replace("\\", "/").lstrip("./")
-        if not rel or rel in seen or not is_user_artifact(rel):
+        rel = _normalize_rel(str(raw or ""))
+        if not rel or rel in seen or not should_mirror_to_session(rel):
             continue
         seen.add(rel)
         src = (root / rel).resolve()

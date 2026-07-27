@@ -1,16 +1,15 @@
-"""One-shot device remote commands — skip plan/verify/checkpoint loops.
+"""One-shot device remote commands — stubbed after devices pack removal.
 
-Primary source: skill ``fast-path`` / ``fast-path-when`` frontmatter
-(e.g. ``sony_bravia``). Built-in maps remain as a fallback.
+Primary source was skill ``fast-path`` / ``fast-path-when`` frontmatter
+(e.g. ``sony_bravia``). Device modules are gone; matching remains so routes
+degrade cleanly instead of importing deleted packages.
 """
 
 from __future__ import annotations
 
-import json
-import os
 import re
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from kageha.chat.turn_manager import TurnContext
@@ -89,6 +88,11 @@ _BUILTIN_WHEN = (
     "remote",
     "netflix",
     "youtube",
+)
+
+_DEVICES_GONE = (
+    "TV / device remote control was removed from this build "
+    "(no `kageha.devices` package)."
 )
 
 
@@ -194,22 +198,17 @@ def session_has_device_remote(ctx: "TurnContext") -> bool:
 
 
 def device_remote_ready() -> bool:
-    try:
-        from kageha.devices.bravia import load_profile, resolve_host
-    except Exception:  # noqa: BLE001
-        return False
-    host = resolve_host("")
-    if not host:
-        return False
-    profile = load_profile(host) or {}
-    if profile.get("paired") or profile.get("cookies") or profile.get("psk"):
-        return True
-    return bool((os.environ.get("KAGEHA_BRAVIA_PSK") or "").strip())
+    """Always false — Bravia/device stack was deleted."""
+    return False
 
 
 def should_quick_remote(message: str, ctx: "TurnContext") -> dict[str, str] | None:
-    """Return ``{kind, key|app}`` when this message should bypass the agent loop."""
-    if not (session_has_device_remote(ctx) or device_remote_ready()):
+    """Return ``{kind, key|app}`` when this message matches a remote phrase.
+
+    Execution is stubbed; callers still get a mapped action so the route can
+    reply with a clear removal message instead of falling into the agent loop.
+    """
+    if not session_has_device_remote(ctx):
         return None
     text = normalize_remote_phrase(message)
     if not text or len(text) > 48:
@@ -224,117 +223,12 @@ def should_quick_remote(message: str, ctx: "TurnContext") -> dict[str, str] | No
     return None
 
 
-def _persist_cookies(host: str, client: Any) -> None:
-    from kageha.devices.bravia import _CLIENT_NICKNAME, load_profile, save_profile
-
-    profile = load_profile(host) or {
-        "host": host,
-        "client_id": "",
-        "nickname": _CLIENT_NICKNAME,
-    }
-    profile["cookies"] = client.cookies
-    profile["paired"] = True
-    save_profile(host, profile)
-
-
 async def execute_quick_remote(
     message: str,
     *,
     action: dict[str, str] | None = None,
     auto_approve: bool = False,
 ) -> str:
-    """Run one device action; return a short user-facing reply."""
-    act = action
-    if act is None:
-        from kageha.chat.turn_manager import TurnContext
-
-        act = should_quick_remote(message, TurnContext(run_id="quick"))
-    if not act and device_remote_ready():
-        text = normalize_remote_phrase(message)
-        act = _merged_actions().get(text)
-    if not act:
-        return "I couldn't map that to a TV remote action."
-
-    from kageha.devices.bravia import client_from_env, resolve_host
-
-    host = resolve_host("")
-    if not host:
-        return (
-            "No Bravia host configured. Set KAGEHA_BRAVIA_HOST or pair a TV first."
-        )
-    if not auto_approve and act.get("kind") != "status":
-        return (
-            "TV remote actions need approval. "
-            "Re-run chat with --approve for one-shot remotes."
-        )
-    client = client_from_env(host)
-    if client is None:
-        return f"ERROR: could not build Bravia client for {host}"
-
-    kind = act.get("kind")
-    if kind == "status":
-        code, power, _ = client.rpc("system", "getPowerStatus")
-        vol_code, vol, _ = client.rpc("audio", "getVolumeInformation")
-        out: dict[str, Any] = {"host": host}
-        if code < 400:
-            result = power.get("result") or [{}]
-            out["power"] = result[0] if isinstance(result, list) else result
-        if vol_code < 400:
-            result = vol.get("result") or [[]]
-            out["volume"] = result[0] if isinstance(result, list) else result
-        return f"TV `{host}`:\n```json\n{json.dumps(out, indent=2)[:1200]}\n```"
-
-    if kind == "launch":
-        app_q = act.get("app") or ""
-        code, data, _ = client.rpc("appControl", "getApplicationList")
-        if code >= 400 or "error" in data:
-            return f"ERROR: cannot list apps: {data.get('error')}"
-        apps = data.get("result") or []
-        if isinstance(apps, list) and apps and isinstance(apps[0], list):
-            apps = apps[0]
-        target = ""
-        title_hit = ""
-        q = app_q.lower()
-        for a in apps:
-            if not isinstance(a, dict):
-                continue
-            title = str(a.get("title") or "")
-            uri = str(a.get("uri") or "")
-            if q in title.lower() or q in uri.lower():
-                target = uri
-                title_hit = title or uri
-                break
-        if not target:
-            return f"ERROR: no app matched {app_q!r}"
-        code, data, _ = client.rpc(
-            "appControl", "setActiveApp", [{"uri": target}]
-        )
-        if code >= 400 or "error" in data:
-            return f"ERROR: launch failed: {data.get('error') or data}"
-        _persist_cookies(host, client)
-        return f"Launched **{title_hit or app_q}** on `{host}`."
-
-    lookup = act.get("key") or ""
-    codes = client.remote_codes()
-    ircc = codes.get(lookup)
-    resolved = lookup
-    if not ircc:
-        for name, value in codes.items():
-            if name.lower() == lookup.lower():
-                ircc = value
-                resolved = name
-                break
-    if not ircc and lookup == "Stop":
-        ircc = codes.get("Pause")
-        resolved = "Pause" if ircc else lookup
-    if not ircc:
-        sample = ", ".join(sorted(codes)[:24])
-        return f"Unknown remote key {lookup!r}. Examples: {sample}"
-    status, text = client.ircc(ircc)
-    if status >= 400:
-        return (
-            f"TV rejected {resolved} ({status}): {text}. "
-            "Re-pair with `kageha bravia pair` if needed."
-        )
-    _persist_cookies(host, client)
-    return f"Sent **{resolved}** to Sony Bravia at `{host}`."
+    """Device remotes are unavailable after the devices pack trim."""
+    _ = (message, action, auto_approve)
+    return _DEVICES_GONE

@@ -4,9 +4,23 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
+
 from kageha.harness.sandbox import SessionWorkspace
 from kageha.models.base import ChatMessage
+
+
+def append_chat_log(workspace: SessionWorkspace, role: str, text: str) -> None:
+    """Append one user/assistant line to the session ``chat.jsonl``."""
+    path = workspace.root / "chat.jsonl"
+    rec = {
+        "ts": datetime.now(tz=timezone.utc).isoformat(),
+        "role": role,
+        "text": (text or "")[:8000],
+    }
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
 def _load_chat_jsonl(root: Path) -> list[dict[str, str]]:
@@ -43,7 +57,7 @@ def _load_turn_records(root: Path) -> list[dict[str, str]]:
     try:
         paths = sorted(
             (p for p in turns_dir.glob("*.json") if p.is_file()),
-            key=lambda p: p.stat().st_mtime_ns,
+            key=lambda p: (p.stat().st_mtime_ns, p.name),
         )
     except OSError:
         return []

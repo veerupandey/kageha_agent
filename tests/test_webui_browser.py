@@ -91,9 +91,11 @@ def test_api_slash_catalog(webui_app: WebUIApp) -> None:
     assert data.get("ok") is True
     cmds = data.get("commands") or []
     ids = {c.get("id") for c in cmds}
-    assert {"plan", "new", "ask", "auto", "memory", "artifacts", "comet"} <= ids
+    assert {"plan", "goal", "normal", "new", "ask", "auto", "comet"} <= ids
     assert "permissions" in ids
     assert "permissions-ask" in ids
+    assert "best-of-n" not in ids
+    assert "labs" not in ids
     caps = data.get("capabilities") or {}
     assert caps.get("comet") is True
     assert caps.get("browser") is True

@@ -305,7 +305,11 @@ class AgentRuntime:
                     },
                     idempotency_key=f"approval:pending:{approval_id}",
                 )
-            elif id(approval) in approval_ids and decision in {"approved", "denied"}:
+            elif id(approval) in approval_ids and decision in {
+                "approved",
+                "denied",
+                "suggested",
+            }:
                 self.store.append_event(
                     session_id=handle.session_id,
                     turn_id=handle.turn_id,

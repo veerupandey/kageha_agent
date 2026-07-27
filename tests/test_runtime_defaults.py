@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import pytest
@@ -12,9 +13,24 @@ from kageha.config import security_profile
 from kageha.loop.controller import LoopController
 
 
-def test_security_defaults_to_strict(monkeypatch):
+def test_security_defaults_to_approval_fallback(monkeypatch):
     monkeypatch.delenv("KAGEHA_SECURITY_PROFILE", raising=False)
-    assert security_profile() == "strict"
+    assert security_profile() == "approval_fallback"
+    assert security_profile("permissive") == "approval_fallback"
+    assert security_profile("strict") == "strict"
+
+
+def test_apply_sandbox_cli(monkeypatch):
+    from kageha.config import apply_sandbox_cli, sandbox_profile
+
+    monkeypatch.delenv("KAGEHA_SANDBOX", raising=False)
+    assert apply_sandbox_cli(None) == sandbox_profile()
+    assert apply_sandbox_cli("docker") == "docker"
+    assert os.environ.get("KAGEHA_SANDBOX") == "docker"
+    assert apply_sandbox_cli("container") == "docker"
+    assert apply_sandbox_cli("off") == "off"
+    with pytest.raises(ValueError, match="sandbox must be"):
+        apply_sandbox_cli("nope")
 
 
 def test_core_loop_cannot_start_unjournaled_session():

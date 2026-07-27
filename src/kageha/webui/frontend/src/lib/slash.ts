@@ -9,11 +9,10 @@ export interface TokenContext {
   token?: string;
 }
 
-const AGENT_MODES: AgentMode[] = ["normal", "plan", "spec", "goal"];
+const AGENT_MODES: AgentMode[] = ["normal", "plan", "goal"];
 
 const SLASH_PRIMARY_IDS = [
   "plan",
-  "spec",
   "goal",
   "normal",
   "multitask",
@@ -21,11 +20,6 @@ const SLASH_PRIMARY_IDS = [
   "ask",
   "auto",
   "model",
-  "labs",
-  "best-of-n",
-  "review",
-  "memory",
-  "artifacts",
   "browser",
   "research",
   "comet",
@@ -36,7 +30,6 @@ const SLASH_KIND_ORDER = [
   "mode",
   "multitask",
   "prefs",
-  "labs",
   "browser",
   "computer",
   "project",
@@ -348,37 +341,16 @@ export function applySlashCommand(
     return;
   }
 
-  if (id === "labs") {
+  if (
+    id === "labs" ||
+    id === "best-of-n" ||
+    id === "review" ||
+    id === "memory" ||
+    id === "artifacts" ||
+    id === "spec"
+  ) {
     clearToken();
-    store.openDrawer("labs");
-    return;
-  }
-
-  if (id === "best-of-n") {
-    clearToken();
-    store.setWorkbenchTab("bon");
-    store.openDrawer("workbench");
-    store.showToast("Workbench · Best-of-N");
-    return;
-  }
-
-  if (id === "review") {
-    clearToken();
-    store.setWorkbenchTab("review");
-    store.openDrawer("workbench");
-    store.showToast("Workbench · Review diff");
-    return;
-  }
-
-  if (id === "memory") {
-    clearToken();
-    store.openDrawer("memory");
-    return;
-  }
-
-  if (id === "artifacts") {
-    clearToken();
-    store.openDrawer("artifacts");
+    store.showToast("Not available in lean WebUI");
     return;
   }
 

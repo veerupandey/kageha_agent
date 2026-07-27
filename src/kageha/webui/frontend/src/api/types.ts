@@ -1,4 +1,4 @@
-export type AgentMode = "normal" | "plan" | "spec" | "goal";
+export type AgentMode = "normal" | "plan" | "goal";
 
 export type RunStatus =
   | "idle"
@@ -10,22 +10,10 @@ export type RunStatus =
 
 export type ComposerChipKind = "mode" | "multitask";
 
-export type DrawerName =
-  | "design"
-  | "artifacts"
-  | "memory"
-  | "jobs"
-  | "labs"
-  | "workbench"
-  | "settings";
-
-export type WorkbenchTab = "bon" | "review";
-
 export type SlashCommandKind =
   | "mode"
   | "multitask"
   | "prefs"
-  | "labs"
   | "browser"
   | "computer"
   | "project"
@@ -121,16 +109,6 @@ export interface ComposerChip {
   value: string | null;
 }
 
-export interface DrawersState {
-  design: boolean;
-  artifacts: boolean;
-  memory: boolean;
-  jobs: boolean;
-  labs: boolean;
-  workbench: boolean;
-  settings: boolean;
-}
-
 export type Density = "comfortable" | "compact";
 
 export interface UserPrefs {
@@ -140,32 +118,6 @@ export interface UserPrefs {
   defaultAgentMode: AgentMode;
   reduceMotion: boolean;
   showToolCards: boolean;
-}
-
-export interface TodoBoardItem {
-  id: string;
-  text: string;
-  done: boolean;
-}
-
-export interface TodoBoard {
-  label: string;
-  done: number;
-  total: number;
-  items: TodoBoardItem[];
-}
-
-export interface DesignPanelState {
-  files: Record<string, string>;
-  activeFile: string;
-  agentMode: AgentMode | string;
-  phases: string[];
-  awaitingClarify: boolean;
-  awaitingBuild: boolean;
-  dirty: boolean;
-  saving: boolean;
-  exploreStatus: Record<string, unknown> | null;
-  exploreDegraded: boolean;
 }
 
 export interface ArtifactEntry {

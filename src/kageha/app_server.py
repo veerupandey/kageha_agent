@@ -1,4 +1,4 @@
-"""Thin JSON-RPC App Server over stdio (Codex App Server pattern)."""
+"""Thin JSON-RPC App Server over stdio."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def _resolve_loop_mode(
     workspace: Any = None,
     agent_mode: str | None = None,
 ) -> str:
-    """Chat-like default: followup; plan/spec/goal or explicit full → full loop.
+    """Chat-like default: followup; plan/goal or explicit full → full loop.
 
     Deep agent modes always win over a stale ``loop_mode=followup`` from older
     clients (WebUI historically special-cased only ``/plan``).
@@ -88,8 +88,10 @@ class AppServer:
         ``approval_required`` and this waiter share one id.
         """
 
-        async def approver(req: Any) -> bool:
+        async def approver(req: Any) -> Any:
             import uuid
+
+            from kageha.harness.approvals import normalize_approval_result
 
             aid = str(getattr(req, "approval_id", "") or "") or uuid.uuid4().hex
             try:
@@ -108,9 +110,10 @@ class AppServer:
             }
             self.threads.setdefault(thread_id, {})["pending_approval"] = pending
             try:
-                return bool(await asyncio.wait_for(fut, timeout=600.0))
+                raw = await asyncio.wait_for(fut, timeout=600.0)
+                return normalize_approval_result(raw)
             except asyncio.TimeoutError:
-                return False
+                return normalize_approval_result(False)
             finally:
                 self._approval_waiters.pop(aid, None)
                 state = self.threads.get(thread_id) or {}
@@ -262,7 +265,7 @@ class AppServer:
                         ws = self._workspace(prior_run)
                         if ws is not None and mode != "normal":
                             write_agent_mode_flag(ws.root, mode)
-                        from kageha.channels.session_memory import append_chat_log
+                        from kageha.chat.history import append_chat_log
 
                         if ws is not None:
                             ack = mode_only_ack(mode)
@@ -293,7 +296,7 @@ class AppServer:
             if quick:
                 if prior_run:
                     try:
-                        from kageha.channels.session_memory import append_chat_log
+                        from kageha.chat.history import append_chat_log
 
                         ws = self._workspace(prior_run)
                         if ws is not None:
@@ -487,7 +490,7 @@ class AppServer:
             # Persist chat.jsonl so Web UI reopen + model continuity see history
             # (runtime also writes `_turns/`; chat log was only written for quick).
             try:
-                from kageha.channels.session_memory import append_chat_log
+                from kageha.chat.history import append_chat_log
 
                 ws = self._workspace(str(result.run_id or ""))
                 if ws is not None and task_text:
@@ -530,12 +533,18 @@ class AppServer:
             if not approval_id:
                 raise ValueError("approval_id required")
             approved = bool(params.get("approved", False))
+            feedback = str(params.get("feedback") or "").strip()
             fut = self._approval_waiters.get(approval_id)
             if fut is None:
                 raise KeyError(f"unknown or expired approval: {approval_id}")
             if not fut.done():
-                fut.set_result(approved)
-            return {"ok": True, "approval_id": approval_id, "approved": approved}
+                fut.set_result({"approved": approved, "feedback": feedback})
+            return {
+                "ok": True,
+                "approval_id": approval_id,
+                "approved": approved,
+                "feedback": feedback,
+            }
         if method == "thread/resume":
             from kageha.memory.skills import SkillRegistry
 
@@ -782,41 +791,7 @@ class AppServer:
             return asdict(self.memory.rebuild_index())
         if method == "ping":
             return {"pong": True}
-        if method == "project/review":
-            from kageha.project.review import run_review
-
-            result = await run_review(
-                project_root=str(params.get("project_root") or Path.cwd()),
-                base=str(params.get("base") or "main"),
-                head=str(params.get("head") or "HEAD"),
-                promote_rules=bool(params.get("promote_rules")),
-                auto_approve=bool(params.get("auto_approve", True)),
-                max_steps=int(params.get("max_steps") or 16),
-            )
-            return result.to_dict()
-        if method == "project/best_of_n":
-            from kageha.project.best_of_n import run_best_of_n
-
-            result = await run_best_of_n(
-                objective=str(params.get("objective") or params.get("message") or ""),
-                project_root=str(params.get("project_root") or Path.cwd()),
-                n=int(params.get("n") or 2),
-                max_steps=int(params.get("max_steps") or 24),
-                auto_approve=bool(params.get("auto_approve", True)),
-                keep_losers=bool(params.get("keep_losers")),
-            )
-            return result.to_dict()
-        if method == "project/babysit":
-            from kageha.project.review import babysit_pr
-
-            result = await babysit_pr(
-                pr=str(params.get("pr") or ""),
-                project_root=str(params.get("project_root") or Path.cwd()),
-                max_rounds=int(params.get("max_rounds") or params.get("rounds") or 3),
-                auto_approve=bool(params.get("auto_approve", True)),
-            )
-            return result.to_dict()
-        if method == "cloud/run":
+        if method in {"jobs/run", "cloud/run"}:
             from kageha.project.async_jobs import enqueue_job, job_to_api_dict
 
             job = enqueue_job(
@@ -829,7 +804,7 @@ class AppServer:
                 start=True,
             )
             return job_to_api_dict(job)
-        if method == "cloud/list":
+        if method in {"jobs/list", "cloud/list"}:
             from kageha.project.async_jobs import job_counts, job_to_api_dict, list_jobs
 
             limit = int(params.get("limit") or 40)
@@ -841,19 +816,19 @@ class AppServer:
                 ],
                 "counts": job_counts(),
             }
-        if method == "cloud/status":
+        if method in {"jobs/status", "cloud/status"}:
             from kageha.project.async_jobs import job_to_api_dict, load_job
 
             job = load_job(str(params.get("job_id") or params.get("id") or ""))
             if job is None:
                 raise FileNotFoundError("job not found")
             return job_to_api_dict(job)
-        if method == "cloud/cancel":
+        if method in {"jobs/cancel", "cloud/cancel"}:
             from kageha.project.async_jobs import cancel_job, job_to_api_dict
 
             job = cancel_job(str(params.get("job_id") or params.get("id") or ""))
             return job_to_api_dict(job)
-        if method == "cloud/attach":
+        if method in {"jobs/attach", "cloud/attach"}:
             from kageha.project.async_jobs import attach_info
 
             return attach_info(str(params.get("job_id") or params.get("id") or ""))

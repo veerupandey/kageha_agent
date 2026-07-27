@@ -137,7 +137,8 @@ async def test_cli_approver_accepts_y(monkeypatch: pytest.MonkeyPatch) -> None:
             default=ApprovalDecision.ASK,
         )
     )
-    assert ok is True
+    assert ok.approved is True
+    assert ok.feedback == ""
 
 
 @pytest.mark.asyncio
@@ -154,7 +155,28 @@ async def test_cli_approver_denies_n(monkeypatch: pytest.MonkeyPatch) -> None:
             default=ApprovalDecision.ASK,
         )
     )
-    assert ok is False
+    assert ok.approved is False
+    assert ok.feedback == ""
+
+
+@pytest.mark.asyncio
+async def test_cli_approver_suggest(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kageha.harness import approvals as ap
+    from kageha.harness.approvals import ApprovalDecision, ApprovalRequest, cli_approver
+
+    monkeypatch.setattr(
+        ap, "race_tty_and_file", lambda _lines, **_kw: "s use poetry instead"
+    )
+    ok = await cli_approver(
+        ApprovalRequest(
+            action="bash",
+            detail="pip install x",
+            risk_class="shell_network_or_destructive",
+            default=ApprovalDecision.ASK,
+        )
+    )
+    assert ok.approved is False
+    assert "poetry" in ok.feedback
 
 
 @pytest.mark.asyncio

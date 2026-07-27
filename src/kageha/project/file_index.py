@@ -1,4 +1,4 @@
-"""In-memory project file index for Cursor-like ``@`` path search.
+"""In-memory project file index for ``@`` path search.
 
 Pure-Python v1: walks a project root, respects ``.gitignore`` plus common noise
 directories, and ranks matches with simple substring / segment heuristics.

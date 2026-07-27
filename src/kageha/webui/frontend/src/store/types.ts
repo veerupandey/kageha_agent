@@ -1,28 +1,17 @@
 import type {
   AgentMode,
-  ArtifactEntry,
-  BonLiveState,
   ChatMessage,
   ComposerChip,
-  DesignPanelState,
-  DrawerName,
-  DrawersState,
-  JobSummary,
-  JobsCounts,
-  MemoryItem,
   MetaPayload,
   NewSessionOptions,
   PendingApproval,
-  ReviewResult,
   RunStatus,
   SessionRun,
   SessionSummary,
   SlashCommand,
-  TodoBoard,
   ToastMessage,
   UserPrefs,
   WebUiCapabilities,
-  WorkbenchTab,
 } from "../api/types";
 
 export type { UserPrefs };
@@ -48,28 +37,6 @@ export interface AppState {
   composerChip: ComposerChip;
   tabs: string[];
   runs: Record<string, SessionRun>;
-  drawers: DrawersState;
-  design: DesignPanelState;
-  artifacts: ArtifactEntry[];
-  memoryKinds: string[];
-  memoryStates: string[];
-  memorySelectedKinds: string[];
-  memoryQuery: string;
-  memoryStateFilter: string;
-  memoryResults: MemoryItem[];
-  memoryTraceId: string | null;
-  memorySearching: boolean;
-  jobs: JobSummary[];
-  jobsCounts: JobsCounts | null;
-  jobsFilter: string;
-  jobsLoading: boolean;
-  workbenchTab: WorkbenchTab;
-  bonLive: BonLiveState | null;
-  bonObjective: string;
-  bonN: number;
-  reviewResult: ReviewResult | null;
-  todoBoards: Record<string, TodoBoard>;
-  todoBoardDismissed: string[];
   slashCatalog: SlashCommand[];
   capabilities: WebUiCapabilities;
   meta: MetaPayload | null;
@@ -94,11 +61,6 @@ export interface AppState {
   clearComposerChip: (opts?: { resetMode?: boolean }) => void;
   showToast: (text: string) => void;
   dismissToast: (id: string) => void;
-
-  openDrawer: (name: DrawerName) => void;
-  closeDrawer: (name: DrawerName) => void;
-  toggleDrawer: (name: DrawerName) => void;
-  setWorkbenchTab: (tab: WorkbenchTab) => void;
 
   addPendingFiles: (files: FileList | File[] | null | undefined) => void;
   removePendingFile: (index: number) => void;
@@ -125,36 +87,7 @@ export interface AppState {
 
   sendMessage: (textOverride?: string) => Promise<void>;
   stopGeneration: () => Promise<void>;
-  resolveApproval: (approved: boolean) => Promise<void>;
-
-  loadDesign: (opts?: {
-    forceBuild?: boolean;
-    activeFile?: string;
-    awaitingClarify?: boolean;
-  }) => Promise<void>;
-  saveDesign: (opts?: { force?: boolean; file?: string }) => Promise<void>;
-  setDesignFile: (name: string, content: string) => void;
-  setDesignActiveFile: (name: string) => void;
-  buildDesign: () => Promise<void>;
-
-  refreshArtifacts: () => Promise<void>;
-
-  setMemoryQuery: (q: string) => void;
-  setMemoryStateFilter: (state: string) => void;
-  toggleMemoryKind: (kind: string) => void;
-  searchMemory: () => Promise<void>;
-
-  refreshJobs: () => Promise<void>;
-  createJob: (objective: string) => Promise<void>;
-  cancelJob: (jobId: string) => Promise<void>;
-  attachJob: (jobId: string) => Promise<void>;
-  setJobsFilter: (filter: string) => void;
-
-  runBestOfN: (objective?: string, n?: number) => Promise<void>;
-  runReview: (opts?: Record<string, unknown>) => Promise<void>;
-
-  applyTodoBoard: (board: unknown, sessionId?: string | null) => void;
-  dismissTodoBoard: (sessionId?: string | null) => void;
+  resolveApproval: (approved: boolean, feedback?: string) => Promise<void>;
 
   /** Local transcript note (browser/computer slash results, system notices). */
   appendLocalMessage: (

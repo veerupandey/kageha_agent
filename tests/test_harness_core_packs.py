@@ -1,4 +1,4 @@
-"""Core pack surface acceptance (docs/ARCHITECTURE.md)."""
+"""Core pack surface acceptance."""
 
 from __future__ import annotations
 
@@ -80,19 +80,23 @@ def test_modes_and_prompts():
     )
     assert prefer_agent_mode("hello") == "normal"
     assert prefer_loop_mode("hello", decision, route="first_run") == "followup"
-    assert prefer_agent_mode("/spec build X") == "spec"
-    assert prefer_loop_mode("/spec build X", decision, route="first_run") == "full"
+    assert prefer_agent_mode("/spec build X") == "normal"
     assert loop_mode_for("goal") == "full"
-    spec_prompt = mode_system_extra("spec").lower()
-    assert "skill_gaps" in spec_prompt or "skill gaps" in spec_prompt
-    assert "requirements" in spec_prompt
+    plan_prompt = mode_system_extra("plan").lower()
+    assert "plan.md" in plan_prompt or "design" in plan_prompt
+    assert "build" in plan_prompt
 
 
-def test_media_and_mcp_skills_present():
+def test_core_skills_present():
     skills = SkillRegistry()
-    assert "generate_image_gemini" in skills.skills
-    assert "generate_media" in skills.skills
-    assert "getting_started" in skills.skills
+    for name in (
+        "getting_started",
+        "computer_use",
+        "web_browse",
+        "memory",
+        "web_research",
+    ):
+        assert name in skills.skills, name
 
 
 def test_doctor_reports_tool_packs():
@@ -116,20 +120,19 @@ def test_core_pack_set_frozen():
     assert "network_scan" not in OPTIONAL_PACK_NAMES
 
 
-def test_device_skills_have_scripts():
-    skills = SkillRegistry()
-    for name, script in (
-        ("sony_bravia", "key.py"),
-        ("android_tv", "discover.py"),
-        ("network_scan", "scan.py"),
-    ):
-        path = skills.skills[name].path / "scripts" / script
-        assert path.is_file(), path
-
-
 def test_no_harness_device_or_carousel_modules():
     from pathlib import Path
 
     tools = Path(__file__).resolve().parents[1] / "src" / "kageha" / "harness" / "tools"
-    for gone in ("bravia.py", "android_tv.py", "network_scan.py", "carousel_studio.py"):
+    for gone in (
+        "bravia.py",
+        "android_tv.py",
+        "network_scan.py",
+        "carousel_studio.py",
+        "pdf.py",
+        "media.py",
+        "diagram.py",
+        "product_import.py",
+        "connections_tools.py",
+    ):
         assert not (tools / gone).exists(), gone

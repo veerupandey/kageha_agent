@@ -106,14 +106,22 @@ def register(ctx: "HarnessContext") -> ToolRegistry:
                 default=ApprovalDecision.ASK,
             )
         )
-        return json.dumps(
-            {
-                "status": "approved" if ok else "denied",
-                "approved": ok,
-                "action": act,
-                "risk_class": risk,
-            }
-        )
+        payload = {
+            "status": (
+                "approved"
+                if ok
+                else ("suggested" if gate.last_feedback else "denied")
+            ),
+            "approved": bool(ok),
+            "action": act,
+            "risk_class": risk,
+        }
+        if gate.last_feedback and not ok:
+            payload["feedback"] = gate.last_feedback
+            payload["instruction"] = (
+                "Follow the user's suggestion; do not repeat the denied action."
+            )
+        return json.dumps(payload)
 
     @tool(
         description=(
@@ -218,7 +226,7 @@ def register(ctx: "HarnessContext") -> ToolRegistry:
                 )
             )
             if not ok:
-                return "DENIED: shell command not approved"
+                return gate.denial_message("shell command")
             # HITL-approved network/destructive cmds may use the network sandbox.
             if decision != ApprovalDecision.AUTO:
                 allow_network = True

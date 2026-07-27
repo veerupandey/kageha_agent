@@ -16,7 +16,7 @@ import {
 } from "../lib/slash";
 import { useAppStore } from "../store";
 
-const MODES: AgentMode[] = ["normal", "plan", "spec", "goal"];
+const MODES: AgentMode[] = ["normal", "plan", "goal"];
 
 const QA_START =
   /^(what|who|when|where|why|how|is|are|can|could|would|should|do|does|did)\b/i;
@@ -216,9 +216,11 @@ export function Composer() {
               data-mode={mode}
               aria-pressed={agentMode === mode}
               title={
-                mode === "goal"
-                  ? "Goal — verifiable outcome, not Q&A"
-                  : undefined
+                mode === "plan"
+                  ? "Plan — clarify, research, then Build"
+                  : mode === "goal"
+                    ? "Goal — execute now with HITL when needed"
+                    : "Normal mode — standard chat"
               }
               onClick={() => setAgentMode(mode)}
             >

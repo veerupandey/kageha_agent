@@ -1,4 +1,4 @@
-"""Codex-style `/comet` command for launching and checking Comet CDP."""
+"""`/comet` command for launching and checking Comet CDP."""
 
 from __future__ import annotations
 

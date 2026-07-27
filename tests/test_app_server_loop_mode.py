@@ -17,8 +17,8 @@ def test_plan_prefix_selects_full():
 
 
 def test_deep_agent_mode_beats_stale_followup():
-    """Older clients sent followup with agent_mode=goal/plan/spec — deep wins."""
-    for mode in ("plan", "spec", "goal"):
+    """Older clients sent followup with agent_mode=goal/plan — deep wins."""
+    for mode in ("plan", "goal"):
         assert (
             _resolve_loop_mode(
                 {"agent_mode": mode, "loop_mode": "followup"},
@@ -27,3 +27,12 @@ def test_deep_agent_mode_beats_stale_followup():
             )
             == "full"
         )
+    # Removed Spec mode collapses to normal → followup when stale.
+    assert (
+        _resolve_loop_mode(
+            {"agent_mode": "spec", "loop_mode": "followup"},
+            message="finish the migration",
+            agent_mode="spec",
+        )
+        == "followup"
+    )

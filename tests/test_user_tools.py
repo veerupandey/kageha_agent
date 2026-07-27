@@ -61,6 +61,6 @@ def test_bundled_skills_dir_is_package_local():
     assert d.name == "bundled_skills"
     assert (d / "getting_started" / "SKILL.md").is_file()
     assert (d / "web_research" / "SKILL.md").is_file()
-    assert (d / "sony_bravia" / "SKILL.md").is_file()
-    assert (d / "android_tv" / "SKILL.md").is_file()
-    assert (d / "network_scan" / "SKILL.md").is_file()
+    assert (d / "computer_use" / "SKILL.md").is_file()
+    assert (d / "web_browse" / "SKILL.md").is_file()
+    assert (d / "memory" / "SKILL.md").is_file()

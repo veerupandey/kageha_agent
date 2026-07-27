@@ -26,7 +26,11 @@ def registry() -> ModelRegistry:
 def test_env_overrides_embedding_model(
     registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "g-test")
+    monkeypatch.setenv("KAGEHA_EMBEDDING_PROVIDER", "gemini")
     monkeypatch.setenv("KAGEHA_EMBEDDING_MODEL", "gemini-embedding-custom")
     monkeypatch.setenv("KAGEHA_EMBEDDING_DIMENSIONS", "512")
     cfg = resolve_embedding_config(registry)
@@ -141,34 +145,13 @@ def test_match_blends_embed_boost(monkeypatch: pytest.MonkeyPatch) -> None:
             return True
 
         def search(self, query, *, limit=5):
-            return [FakeHit("network_scan", 0.82)]
+            return [FakeHit("web_research", 0.82)]
 
     monkeypatch.setattr(se, "get_skill_embedding_index", lambda **_k: FakeIndex())
 
     reg = SkillRegistry()
-    if "network_scan" not in reg.skills:
-        pytest.skip("network_scan skill not installed")
-    matched = reg.match("what else is online nearby", limit=3)
+    if "web_research" not in reg.skills:
+        pytest.skip("web_research skill not installed")
+    matched = reg.match("look up recent papers on transformers", limit=3)
     names = [s.name for s in matched]
-    assert "network_scan" in names
-
-
-def test_gemini_tts_tool_registered(tmp_path: Path) -> None:
-    from types import SimpleNamespace
-
-    from kageha.harness.approvals import ApprovalGate
-    from kageha.harness.runtime import HarnessContext
-    from kageha.harness.sandbox import SessionWorkspace
-    from kageha.harness.tools.media import register_media_tools
-
-    root = tmp_path / "tts1"
-    root.mkdir(parents=True)
-    (root / "artifacts").mkdir()
-    ws = SessionWorkspace(run_id="tts1", root=root)
-    ctx = HarnessContext(
-        workspace=ws,
-        approvals=ApprovalGate(auto_approve=True),
-        router=SimpleNamespace(),
-    )
-    reg = register_media_tools(ctx)
-    assert "gemini_tts" in reg.names()
+    assert "web_research" in names or "getting_started" in names

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Microbench WebUI hot paths: file_index query + SSE payload map.
 
-Baselines for the optional native-index gate (see docs/WEBUI.md):
+Baselines for the optional native-index gate (see docs/USAGE.md):
 
   - Warm ``@`` / file query p95  < 20ms
   - Cold index build (this repo)  informational (100k-file budget is <2s)

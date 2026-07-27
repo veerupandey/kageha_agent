@@ -40,12 +40,19 @@ def sessions_dir() -> Path:
 
 
 def security_profile(raw: str | None = None) -> str:
-    """Execution security profile for sandbox fallback behavior."""
+    """Execution security profile for sandbox fallback behavior.
+
+    Default ``approval_fallback``: run shell when OS isolation is unavailable;
+    risky tools still go through HITL. ``strict`` fails closed unless
+    seatbelt/bwrap/docker wraps the command.
+    """
     value = (
         raw
         or os.environ.get("KAGEHA_SECURITY_PROFILE")
-        or "strict"
+        or "approval_fallback"
     ).strip().lower()
+    if value == "permissive":
+        value = "approval_fallback"
     if value not in {"strict", "approval_fallback"}:
         raise ValueError("security profile must be strict or approval_fallback")
     return value
@@ -255,15 +262,9 @@ def post_checkpoint_guard_enabled() -> bool:
 _INTERACTIVE_PLATFORMS = frozenset({"cli", "repl", "tui", "desktop", "acp", "interactive"})
 _CHANNEL_PLATFORMS = frozenset(
     {
-        "whatsapp",
-        "telegram",
-        "discord",
-        "slack",
         "cron",
-        "channel",
         "mcp",
         "gateway",
-        "sms",
     }
 )
 
@@ -391,6 +392,41 @@ def sandbox_profile() -> str:
     return raw
 
 
+_SANDBOX_CLI_VALUES = frozenset(
+    {"auto", "off", "seatbelt", "bwrap", "docker", "ssh", "modal"}
+)
+
+
+def apply_sandbox_cli(raw: str | None) -> str:
+    """Apply ``--sandbox`` for this process; returns the resolved profile.
+
+    Sets ``KAGEHA_SANDBOX`` when ``raw`` is non-empty so shell wraps use it.
+    Empty/None leaves the existing env / auto selection unchanged.
+    """
+    text = (raw or "").strip().lower()
+    if not text:
+        return sandbox_profile()
+    aliases = {
+        "container": "docker",
+        "none": "off",
+        "cwd": "off",
+        "0": "off",
+        "sandbox-exec": "seatbelt",
+        "macos": "seatbelt",
+        "bubblewrap": "bwrap",
+        "remote": "ssh",
+        "serverless": "modal",
+    }
+    value = aliases.get(text, text)
+    if value not in _SANDBOX_CLI_VALUES:
+        raise ValueError(
+            "sandbox must be auto|off|seatbelt|bwrap|docker|ssh|modal "
+            f"(got {raw!r})"
+        )
+    os.environ["KAGEHA_SANDBOX"] = value
+    return sandbox_profile()
+
+
 def tools_policy_paths() -> list[Path]:
     """Candidate tools.yaml locations (home then project)."""
     return [
@@ -403,3 +439,68 @@ def tools_policy_paths() -> list[Path]:
 def env_key(name: str) -> str | None:
     v = os.environ.get(name, "").strip()
     return v or None
+
+
+def env_file_candidates() -> list[Path]:
+    """Prefer project .env, then cwd .env."""
+    paths = [project_root() / ".env", Path.cwd() / ".env"]
+    seen: set[Path] = set()
+    out: list[Path] = []
+    for p in paths:
+        rp = p.resolve()
+        if rp not in seen:
+            seen.add(rp)
+            out.append(p)
+    return out
+
+
+def resolve_env_file() -> Path:
+    """Return an existing .env path, or create project-root ``.env``."""
+    for p in env_file_candidates():
+        if p.is_file():
+            return p
+    target = project_root() / ".env"
+    if not target.is_file():
+        target.write_text("# Kageha env\n", encoding="utf-8")
+    return target
+
+
+def read_env_value(key: str, path: Path | None = None) -> str:
+    """Read KEY from a dotenv file (does not require process env)."""
+    path = path or resolve_env_file()
+    if not path.is_file():
+        return ""
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#") or "=" not in s:
+            continue
+        k, _, v = s.partition("=")
+        if k.strip() == key:
+            return v.strip().strip('"').strip("'")
+    return ""
+
+
+def upsert_env_key(key: str, value: str, path: Path | None = None) -> Path:
+    """Set KEY=value in .env (replace existing line or append)."""
+    import re
+
+    path = path or resolve_env_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+    lines = text.splitlines()
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=")
+    replaced = False
+    new_lines: list[str] = []
+    for line in lines:
+        if pattern.match(line):
+            new_lines.append(f"{key}={value}")
+            replaced = True
+        else:
+            new_lines.append(line)
+    if not replaced:
+        if new_lines and new_lines[-1].strip():
+            new_lines.append("")
+        new_lines.append(f"{key}={value}")
+    path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    os.environ[key] = value
+    return path

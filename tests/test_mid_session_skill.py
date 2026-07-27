@@ -27,6 +27,8 @@ def _ctx(tmp_path: Path) -> HarnessContext:
 def test_create_validate_load_run_same_session(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("KAGEHA_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("KAGEHA_SKILL_LEARN", "hitl")
+    # Skill scripts need a non-strict profile in unit tests (no OS sandbox wrap).
+    monkeypatch.setenv("KAGEHA_SECURITY_PROFILE", "approval_fallback")
     ctx = _ctx(tmp_path)
     reg = load_entry_point_tools(ctx)
 
