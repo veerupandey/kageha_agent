@@ -695,31 +695,6 @@ def memory_worker() -> None:
         service.stop_worker(timeout=2.0)
 
 
-@app.command("doctor")
-def doctor(
-    deep: bool = typer.Option(
-        False, "--deep", help="Run live providers and replay sessions"
-    ),
-    as_json: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
-) -> None:
-    """Check runtime, providers, sandbox, and tool-pack readiness."""
-    from kageha.runtime.doctor import run_doctor
-
-    report = run_doctor(deep=deep)
-    if as_json:
-        typer.echo(json.dumps(report.to_dict(), indent=2, sort_keys=True))
-    else:
-        for check in report.checks:
-            mark = (
-                "PASS"
-                if check.ok
-                else ("WARN" if check.severity != "error" else "FAIL")
-            )
-            typer.echo(f"{mark:4}  {check.name:20} {check.detail}")
-    if not report.ok:
-        raise typer.Exit(1)
-
-
 @app.command("chat")
 def chat_cmd(
     resume: Optional[str] = typer.Option(
@@ -1011,19 +986,6 @@ def computer_status_cmd() -> None:
     from kageha.harness.tools.computer_prefs import status_text
 
     typer.echo(status_text())
-
-
-@computer_app.command("doctor")
-def computer_doctor_cmd() -> None:
-    """Probe driver, permissions, and tool-calling model (same as /computer doctor)."""
-
-    async def _run() -> str:
-        from kageha.chat.computer_commands import handle_computer_command
-
-        _handled, msg = await handle_computer_command("/computer doctor")
-        return msg
-
-    typer.echo(asyncio.run(_run()))
 
 
 @computer_app.command("pack")
@@ -1327,37 +1289,6 @@ def models_providers() -> None:
         typer.echo(
             f"{p.key:14} {p.label:32} env={p.api_key_env} default={p.default_model}"
         )
-
-
-@models_app.command("doctor")
-def models_doctor(
-    no_smoke: bool = typer.Option(False, "--no-smoke", help="Skip API smoke tests"),
-    model_id: Optional[str] = typer.Option(
-        None, "--model", help="Smoke only this model"
-    ),
-    as_json: bool = typer.Option(False, "--json", help="Emit JSON report"),
-    plain: bool = typer.Option(False, "--plain", help="Disable Rich TUI formatting"),
-    fix: bool = typer.Option(
-        False, "--fix", help="Offer models setup when checks fail"
-    ),
-) -> None:
-    """Diagnose models, keys, roles, sandbox, and tools.yaml."""
-    from kageha.models.doctor import (
-        format_doctor_report,
-        maybe_fix_interactive,
-        run_models_doctor,
-    )
-
-    report = run_models_doctor(smoke=not no_smoke, model_id=model_id)
-    if as_json:
-        typer.echo(json.dumps(report.to_dict(), indent=2))
-    else:
-        text = format_doctor_report(report, rich=not plain)
-        typer.echo(text.rstrip("\n"))
-    if fix:
-        maybe_fix_interactive(report)
-    if not report.ok:
-        raise typer.Exit(1)
 
 
 @skills_app.command("list")

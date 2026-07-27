@@ -6,7 +6,6 @@ import asyncio
 import json
 import sqlite3
 import zipfile
-from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,13 +17,7 @@ from kageha.harness.sandbox import SessionWorkspace, run_shell
 from kageha.loop.controller import RunResult
 from kageha.loop.goal_card import GoalCard, GoalItem
 from kageha.models.registry import ModelConfig, ModelRegistry, ProviderConfig
-from kageha.runtime.benchmark import (
-    BenchmarkCase,
-    BenchmarkRunner,
-    environment_fingerprint,
-)
 from kageha.runtime.channels import DurableChannelQueue, identity_hash
-from kageha.runtime.doctor import run_doctor
 from kageha.runtime.engine import AgentRuntime, RunHandle
 from kageha.runtime.journal import (
     ToolJournal,
@@ -655,11 +648,6 @@ def test_supervisor_installs_platform_service_files(
         store.close()
 
 
-def test_environment_fingerprint_omits_secret_values():
-    fingerprint = environment_fingerprint()
-    assert "provider_configuration_hash" in fingerprint
-    assert "OPENAI_API_KEY" not in json.dumps(fingerprint)
-
 
 def test_sqlite_reports_wal_and_integrity(store: RuntimeStore):
     assert store._conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"  # noqa: SLF001
@@ -947,56 +935,6 @@ def test_citation_validator_checks_reachability(
     assert any(check["validator"] == "citations" for check in result.checks)
 
 
-@dataclass
-class _FakeBenchmarkRuntime:
-    store: RuntimeStore
-    calls: int = 0
-
-    async def execute(self, request: TurnRequest):
-        self.calls += 1
-        if "explode" in request.objective:
-            raise RuntimeError("synthetic")
-        validated = "false" not in request.objective
-        return RunResult(
-            run_id=f"r{self.calls}",
-            status="success",
-            message="done",
-            goal=GoalCard(
-                task=request.objective,
-                items=[GoalItem("g1", "done", passes=validated)],
-            ),
-            steps=1,
-            spent_usd=0.01,
-            artifacts=["a.txt"] if validated else [],
-            turn_artifacts=["a.txt"] if validated else [],
-            validated=validated,
-        )
-
-    def close(self):
-        return None
-
-
-@pytest.mark.asyncio
-async def test_benchmark_runner_records_scorecard(store: RuntimeStore):
-    runtime = _FakeBenchmarkRuntime(store)
-    runner = BenchmarkRunner(store=store, runtime=runtime)  # type: ignore[arg-type]
-    score = await runner.run(
-        [
-            BenchmarkCase("ok", "deterministic", "ok", expected_artifacts=1),
-            BenchmarkCase("false", "deterministic", "false"),
-            BenchmarkCase("error", "deterministic", "explode"),
-        ],
-        suite="unit",
-        repeats=1,
-        security_profile=SecurityProfile.STRICT,
-    )
-    assert score.runs == 3
-    assert score.successful == 1
-    assert score.false_successes == 1
-    assert len(score.failures) == 1
-    assert score.percentile(0.95) >= 0
-    assert score.to_dict()["gates"]["false_success_below_1"] is False
-
 
 class _FakeController:
     """Small controller adapter that exercises the runtime event boundary."""
@@ -1138,47 +1076,6 @@ async def test_agent_runtime_blocks_uncertain_external_mutation(
         runtime.close()
         store.close()
 
-
-def test_doctor_deep_checks_runtime_providers_and_supervisor(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    monkeypatch.setenv("KAGEHA_HOME", str(tmp_path / "home"))
-
-    async def healthy_providers(self, *, deep=False, required=()):
-        del self, deep, required
-        return [
-            ProviderHealth(
-                provider=name,
-                model_id=f"{name}-model",
-                available=True,
-                state="closed",
-            )
-            for name in ("gemini", "openai", "siliconflow")
-        ]
-
-    monkeypatch.setattr(
-        "kageha.runtime.doctor.ProviderControlPlane.check_all",
-        healthy_providers,
-    )
-    monkeypatch.setattr(
-        "kageha.runtime.doctor.sandbox_status",
-        lambda: SimpleNamespace(
-            profile="seatbelt",
-            available=True,
-            detail="ready",
-        ),
-    )
-    monkeypatch.setattr(
-        "kageha.runtime.doctor.ServiceSupervisor.status",
-        lambda self: {"services": [], "duplicate_pids": []},
-    )
-    report = run_doctor(deep=True)
-    assert report.ok is True
-    checks = {check.name: check for check in report.checks}
-    assert checks["event_replay"].ok is True
-    assert checks["providers"].ok is True
-    assert report.to_dict()["ok"] is True
 
 
 def test_supervisor_linux_install_and_direct_process_lifecycle(

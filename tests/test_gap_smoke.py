@@ -222,7 +222,6 @@ def test_cli_version_and_help():
         "chat",
         "run",
         "webui",
-        "doctor",
         "sessions",
         "server",
         "research",
@@ -238,17 +237,19 @@ def test_cli_version_and_help():
         "computer",
     ):
         assert name in help_out.stdout
+    assert "doctor" not in help_out.stdout
     # Burden commands removed from public CLI
     assert "soak" not in help_out.stdout
     runtime_help = runner.invoke(app, ["runtime", "--help"])
     assert runtime_help.exit_code == 0
     assert "benchmark" not in runtime_help.stdout
     assert "soak" not in runtime_help.stdout
-    doctor = runner.invoke(app, ["doctor", "--json"])
-    assert doctor.exit_code in {0, 1}
-    models_doc = runner.invoke(app, ["models", "doctor", "--no-smoke", "--plain"])
-    assert models_doc.exit_code in {0, 1}
-    assert "doctor" in models_doc.stdout.lower() or models_doc.exit_code in {0, 1}
+    models_help = runner.invoke(app, ["models", "--help"])
+    assert models_help.exit_code == 0
+    assert "doctor" not in models_help.stdout
+    computer_help = runner.invoke(app, ["computer", "--help"])
+    assert computer_help.exit_code == 0
+    assert "doctor" not in computer_help.stdout
 
 
 def test_repl_help_documents_modes():

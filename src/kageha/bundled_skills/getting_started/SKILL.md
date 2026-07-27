@@ -84,7 +84,7 @@ Remote HTTP needs `uv sync --extra mcp`. Host editor MCP import: `KAGEHA_MCP_IMP
 
 ## First-run checklist
 
-1. `kageha models setup` / `kageha models doctor`  
+1. `kageha models setup` / `kageha models list`  
 2. Confirm skills: `kageha skills list` (should include `getting_started` + core pack)  
 3. For MCP: `kageha mcp init` then add a server  
 4. Drop custom skills under `~/.kageha/skills/<name>/SKILL.md` or tools under `~/.kageha/tools/*.py`

@@ -105,7 +105,6 @@ Project starter files: [`models.yaml`](../models.yaml), [`tools.yaml`](../tools.
 ## Verify
 
 ```bash
-uv run kageha doctor
 uv run kageha models list
 uv run kageha chat
 ```

@@ -9,11 +9,15 @@ from kageha.chat.turn_manager import TurnDecision, prefer_agent_mode, prefer_loo
 from kageha.harness.approvals import ApprovalGate
 from kageha.harness.runtime import HarnessContext
 from kageha.harness.sandbox import SessionWorkspace
-from kageha.harness.tool_packs import CORE_PACK_NAMES, OPTIONAL_PACK_NAMES
+from kageha.harness.tool_packs import (
+    CORE_PACK_NAMES,
+    OPTIONAL_PACK_NAMES,
+    resolve_enabled_packs,
+    summarize_packs,
+)
 from kageha.harness.tools.builtin import load_entry_point_tools
 from kageha.loop.mode_policy import loop_mode_for, mode_system_extra
 from kageha.memory.skills import SkillRegistry
-from kageha.models.doctor import run_models_doctor
 
 
 def _ctx(tmp_path: Path) -> HarnessContext:
@@ -99,14 +103,17 @@ def test_core_skills_present():
         assert name in skills.skills, name
 
 
-def test_doctor_reports_tool_packs():
-    report = run_models_doctor(smoke=False)
-    names = {c.name for c in report.checks}
-    assert "tool_packs" in names
-    assert "tools_policy" in names
-    pack = next(c for c in report.checks if c.name == "tool_packs")
-    assert "core=" in pack.detail
-    assert "optional=" in pack.detail
+def test_pack_summary_lists_core_and_optional(monkeypatch, tmp_path):
+    monkeypatch.setenv("KAGEHA_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("KAGEHA_TOOL_PACKS", raising=False)
+    monkeypatch.setenv("KAGEHA_BROWSER_PACK", "0")
+    monkeypatch.setenv("KAGEHA_COMPUTER", "0")
+    enabled = resolve_enabled_packs(policy={})
+    summary = summarize_packs(enabled)
+    assert "core=" in summary or "forge" in summary
+    assert set(enabled) == CORE_PACK_NAMES
+    assert "media" in OPTIONAL_PACK_NAMES
+    assert "browser" in OPTIONAL_PACK_NAMES
 
 
 def test_core_pack_set_frozen():

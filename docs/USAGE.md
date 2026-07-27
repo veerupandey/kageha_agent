@@ -212,8 +212,6 @@ Hard risk actions prompt unless you pass `--auto-approve` or use `/permissions a
 | `kageha chat` | Interactive REPL |
 | `kageha run "…"` | Single task |
 | `kageha webui` | Browser UI |
-| `kageha doctor` | Runtime / sandbox health |
-| `kageha models doctor` | Models / keys / packs |
 | `kageha models list` | Providers |
 | `kageha skills …` | Skills |
 | `kageha mcp …` | MCP |

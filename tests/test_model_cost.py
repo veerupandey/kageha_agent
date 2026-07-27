@@ -1,45 +1,8 @@
-from kageha.models.doctor import format_doctor_report, run_models_doctor
+"""Model cost estimation helpers."""
+
+from __future__ import annotations
+
 from kageha.models.registry import ModelConfig, estimate_model_usd
-
-
-def test_doctor_no_smoke_reports_sections(tmp_path, monkeypatch):
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setenv("KAGEHA_HOME", str(home))
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-    (home / "models.yaml").write_text(
-        """
-providers:
-  gemini:
-    protocol: gemini
-    base_url: https://example.com
-    api_key_env: GEMINI_API_KEY
-models:
-  - id: gemini-flash
-    provider: gemini
-    model: gemini-3.6-flash
-    roles: [default, planning, fast_worker, tool_calling, monitor, coding]
-roles:
-  default: [gemini-flash]
-  planning: [gemini-flash]
-  fast_worker: [gemini-flash]
-  tool_calling: [gemini-flash]
-  monitor: [gemini-flash]
-  coding: [gemini-flash]
-"""
-    )
-    # Point models_yaml_paths at home via KAGEHA_HOME (home/models.yaml is included)
-    report = run_models_doctor(smoke=False)
-    names = {c.name for c in report.checks}
-    assert "api_keys" in names
-    assert "roles" in names
-    assert "sandbox" in names
-    assert "tools_policy" in names
-    assert "smoke" in names
-    text = format_doctor_report(report, rich=False)
-    assert "doctor:" in text
-    rich_text = format_doctor_report(report, rich=True)
-    assert "doctor" in rich_text.lower()
 
 
 def test_estimate_model_usd_split_and_default():

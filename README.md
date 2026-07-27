@@ -53,7 +53,6 @@ export KAGEHA_TOOL_PACKS=browser,computer,media
 | `kageha chat` | Interactive REPL |
 | `kageha run "…"` | Single task |
 | `kageha webui` | Browser UI |
-| `kageha doctor` | Health check |
 | `kageha models list` | Providers |
 | `kageha skills …` | Skills |
 | `kageha mcp …` | MCP |

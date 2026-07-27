@@ -206,7 +206,7 @@ class AppServer:
             else:
                 message = (
                     f"{type(e).__name__}: {detail}. "
-                    "If providers look wrong, run `kageha doctor --deep`."
+                    "If providers look wrong, run `kageha models list` / `kageha models test`."
                 )
             return {
                 "jsonrpc": "2.0",
