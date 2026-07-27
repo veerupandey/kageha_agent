@@ -1,0 +1,42 @@
+.env
+.env.*
+!.env.example
+.venv/
+.uv-cache/
+# Local experiments — never commit
+experiments/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+dist/
+build/
+*.egg-info/
+.kageha/
+.kageha-tmp/
+*.db
+.DS_Store
+.coverage
+htmlcov/
+# Credentials / secrets — never commit
+client_secret*.json
+credentials.json
+token.json
+**/google-client.json
+*.pem
+*.p12
+*.key
+id_rsa
+id_ed25519
+# Local run artifacts — never commit (keep on disk; do not git add)
+outputs/
+output/
+artifacts/
+tests/cassettes/live/
+*.log
+bridges/**/node_modules/
+src/kageha/webui/frontend/node_modules/
+src/kageha/webui/frontend/dist/

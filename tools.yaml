@@ -1,0 +1,23 @@
+# Tool policy + pack gating (trimmed harness).
+# Merged from: ~/.kageha/tools.yaml → ./.kageha/tools.yaml → repo tools.yaml
+#
+# packs: which optional native packs to load (core always loads).
+#   unset / []  → core only (forge, skills, mcp, memory, subagent)
+#   [browser, media] → those optionals
+#   all → every optional pack
+# Override with env: KAGEHA_TOOL_PACKS=browser,media  or  KAGEHA_TOOL_PACKS=all
+# Device control (Bravia / Android TV / LAN scan) is NEVER a pack — use skills.
+#
+# deny wins over allow. Empty allow = all loaded tools except deny.
+# Groups: group:fs, group:runtime, group:web, group:browser, group:memory,
+#   group:kb, group:messaging, group:media, group:mcp, group:skills,
+#   group:subagent, group:computer, group:pdf, group:diagram,
+#   group:connections
+tools:
+  packs: []
+  allow: []
+  deny: []
+  # Example — enable browser + media + computer:
+  # packs: [browser, media, computer]
+  # Example — deny browser tools even if pack loaded:
+  # deny: [group:browser]

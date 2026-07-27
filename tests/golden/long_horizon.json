@@ -1,0 +1,44 @@
+[
+  {
+    "id": "research_visual_bundle",
+    "prompt": "Research how large language models can support human coaching. Select one open-access primary research paper, download and read its complete PDF, and distinguish its findings from broader evidence. Produce outputs/llm-coach/anchor-paper.pdf, outputs/llm-coach/research-brief.md, outputs/llm-coach/infographic.png, outputs/llm-coach/deck.pptx, exactly eight rendered slide PNGs under outputs/llm-coach/slides/, exactly seven 1080x1080 carousel PNGs under outputs/llm-coach/carousel/, outputs/llm-coach/montage.png, outputs/llm-coach/sources.txt, and outputs/llm-coach/qa.md. Verify citations, dimensions, slide count, rendering, and legibility before returning success.",
+    "expect_status": ["success"],
+    "expect_files": [
+      "outputs/llm-coach/anchor-paper.pdf",
+      "outputs/llm-coach/research-brief.md",
+      "outputs/llm-coach/infographic.png",
+      "outputs/llm-coach/deck.pptx",
+      "outputs/llm-coach/montage.png",
+      "outputs/llm-coach/sources.txt",
+      "outputs/llm-coach/qa.md"
+    ],
+    "expect_file_contains": {
+      "outputs/llm-coach/research-brief.md": "Limitations",
+      "outputs/llm-coach/qa.md": "PASS"
+    },
+    "min_file_bytes": {
+      "outputs/llm-coach/anchor-paper.pdf": 100000,
+      "outputs/llm-coach/research-brief.md": 2500,
+      "outputs/llm-coach/infographic.png": 50000,
+      "outputs/llm-coach/deck.pptx": 50000,
+      "outputs/llm-coach/montage.png": 50000,
+      "outputs/llm-coach/sources.txt": 500
+    },
+    "expect_glob_counts": {
+      "outputs/llm-coach/slides/slide_*.png": 8,
+      "outputs/llm-coach/carousel/slide_*.png": 7
+    },
+    "expect_image_dimensions": {
+      "outputs/llm-coach/carousel/slide_01.png": [1080, 1080],
+      "outputs/llm-coach/carousel/slide_07.png": [1080, 1080]
+    },
+    "expect_pdf_min_pages": {
+      "outputs/llm-coach/anchor-paper.pdf": 5
+    },
+    "expect_pptx_slides": {
+      "outputs/llm-coach/deck.pptx": 8
+    },
+    "max_usd": 5.0,
+    "max_steps": 80
+  }
+]

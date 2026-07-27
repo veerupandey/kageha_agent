@@ -1,0 +1,90 @@
+[
+  {
+    "id": "write_hello",
+    "prompt": "Create a file named hello.txt in the session workspace containing exactly: hello from kageha",
+    "expect_status": ["success"],
+    "expect_files": ["hello.txt"],
+    "expect_file_contains": {"hello.txt": "hello from kageha"},
+    "min_file_bytes": {"hello.txt": 17},
+    "max_usd": 0.5,
+    "max_steps": 12
+  },
+  {
+    "id": "todo_plan",
+    "prompt": "Write a short plan into todo.md with at least 3 checkbox items about organizing a desk, then mark the first item done.",
+    "expect_status": ["success"],
+    "expect_files": ["todo.md"],
+    "expect_file_contains": {"todo.md": "[x]"},
+    "min_file_bytes": {"todo.md": 60},
+    "max_usd": 0.5,
+    "max_steps": 12
+  },
+  {
+    "id": "structured_json",
+    "prompt": "Create data/summary.json containing valid JSON with keys project, total, and active. Use project='Kageha', total=3, active=true. Verify the file by parsing it before finishing.",
+    "expect_status": ["success"],
+    "expect_files": ["data/summary.json"],
+    "expect_file_contains": {
+      "data/summary.json": "\"Kageha\""
+    },
+    "min_file_bytes": {
+      "data/summary.json": 40
+    },
+    "max_usd": 0.5,
+    "max_steps": 12
+  },
+  {
+    "id": "repo_audit",
+    "prompt": "Inspect the available project README.md and pyproject.toml. Write audit.md explaining the project's purpose, CLI entry point, and test directory. Cite both filenames in the report. Do not guess.",
+    "expect_status": ["success"],
+    "expect_files": ["audit.md"],
+    "expect_file_contains": {
+      "audit.md": "pyproject.toml"
+    },
+    "min_file_bytes": {
+      "audit.md": 180
+    },
+    "max_usd": 0.75,
+    "max_steps": 16
+  },
+  {
+    "id": "multi_file_bundle",
+    "prompt": "Create bundle/brief.md, bundle/sources.txt, and bundle/qa.md. The brief must explain three reliability principles for autonomous agents. sources.txt must say 'No external sources used'. qa.md must contain a three-item checked checklist. Verify all three files before finishing.",
+    "expect_status": ["success"],
+    "expect_files": [
+      "bundle/brief.md",
+      "bundle/sources.txt",
+      "bundle/qa.md"
+    ],
+    "expect_file_contains": {
+      "bundle/sources.txt": "No external sources used",
+      "bundle/qa.md": "[x]"
+    },
+    "min_file_bytes": {
+      "bundle/brief.md": 250,
+      "bundle/qa.md": 40
+    },
+    "max_usd": 0.75,
+    "max_steps": 18
+  },
+  {
+    "id": "square_carousel",
+    "prompt": "Create exactly three PNG images at carousel/slide_01.png through carousel/slide_03.png. Every image must be 1080x1080, have a distinct background color, and contain large readable text: Hook, Evidence, Action respectively. Inspect the dimensions before finishing.",
+    "expect_status": ["success"],
+    "expect_files": [
+      "carousel/slide_01.png",
+      "carousel/slide_02.png",
+      "carousel/slide_03.png"
+    ],
+    "expect_glob_counts": {
+      "carousel/slide_*.png": 3
+    },
+    "expect_image_dimensions": {
+      "carousel/slide_01.png": [1080, 1080],
+      "carousel/slide_02.png": [1080, 1080],
+      "carousel/slide_03.png": [1080, 1080]
+    },
+    "max_usd": 1.0,
+    "max_steps": 20
+  }
+]

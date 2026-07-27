@@ -1,0 +1,200 @@
+providers:
+  siliconflow:
+    protocol: openai_compat
+    base_url: https://api.siliconflow.com/v1
+    api_key_env: SILICONFLOW_API_KEY
+  openai:
+    protocol: openai_compat
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+  # ChatGPT / Codex subscription OAuth (import: kageha models auth import chatgpt)
+  # Model slugs from ~/.codex/models_cache.json (fetched locally).
+  openai-codex:
+    protocol: openai_compat
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_CODEX_OAUTH  # sentinel; real token from ~/.kageha/auth/
+  anthropic:
+    protocol: anthropic_compat
+    base_url: https://api.anthropic.com
+    api_key_env: ANTHROPIC_API_KEY
+  gemini:
+    protocol: gemini
+    base_url: https://generativelanguage.googleapis.com/v1beta
+    api_key_env: GEMINI_API_KEY
+  # Antigravity / Gemini CLI session (shells to `gemini -p -m …`; not an API key)
+  # -m values: Antigravity IDE runtime catalog + gemini-cli-core VALID_GEMINI_MODELS.
+  # gemini-3.6-flash is evidenced in Antigravity IDE (not in CLI VALID set alone).
+  antigravity:
+    protocol: gemini_cli
+    base_url: ""
+    api_key_env: ANTIGRAVITY_CLI  # sentinel; session owned by gemini CLI
+
+models:
+  # --- Gemini API key path (generativelanguage.googleapis.com list confirmed) ---
+  - id: gemini-pro
+    provider: gemini
+    model: gemini-3.1-pro-preview
+    roles: [default, planning, coding]
+    usd_per_1k_input: 0.00125
+    usd_per_1k_output: 0.005
+    capabilities: [tool_calling, vision, structured_output]
+    context_window: 1000000
+  - id: kimi-plan
+    provider: siliconflow
+    model: moonshotai/Kimi-K3
+    roles: [default, planning, coding]
+    usd_per_1k_input: 0.0006
+    usd_per_1k_output: 0.0025
+    capabilities: [tool_calling, structured_output]
+    context_window: 262144
+  - id: gemini-flash
+    provider: gemini
+    model: gemini-3.6-flash
+    roles: [fast_worker, tool_calling, monitor]
+    usd_per_1k_input: 0.0001
+    usd_per_1k_output: 0.0004
+    capabilities: [tool_calling, vision, structured_output]
+    context_window: 1000000
+
+  # --- OpenAI API key (pre-existing; not from Codex cache) ---
+  - id: gpt-fast
+    provider: openai
+    model: gpt-4.1-mini
+    roles: [fast_worker, monitor]
+    usd_per_1k_input: 0.0004
+    usd_per_1k_output: 0.0016
+    capabilities: [tool_calling, vision, structured_output]
+    context_window: 1047576
+  - id: gpt-4.1
+    provider: openai
+    model: gpt-4.1
+    roles: [default, planning, coding]
+    usd_per_1k_input: 0.002
+    usd_per_1k_output: 0.008
+    capabilities: [tool_calling, vision, structured_output]
+    context_window: 1047576
+
+  # --- Codex / ChatGPT (~/.codex/models_cache.json; default = config.toml gpt-5.6-sol) ---
+  # Aliases: gpt-5.6-sol / sol / codex → gpt-codex (see model_commands.resolve_model_id).
+  - id: gpt-codex
+    provider: openai-codex
+    model: gpt-5.6-sol
+    roles: [coding, default, planning]
+    capabilities: [tool_calling, structured_output]
+    context_window: 200000
+  - id: gpt-5.6-terra
+    provider: openai-codex
+    model: gpt-5.6-terra
+    roles: [coding, default, planning]
+    capabilities: [tool_calling, structured_output]
+    context_window: 200000
+  - id: gpt-5.6-luna
+    provider: openai-codex
+    model: gpt-5.6-luna
+    roles: [coding, default, planning]
+    capabilities: [tool_calling, structured_output]
+    context_window: 200000
+  - id: gpt-5.5
+    provider: openai-codex
+    model: gpt-5.5
+    roles: [coding, default, planning]
+    capabilities: [tool_calling, structured_output]
+    context_window: 200000
+  - id: gpt-5.4
+    provider: openai-codex
+    model: gpt-5.4
+    roles: [coding, default, planning]
+    capabilities: [tool_calling, structured_output]
+    context_window: 200000
+  - id: gpt-5.4-mini
+    provider: openai-codex
+    model: gpt-5.4-mini
+    roles: [fast_worker, tool_calling, monitor]
+    capabilities: [tool_calling, structured_output]
+    context_window: 200000
+
+  # --- Antigravity / gemini CLI (one id per upstream model; short aliases in resolver) ---
+  # Defaults: antigravity = newest pro; antigravity-flash = 3.6 flash (IDE evidence).
+  # Aliases: antigravity-pro / antigravity-3.1-pro → antigravity;
+  #          antigravity-3.6-flash → antigravity-flash.
+  # Antigravity is text-only via gemini CLI — never put it on tool_calling ladders.
+  - id: antigravity
+    provider: antigravity
+    model: gemini-3.1-pro-preview
+    roles: [default, planning, coding]
+    capabilities: []
+    context_window: 1000000
+  - id: antigravity-flash
+    provider: antigravity
+    model: gemini-3.6-flash
+    roles: [default, fast_worker, monitor]
+    capabilities: []
+    context_window: 1000000
+  - id: antigravity-3-flash
+    provider: antigravity
+    model: gemini-3-flash-preview
+    roles: [default, fast_worker, monitor]
+    capabilities: []
+    context_window: 1000000
+  - id: antigravity-3-pro
+    provider: antigravity
+    model: gemini-3-pro-preview
+    roles: [default, planning, coding]
+    capabilities: []
+    context_window: 1000000
+  - id: antigravity-2.5-pro
+    provider: antigravity
+    model: gemini-2.5-pro
+    roles: [default, planning, coding]
+    capabilities: []
+    context_window: 1000000
+  - id: antigravity-2.5-flash
+    provider: antigravity
+    model: gemini-2.5-flash
+    roles: [default, fast_worker, monitor]
+    capabilities: []
+    context_window: 1000000
+
+  - id: claude-sonnet
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    roles: [coding]
+    usd_per_1k_input: 0.003
+    usd_per_1k_output: 0.015
+    capabilities: [tool_calling, vision, structured_output]
+    context_window: 200000
+
+embedding:
+  # Gemini-first (matches default chat stack). Used for KB + skill retrieval.
+  # Override in ~/.kageha/models.yaml or via env:
+  #   KAGEHA_EMBEDDING_PROVIDER=gemini
+  #   KAGEHA_EMBEDDING_MODEL=gemini-embedding-001
+  #   KAGEHA_EMBEDDING_DIMENSIONS=768
+  # Falls back to openai/siliconflow when GEMINI_API_KEY is missing.
+  # Disable skill embeddings: KAGEHA_SKILL_EMBEDDINGS=off
+  provider: gemini
+  model: gemini-embedding-001
+  dimensions: 768
+
+voice:
+  # Gemini TTS (preview). Tool: gemini_tts. Override in ~/.kageha/models.yaml or:
+  #   KAGEHA_VOICE_MODEL=gemini-3.1-flash-tts-preview
+  #   KAGEHA_VOICE_NAME=Kore
+  # Note: gemini-3.6-flash has no TTS — use a dedicated *-tts* model.
+  provider: gemini
+  model: gemini-3.1-flash-tts-preview
+  voice: Kore
+
+# Role ladders — prefer native tool-capable API models first.
+# Antigravity/gemini-cli is text-only (no Kageha tool loops); keep as fallback.
+roles:
+  default: [gemini-flash, kimi-plan, gemini-pro, antigravity-flash, antigravity]
+  planning: [kimi-plan, gemini-pro, antigravity, gemini-flash]
+  fast_worker: [gemini-flash, gpt-fast, antigravity-flash]
+  monitor: [gemini-flash, gpt-fast, antigravity-flash]
+  tool_calling: [gemini-flash, kimi-plan, gemini-pro, gpt-5.4-mini]
+  coding: [gemini-pro, kimi-plan, gemini-flash, claude-sonnet, antigravity]
+
+# Optional /model allowlist (OpenClaw-style). Empty / omitted = all configured models.
+# model_policy:
+#   allow: [gemini-flash, gemini-pro, kimi-plan]
