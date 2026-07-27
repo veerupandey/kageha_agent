@@ -158,6 +158,47 @@ def test_async_job_enqueue_without_start(tmp_path: Path, monkeypatch):
     assert loaded.thread_id == f"job-{loaded.id}"
 
 
+def test_async_job_resume_auto_build(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("KAGEHA_HOME", str(tmp_path / "khome"))
+    job = enqueue_job(
+        objective="Execute the approved plan.",
+        project_root=str(tmp_path),
+        session_id="plan-session-1",
+        auto_build=True,
+        agent_mode="plan",
+        start=False,
+    )
+    loaded = load_job(job.id)
+    assert loaded is not None
+    assert loaded.session_id == "plan-session-1"
+    assert loaded.run_id == "plan-session-1"
+    assert loaded.auto_build is True
+    assert loaded.id != "plan-session-1"
+
+
+def test_jobs_run_rejects_bare_build_slash(tmp_path: Path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from kageha.cli import app
+    from kageha.project.async_jobs import save_job
+
+    monkeypatch.setenv("KAGEHA_HOME", str(tmp_path / "khome"))
+    waiting = enqueue_job(
+        objective="/plan make an ad",
+        project_root=str(tmp_path),
+        start=False,
+    )
+    waiting.status = "awaiting_plan_approval"
+    save_job(waiting)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["jobs", "run", "/build make an ad"])
+    assert result.exit_code == 2
+    out = (result.stdout or "") + (result.stderr or "")
+    assert "--resume" in out
+    assert waiting.session_id in out
+
+
 def test_async_job_list_filter_cancel_attach(tmp_path: Path, monkeypatch):
     from kageha.project.async_jobs import (
         attach_info,

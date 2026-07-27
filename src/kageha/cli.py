@@ -860,29 +860,90 @@ def jobs_run_cmd(
         "--notify",
         help="Optional notify label recorded on the job",
     ),
+    resume: Optional[str] = typer.Option(
+        None,
+        "--resume",
+        "-r",
+        help="Continue an existing session (required for Build after Plan)",
+    ),
+    build: bool = typer.Option(
+        False,
+        "--build",
+        help="Approve the pending plan and execute (use with --resume)",
+    ),
 ) -> None:
-    """Enqueue a durable background job."""
-    from kageha.project.async_jobs import enqueue_job, load_job
+    """Enqueue a durable background job.
+
+    Plan jobs stop at awaiting_plan_approval. To Build, resume that session —
+    do not start a new job with ``/build …`` as the objective.
+    """
+    from kageha.project.async_jobs import enqueue_job, list_jobs, load_job
+
+    text = (objective or "").strip()
+    low = text.lower()
+    is_build_slash = low == "/build" or low.startswith("/build ")
+    session_id = (resume or "").strip()
+    auto_build = bool(build or is_build_slash)
+
+    if is_build_slash and not session_id:
+        awaiting = [
+            j
+            for j in list_jobs(limit=20)
+            if j.status == "awaiting_plan_approval" and (j.session_id or j.id)
+        ]
+        typer.echo(
+            "ERROR: `/build` is not a new job — it continues a Plan session.\n"
+            "Use one of:\n"
+            "  uv run kageha jobs run --resume SESSION --build\n"
+            "  uv run kageha chat --resume SESSION   # then type /build",
+            err=True,
+        )
+        if awaiting:
+            sid = awaiting[0].session_id or awaiting[0].id
+            typer.echo(f"\nRecent plan waiting for Build: {sid}", err=True)
+            typer.echo(
+                f"  uv run kageha jobs run --resume {sid} --build",
+                err=True,
+            )
+        raise typer.Exit(code=2)
+
+    if auto_build and not session_id:
+        typer.echo(
+            "ERROR: --build requires --resume SESSION "
+            "(the job/session that wrote plan.md).",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    if is_build_slash:
+        rest = text.split(maxsplit=1)[1].strip() if " " in text else ""
+        text = rest or "Execute the approved plan."
+        agent_mode = "plan"
+    elif auto_build:
+        agent_mode = "plan"
 
     job = enqueue_job(
-        objective=objective,
+        objective=text,
         project_root=str(project.resolve()),
         agent_mode=agent_mode,
         max_steps=max_steps,
         notify_channel=notify,
+        session_id=session_id,
+        auto_build=auto_build,
         start=True,
     )
     typer.echo(json.dumps(job.to_dict(), indent=2))
     if wait:
         import time as _time
 
+        _ok_wait = {"success", "awaiting_plan_approval", "awaiting_clarify"}
         while True:
             current = load_job(job.id)
             if current is None:
                 raise typer.Exit(code=1)
             if current.status not in {"queued", "running"}:
                 typer.echo(json.dumps(current.to_dict(), indent=2))
-                if current.status != "success":
+                if current.status not in _ok_wait:
                     raise typer.Exit(code=1)
                 break
             _time.sleep(1.0)

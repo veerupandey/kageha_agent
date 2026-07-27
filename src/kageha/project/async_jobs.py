@@ -22,6 +22,7 @@ from typing import Any
 from kageha.config import kageha_home
 
 _TERMINAL = frozenset({"success", "error", "cancelled"})
+_PAUSED = frozenset({"awaiting_plan_approval", "awaiting_clarify"})
 _ACTIVE = frozenset({"queued", "running"})
 _DONE = _TERMINAL
 
@@ -31,7 +32,7 @@ class JobRecord:
     id: str
     objective: str
     project_root: str
-    status: str = "queued"  # queued|running|success|error|cancelled
+    status: str = "queued"  # queued|running|success|error|cancelled|awaiting_*
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     run_id: str = ""
@@ -48,6 +49,7 @@ class JobRecord:
     max_steps: int = 40
     notify_channel: str = ""
     pr_url: str = ""
+    auto_build: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -105,6 +107,7 @@ def load_job(job_id: str) -> JobRecord | None:
         max_steps=int(data.get("max_steps") or 40),
         notify_channel=str(data.get("notify_channel") or ""),
         pr_url=str(data.get("pr_url") or ""),
+        auto_build=bool(data.get("auto_build")),
     )
 
 
@@ -112,6 +115,8 @@ def _status_bucket(status: str) -> str:
     st = str(status or "").strip().lower()
     if st in _ACTIVE:
         return st
+    if st in _PAUSED:
+        return "paused"
     if st in _DONE:
         return "done"
     return st or "unknown"
@@ -133,9 +138,19 @@ def parse_status_filter(raw: str | None) -> set[str] | None:
             continue
         if token == "active":
             wanted |= set(_ACTIVE)
+        elif token == "paused":
+            wanted |= set(_PAUSED)
         elif token == "done":
             wanted |= set(_DONE)
-        elif token in {"queued", "running", "success", "error", "cancelled"}:
+        elif token in {
+            "queued",
+            "running",
+            "success",
+            "error",
+            "cancelled",
+            "awaiting_plan_approval",
+            "awaiting_clarify",
+        }:
             wanted.add(token)
         else:
             wanted.add(token)
@@ -158,7 +173,7 @@ def list_jobs(limit: int = 40, *, status: str | None = None) -> list[JobRecord]:
 
 
 def job_counts(limit: int = 200) -> dict[str, int]:
-    counts = {"queued": 0, "running": 0, "done": 0, "total": 0}
+    counts = {"queued": 0, "running": 0, "paused": 0, "done": 0, "total": 0}
     for job in list_jobs(limit=limit):
         counts["total"] += 1
         bucket = _status_bucket(job.status)
@@ -180,8 +195,8 @@ def job_attachable(job: JobRecord) -> bool:
     # turn_id is written as soon as the worker submits; enough for reconnect.
     if job.turn_id:
         return True
-    # Running/finished jobs without turn_id still map to a runtime session.
-    return job.status in {"running", "success", "error"}
+    # Running/finished/paused jobs without turn_id still map to a runtime session.
+    return job.status in {"running", "success", "error", *_PAUSED}
 
 
 def job_to_api_dict(job: JobRecord) -> dict[str, Any]:
@@ -249,9 +264,12 @@ def enqueue_job(
     loop_mode: str = "full",
     max_steps: int = 40,
     notify_channel: str = "",
+    session_id: str = "",
+    auto_build: bool = False,
     start: bool = True,
 ) -> JobRecord:
     jid = uuid.uuid4().hex[:12]
+    sid = str(session_id or "").strip() or jid
     job = JobRecord(
         id=jid,
         objective=objective,
@@ -260,9 +278,11 @@ def enqueue_job(
         loop_mode=loop_mode,
         max_steps=max_steps,
         notify_channel=notify_channel,
+        auto_build=bool(auto_build),
         # Pre-bind durable session so attach survives enqueue → worker gap.
-        session_id=jid,
-        run_id=jid,
+        # --resume reuses an existing plan session for /build.
+        session_id=sid,
+        run_id=sid,
         thread_id=f"job-{jid}",
     )
     save_job(job)
@@ -300,6 +320,7 @@ async def run_job_inline(job_id: str) -> JobRecord:
                     agent_id=f"job:{current.id}",
                     project_root=current.project_root,
                     auto_approve=True,
+                    auto_build=bool(current.auto_build),
                     security_profile=SecurityProfile(security_profile()),
                     max_steps=current.max_steps,
                     live=False,

@@ -186,7 +186,18 @@ uv run kageha webui
 Research X and draft a one-page brief in artifacts/brief.md
 ```
 
-Then edit the plan if needed and `/build`.
+Then edit the plan if needed and `/build` in the **same** chat/session.
+
+Background jobs:
+
+```bash
+uv run kageha jobs run "/plan Research X and draft artifacts/brief.md"
+# status → awaiting_plan_approval  (note the session id)
+uv run kageha jobs run --resume SESSION --build
+# or: uv run kageha chat --resume SESSION  → type /build
+```
+
+Do not run `jobs run "/build …"` as a new job — that starts another Plan.
 
 **Goal execute-now**
 
