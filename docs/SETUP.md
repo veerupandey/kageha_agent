@@ -1,37 +1,55 @@
 # Setup
 
-Install Kageha and get a working chat session.
+Install Kageha and get a working chat or WebUI session.
 
 ## Prerequisites
 
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/)
-- At least one model API key (`GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or Azure OpenAI vars)
 - Optional: Node.js 20+ (only if you use the WebUI)
 
-## Install
+## Install + guided setup
 
 ```bash
 cd kageha_agent
 uv sync
-cp .env.example .env
+uv run kageha setup
 ```
 
-Edit `.env` and set a key, for example:
+The wizard asks:
+
+1. Where you will use Kageha (Chat CLI, WebUI, or both)
+2. Project folder (writes `.env` there)
+3. How to connect a model (Gemini, OpenAI, Anthropic, Azure OpenAI, or any OpenAI-compatible endpoint)
+4. Optional packs (browser, media/Fal, computer on macOS)
+5. Optional smoke test
+
+Then it prints the exact next commands for your choices.
+
+Re-run provider-only later:
 
 ```bash
-GEMINI_API_KEY=your_key_here
+uv run kageha models setup
 ```
 
-Confirm models:
+## After setup
 
 ```bash
-uv run kageha models list
+uv run kageha chat
+# or, if you chose WebUI:
+cd src/kageha/webui/frontend && npm install && npm run build && cd -
+uv run kageha webui --open
+```
+
+One-shot:
+
+```bash
+uv run kageha run "Summarize the last git commit"
 ```
 
 ## Optional extras
 
-Install only what you need:
+Install only what you need (the wizard prints these when relevant):
 
 ```bash
 uv sync --extra browser      # Playwright browser control
@@ -46,31 +64,13 @@ Browser Chromium (after `--extra browser`):
 uv run playwright install chromium
 ```
 
-## First run
-
-```bash
-uv run kageha chat
-```
-
-One-shot:
-
-```bash
-uv run kageha run "Summarize the last git commit"
-```
-
-WebUI:
-
-```bash
-cd src/kageha/webui/frontend && npm install && npm run build && cd -
-uv run kageha webui --open
-```
-
 ## Optional tool packs
 
-Default install is core only. Enable packs when a task needs them:
+Default install is core only. The wizard can write packs into `.env`:
 
 ```bash
-export KAGEHA_TOOL_PACKS=browser,computer,media
+# example written by setup
+KAGEHA_TOOL_PACKS=browser,media
 ```
 
 Or in `~/.kageha/tools.yaml`:
@@ -91,7 +91,7 @@ Durable state lives under `KAGEHA_HOME` (default `~/.kageha`):
 
 | Path | Purpose |
 |------|---------|
-| `.env` / project `.env` | API keys, packs, budgets |
+| project `.env` | API keys, packs, budgets |
 | `models.yaml` | Providers and role ladders |
 | `tools.yaml` | Packs and risk policy |
 | `mcp.yaml` | MCP servers |
@@ -102,7 +102,7 @@ Durable state lives under `KAGEHA_HOME` (default `~/.kageha`):
 
 Project starter files: [`models.yaml`](../models.yaml), [`tools.yaml`](../tools.yaml), [`.env.example`](../.env.example).
 
-## Verify
+## Check
 
 ```bash
 uv run kageha models list

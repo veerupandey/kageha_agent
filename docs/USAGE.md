@@ -2,6 +2,16 @@
 
 Day-to-day use of Kageha after [setup](SETUP.md).
 
+## After setup
+
+If you have not run the wizard yet:
+
+```bash
+uv run kageha setup
+```
+
+That writes project `.env`, configures a model, optional packs, and prints start commands.
+
 ## Run
 
 ```bash
@@ -209,10 +219,12 @@ Hard risk actions prompt unless you pass `--auto-approve` or use `/permissions a
 
 | Command | Purpose |
 |---------|---------|
+| `kageha setup` | Guided first-run wizard |
 | `kageha chat` | Interactive REPL |
 | `kageha run "…"` | Single task |
 | `kageha webui` | Browser UI |
 | `kageha models list` | Providers |
+| `kageha models setup` | Add/change a provider only |
 | `kageha skills …` | Skills |
 | `kageha mcp …` | MCP |
 | `kageha memory …` | Memory |

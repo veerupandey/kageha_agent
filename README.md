@@ -13,9 +13,8 @@ Thin agent kernel: chat, plan, goal, tools — grown through MCP and Agent Skill
 
 ```bash
 uv sync
-cp .env.example .env   # set a model API key
-uv run kageha models list
-uv run kageha chat
+uv run kageha setup    # keys, packs, .env, next steps
+uv run kageha chat     # or webui if you chose it in setup
 ```
 
 One-shot:
@@ -24,18 +23,7 @@ One-shot:
 uv run kageha run "What changed in the last commit?"
 ```
 
-WebUI:
-
-```bash
-cd src/kageha/webui/frontend && npm install && npm run build
-uv run kageha webui --open
-```
-
-Optional packs:
-
-```bash
-export KAGEHA_TOOL_PACKS=browser,computer,media
-```
+Full walkthrough: [docs/SETUP.md](docs/SETUP.md).
 
 ## What you get
 
@@ -50,6 +38,7 @@ export KAGEHA_TOOL_PACKS=browser,computer,media
 
 | Command | Purpose |
 |---------|---------|
+| `kageha setup` | First-run wizard (`.env` + model) |
 | `kageha chat` | Interactive REPL |
 | `kageha run "…"` | Single task |
 | `kageha webui` | Browser UI |

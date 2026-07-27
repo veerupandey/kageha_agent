@@ -19,7 +19,7 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
     help=(
-        "Kageha agent kernel — chat/run/webui + MCP/skills/memory. "
+        "Kageha agent kernel — start with `kageha setup`, then chat/run/webui. "
         "Optional packs via KAGEHA_TOOL_PACKS (browser,computer,media). "
         "Background work: kageha jobs."
     ),
@@ -62,6 +62,22 @@ def main_callback() -> None:
 @app.command("version")
 def version_cmd() -> None:
     typer.echo(__version__)
+
+
+@app.command("setup")
+def setup_cmd(
+    no_smoke: bool = typer.Option(
+        False, "--no-smoke", help="Skip the optional model smoke test prompt"
+    ),
+) -> None:
+    """Guided first-run: where to use Kageha, API keys, packs, .env, next steps."""
+    from kageha.setup_wizard import run_setup
+
+    result = run_setup(smoke_test=False if no_smoke else None)
+    if not result.get("ok"):
+        raise typer.Exit(1)
+    if result.get("smoke_ok") is False:
+        raise typer.Exit(1)
 
 
 @app.command("run")
@@ -1267,7 +1283,7 @@ def models_setup(
         help="Skip subscription-auth import step at the start",
     ),
 ) -> None:
-    """Interactive provider wizard (Hermes-style). Writes .env + ~/.kageha/models.yaml."""
+    """Add or change an API provider only. For first-time install use `kageha setup`."""
     from kageha.models.setup import run_models_setup
 
     result = run_models_setup(

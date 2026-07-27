@@ -255,7 +255,8 @@ def run_models_setup(
     }
 
 
-def _pin_roles(path: Path, model_id: str, roles: list[str]) -> None:
+def pin_roles(path: Path, model_id: str, roles: list[str]) -> None:
+    """Pin model_id first on each role ladder in models.yaml."""
     data: dict[str, Any] = {}
     if path.is_file():
         data = yaml.safe_load(path.read_text()) or {}
@@ -266,7 +267,8 @@ def _pin_roles(path: Path, model_id: str, roles: list[str]) -> None:
     path.write_text(yaml.safe_dump(data, sort_keys=False))
 
 
-def _run_smoke(model_id: str) -> tuple[bool, str]:
+def run_smoke(model_id: str) -> tuple[bool, str]:
+    """One-shot chat smoke for a configured model id."""
     import asyncio
 
     async def _go() -> tuple[bool, str]:
@@ -281,3 +283,8 @@ def _run_smoke(model_id: str) -> tuple[bool, str]:
             return False, str(exc)
 
     return asyncio.run(_go())
+
+
+# Back-compat aliases for older call sites / tests.
+_pin_roles = pin_roles
+_run_smoke = run_smoke

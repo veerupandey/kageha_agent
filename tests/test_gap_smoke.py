@@ -219,6 +219,7 @@ def test_cli_version_and_help():
     help_out = runner.invoke(app, ["--help"])
     assert help_out.exit_code == 0
     for name in (
+        "setup",
         "chat",
         "run",
         "webui",
