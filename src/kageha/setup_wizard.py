@@ -1,4 +1,9 @@
-"""Guided first-run setup: surface → provider → packs → .env → next steps."""
+"""Guided setup: surface → connection → packs → pin default → smoke.
+
+``kageha setup`` is the single guided entry point. Re-running overwrites
+params this wizard owns (provider keys written this run, KAGEHA_TOOL_PACKS,
+and global model pins).
+"""
 
 from __future__ import annotations
 
@@ -6,7 +11,13 @@ import platform
 from pathlib import Path
 from typing import Any, Literal
 
-from kageha.config import kageha_home, upsert_env_key
+from kageha.chat.model_commands import persist_global_model
+from kageha.config import kageha_home, read_env_value, upsert_env_key
+from kageha.models.oauth_setup import (
+    detect_tools,
+    setup_antigravity_oauth,
+    setup_codex_oauth,
+)
 from kageha.models.registry import ModelRegistry
 from kageha.models.setup import (
     ProviderPreset,
@@ -27,13 +38,16 @@ _DEFAULT_ROLES = [
     "monitor",
 ]
 
-# First-run menu (Azure + OpenAI-compat called out explicitly).
+# Connection menu (API keys + subscription OAuth).
 _MENU: list[tuple[str, str]] = [
-    ("gemini", "Google Gemini"),
-    ("openai", "OpenAI"),
-    ("anthropic", "Anthropic"),
+    ("gemini", "Google Gemini (API key)"),
+    ("openai", "OpenAI (API key)"),
+    ("anthropic", "Anthropic (API key)"),
     ("azure", "Azure OpenAI"),
     ("compat", "Other OpenAI-compatible endpoint"),
+    ("codex_oauth", "OpenAI Codex OAuth (ChatGPT `codex login`)"),
+    ("antigravity_oauth", "Antigravity / Gemini CLI OAuth (Google)"),
+    ("both_oauth", "Both OAuth (Codex + Antigravity)"),
 ]
 
 
@@ -68,13 +82,27 @@ def _pick_workspace() -> Path:
     default = Path.cwd().resolve()
     print(
         "\nProject folder for this agent (where .env is written).\n"
-        f"Sessions and memory still live under {kageha_home()}.\n",
+        f"Sessions and memory still live under {kageha_home()}.\n"
+        "Re-running setup overwrites keys and packs in this .env.\n",
         flush=True,
     )
     raw = _prompt("Project folder", str(default))
     root = Path(raw).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def _print_oauth_detect() -> None:
+    tools = detect_tools()
+    print(
+        "Detected local logins:\n"
+        f"  codex CLI:    {'yes' if tools['has_codex_cli'] else 'no'}"
+        f"  auth.json: {'yes' if tools['chatgpt_codex_cli'] else 'no'}\n"
+        f"  agy CLI:      {'yes' if tools['has_agy_cli'] else 'no'}\n"
+        f"  gemini CLI:   {'yes' if tools['has_gemini_cli'] else 'no'}"
+        f"  oauth_creds: {'yes' if tools['gemini_cli_oauth'] else 'no'}",
+        flush=True,
+    )
 
 
 def _configure_provider(env_path: Path) -> dict[str, Any]:
@@ -97,6 +125,12 @@ def _configure_provider(env_path: Path) -> dict[str, Any]:
             break
         print("Out of range.", flush=True)
 
+    if kind == "codex_oauth":
+        return _configure_oauth("codex")
+    if kind == "antigravity_oauth":
+        return _configure_oauth("antigravity")
+    if kind == "both_oauth":
+        return _configure_oauth("both")
     if kind == "azure":
         return _configure_azure(env_path)
     if kind == "compat":
@@ -131,6 +165,69 @@ def _configure_provider(env_path: Path) -> dict[str, Any]:
     return _configure_preset(env_path, preset)
 
 
+def _configure_oauth(target: str) -> dict[str, Any]:
+    """Launch Codex and/or Antigravity OAuth; pick default model."""
+    _print_oauth_detect()
+    imported: list[str] = []
+    auth: dict[str, Any] = {}
+
+    if target in {"codex", "both"}:
+        codex = setup_codex_oauth(launch_login=True)
+        auth["codex"] = codex
+        if codex.get("imported"):
+            imported.append("chatgpt")
+
+    if target in {"antigravity", "both"}:
+        anti = setup_antigravity_oauth(launch_login=True)
+        auth["antigravity"] = anti
+        if anti.get("imported"):
+            imported.append("antigravity")
+
+    if not imported:
+        return {
+            "ok": False,
+            "error": "oauth_import_failed",
+            "auth": auth,
+        }
+
+    if target == "codex" or (
+        target == "both" and "chatgpt" in imported and "antigravity" not in imported
+    ):
+        model_id = "gpt-codex"
+        provider = "openai-codex"
+    elif target == "antigravity" or (
+        target == "both" and "antigravity" in imported and "chatgpt" not in imported
+    ):
+        model_id = "antigravity"
+        provider = "antigravity"
+    else:
+        # Both imported — ask which is the session default.
+        print(
+            "\nBoth OAuth profiles imported. Default model?\n"
+            "  1. gpt-codex (OpenAI Codex / ChatGPT)\n"
+            "  2. antigravity (Google)\n",
+            flush=True,
+        )
+        choice = _prompt("Choice", "1")
+        if choice in {"2", "antigravity", "agy"}:
+            model_id = "antigravity"
+            provider = "antigravity"
+        else:
+            model_id = "gpt-codex"
+            provider = "openai-codex"
+
+    return {
+        "ok": True,
+        "provider": provider,
+        "model_id": model_id,
+        "yaml_path": str(kageha_home() / "models.yaml"),
+        "api_key_env": None,
+        "auth": auth,
+        "imported": imported,
+        "oauth_only": True,
+    }
+
+
 def _configure_preset(env_path: Path, preset: ProviderPreset) -> dict[str, Any]:
     model_api = _prompt("Model id (API model name)", preset.default_model)
     model_id = _prompt("Local model id (for /model)", f"{preset.key}-default")
@@ -160,17 +257,24 @@ def _configure_azure(env_path: Path) -> dict[str, Any]:
         "\nAzure OpenAI — uses the OpenAI-compatible /openai/v1 path.\n",
         flush=True,
     )
+    existing_endpoint = read_env_value("AZURE_OPENAI_ENDPOINT", env_path) or ""
     endpoint = _prompt(
         "Azure endpoint (e.g. https://NAME.openai.azure.com)",
-        "",
+        existing_endpoint,
     ).rstrip("/")
     if not endpoint:
         return {"ok": False, "error": "missing_azure_endpoint"}
     api_key = _prompt_secret("Azure API key", "AZURE_OPENAI_API_KEY")
     if not api_key:
         return {"ok": False, "error": "missing_api_key", "api_key_env": "AZURE_OPENAI_API_KEY"}
-    api_version = _prompt("API version", "2024-12-01-preview")
-    deployment = _prompt("Deployment name", "gpt-4.1-mini")
+    api_version = _prompt(
+        "API version",
+        read_env_value("AZURE_OPENAI_API_VERSION", env_path) or "2024-12-01-preview",
+    )
+    deployment = _prompt(
+        "Deployment name",
+        read_env_value("AZURE_OPENAI_DEPLOYMENT", env_path) or "gpt-4.1-mini",
+    )
     model_id = _prompt("Local model id (for /model)", "azure-default")
 
     upsert_env_key("AZURE_OPENAI_API_KEY", api_key, env_path)
@@ -259,31 +363,37 @@ def _write_model(
 
 
 def _configure_packs(env_path: Path) -> list[str]:
+    existing = [
+        p.strip()
+        for p in (read_env_value("KAGEHA_TOOL_PACKS", env_path) or "").split(",")
+        if p.strip()
+    ]
     print(
         "\nOptional capabilities (core tools always load).\n"
         "  browser  — interactive Playwright / Comet\n"
         "  media    — Fal image/video (needs FAL_KEY)\n"
-        "  computer — macOS desktop automation\n",
+        "  computer — macOS desktop automation\n"
+        "Answers overwrite KAGEHA_TOOL_PACKS in .env.\n",
         flush=True,
     )
     packs: list[str] = []
-    if _yn("Enable browser pack?", False):
+    if _yn("Enable browser pack?", "browser" in existing):
         packs.append("browser")
-    if _yn("Enable media pack (Fal)?", False):
+    if _yn("Enable media pack (Fal)?", "media" in existing):
         packs.append("media")
         fal = _prompt_secret("Fal API key (FAL_KEY or FAL_API_KEY)", "FAL_API_KEY")
         if fal:
             upsert_env_key("FAL_API_KEY", fal, env_path)
     if platform.system() == "Darwin":
-        if _yn("Enable computer pack (macOS)?", False):
+        if _yn("Enable computer pack (macOS)?", "computer" in existing):
             packs.append("computer")
     else:
         print(
             f"(Skipping computer pack — this host is {platform.system()}, not macOS.)",
             flush=True,
         )
-    if packs:
-        upsert_env_key("KAGEHA_TOOL_PACKS", ",".join(packs), env_path)
+    # Always overwrite — empty string clears previous packs.
+    upsert_env_key("KAGEHA_TOOL_PACKS", ",".join(packs), env_path)
     return packs
 
 
@@ -320,27 +430,29 @@ def _print_next_steps(
             "  uv sync --extra computer",
             flush=True,
         )
+    configured = f" (default: `{model_id}`)" if model_id else ""
     print(
         "\nIn chat later:\n"
+        f"  /model  switch models{configured}\n"
         "  /plan   clarify → research → plan.md → /build\n"
         "  /goal   execute now with Approve / Deny / Suggest\n"
-        "  /normal everyday chat\n"
-        "  /model  switch models"
-        + (f" (you configured `{model_id}`)" if model_id else ""),
+        "  /normal everyday chat",
         flush=True,
     )
-    if packs:
-        print(f"\nPacks in .env: KAGEHA_TOOL_PACKS={','.join(packs)}", flush=True)
+    print(
+        f"\nPacks in .env: KAGEHA_TOOL_PACKS={','.join(packs) or '(none)'}",
+        flush=True,
+    )
     print(flush=True)
 
 
 def run_setup(*, smoke_test: bool | None = None) -> dict[str, Any]:
-    """Interactive first-run wizard. Returns a summary dict for the CLI."""
+    """Interactive guided setup. Re-run overwrites packs + default model pins."""
     print(
         "\nKageha setup\n"
         "------------\n"
-        "Answer a few prompts. Keys go in project .env;\n"
-        "model registry goes in ~/.kageha/models.yaml.\n",
+        "One wizard for surface, model connection (API key or OAuth),\n"
+        "packs, and default model. Re-running overwrites those settings.\n",
         flush=True,
     )
     surface = _pick_surface()
@@ -353,7 +465,7 @@ def run_setup(*, smoke_test: bool | None = None) -> dict[str, Any]:
     if not provider.get("ok"):
         print(
             f"\nSetup stopped: {provider.get('error', 'unknown')}. "
-            "Re-run `kageha setup` when you have a key.\n",
+            "Re-run `kageha setup` when ready.\n",
             flush=True,
         )
         return {"ok": False, **provider, "surface": surface, "workspace": str(workspace)}
@@ -361,8 +473,17 @@ def run_setup(*, smoke_test: bool | None = None) -> dict[str, Any]:
     packs = _configure_packs(env_path)
     model_id = str(provider.get("model_id") or "")
 
-    print(f"\nSaved key(s) → {env_path}", flush=True)
-    print(f"Saved model `{model_id}` → {provider.get('yaml_path')}\n", flush=True)
+    yaml_path = provider.get("yaml_path") or str(kageha_home() / "models.yaml")
+    if model_id:
+        pinned = persist_global_model(model_id)
+        yaml_path = str(pinned)
+        print(f"\nPinned default model `{model_id}` → {yaml_path}", flush=True)
+
+    print(f"Saved .env → {env_path}", flush=True)
+    if provider.get("api_key_env"):
+        print(f"Saved model `{model_id}` → {yaml_path}\n", flush=True)
+    else:
+        print(f"OAuth model default `{model_id}`\n", flush=True)
 
     if smoke_test is None:
         smoke_test = _yn("Run a quick model smoke test now?", True)
@@ -370,7 +491,6 @@ def run_setup(*, smoke_test: bool | None = None) -> dict[str, Any]:
     smoke_ok: bool | None = None
     smoke_error = ""
     if smoke_test and model_id:
-        # Ensure process env sees the new keys for smoke.
         from dotenv import load_dotenv
 
         load_dotenv(env_path, override=True)
@@ -391,10 +511,11 @@ def run_setup(*, smoke_test: bool | None = None) -> dict[str, Any]:
         "surface": surface,
         "workspace": str(workspace),
         "env_path": str(env_path),
-        "yaml_path": provider.get("yaml_path"),
+        "yaml_path": yaml_path,
         "provider": provider.get("provider"),
         "model_id": model_id,
         "packs": packs,
+        "auth": provider.get("auth"),
         "smoke_ok": smoke_ok,
         "smoke_error": smoke_error,
     }

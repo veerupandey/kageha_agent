@@ -25,7 +25,9 @@ app = typer.Typer(
     ),
 )
 models_app = typer.Typer(help="Model registry")
-models_auth_app = typer.Typer(help="Subscription / OAuth model auth (ChatGPT, Gemini CLI)")
+models_auth_app = typer.Typer(
+    help="Subscription / OAuth model auth (OpenAI Codex, Antigravity / Gemini CLI)"
+)
 skills_app = typer.Typer(help="Skills (agentskills.io / Anthropic compatible)")
 mcp_app = typer.Typer(help="Model Context Protocol servers")
 memory_app = typer.Typer(help="Inspect and manage provenance-aware memory")
@@ -70,7 +72,7 @@ def setup_cmd(
         False, "--no-smoke", help="Skip the optional model smoke test prompt"
     ),
 ) -> None:
-    """Guided first-run: where to use Kageha, API keys, packs, .env, next steps."""
+    """Guided setup: surface, API key or Codex/Antigravity OAuth, packs, default model."""
     from kageha.setup_wizard import run_setup
 
     result = run_setup(smoke_test=False if no_smoke else None)
@@ -1263,9 +1265,9 @@ def models_add(
 @models_auth_app.command("probe")
 def models_auth_probe() -> None:
     """Detect local Codex / Gemini CLI / Antigravity logins (no token values)."""
-    from kageha.models.auth_store import probe_local_logins
+    from kageha.models.oauth_setup import detect_tools
 
-    typer.echo(json.dumps(probe_local_logins(), indent=2))
+    typer.echo(json.dumps(detect_tools(), indent=2))
 
 
 @models_auth_app.command("list")
@@ -1335,22 +1337,18 @@ def models_auth_logout(
 @models_app.command("setup")
 @models_app.command("configure")
 def models_setup(
-    no_test: bool = typer.Option(
-        False, "--no-test", help="Skip the smoke test at the end"
+    no_smoke: bool = typer.Option(
+        False, "--no-smoke", help="Skip the optional model smoke test prompt"
     ),
-    skip_auth: bool = typer.Option(
-        False,
-        "--skip-auth",
-        help="Skip subscription-auth import step at the start",
+    no_test: bool = typer.Option(
+        False, "--no-test", help="Alias of --no-smoke (compat)"
     ),
 ) -> None:
-    """Add or change an API provider only. For first-time install use `kageha setup`."""
-    from kageha.models.setup import run_models_setup
+    """Alias of `kageha setup` (guided surface, OAuth/API keys, packs, default model)."""
+    from kageha.setup_wizard import run_setup
 
-    result = run_models_setup(
-        smoke_test=False if no_test else None,
-        skip_auth=skip_auth,
-    )
+    typer.echo("Note: `kageha models setup` now runs the full `kageha setup` wizard.")
+    result = run_setup(smoke_test=False if (no_smoke or no_test) else None)
     if not result.get("ok"):
         raise typer.Exit(1)
     if result.get("smoke_ok") is False:
@@ -1359,7 +1357,7 @@ def models_setup(
 
 @models_app.command("providers")
 def models_providers() -> None:
-    """List built-in provider presets for `models setup`."""
+    """List built-in provider presets used by `kageha setup`."""
     from kageha.models.setup import list_presets
 
     for p in list_presets():

@@ -230,12 +230,12 @@ Hard risk actions prompt unless you pass `--auto-approve` or use `/permissions a
 
 | Command | Purpose |
 |---------|---------|
-| `kageha setup` | Guided first-run wizard |
+| `kageha setup` | Guided setup (API keys or Codex/Antigravity OAuth, packs, default model) |
 | `kageha chat` | Interactive REPL |
 | `kageha run "…"` | Single task |
 | `kageha webui` | Browser UI |
 | `kageha models list` | Providers |
-| `kageha models setup` | Add/change a provider only |
+| `kageha models setup` | Alias of `kageha setup` |
 | `kageha skills …` | Skills |
 | `kageha mcp …` | MCP |
 | `kageha memory …` | Memory |

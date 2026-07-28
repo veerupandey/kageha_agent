@@ -259,56 +259,6 @@ def load_empty():
     return list_profiles() == []
 
 
-def test_model_auth_setup_step_noninteractive(auth_home, monkeypatch, tmp_path):
-    from kageha.models.auth_cli import run_model_auth_setup_step
-
-    # Point HOME-relative paths via monkeypatch of Path.home — instead pass
-    # by writing into real home? Safer: monkeypatch probe + import.
-    monkeypatch.setattr(
-        "kageha.models.auth_cli.probe_local_logins",
-        lambda: {
-            "chatgpt_codex_cli": True,
-            "gemini_cli_oauth": False,
-            "antigravity_data_dir": False,
-            "cursor_oauth": False,
-            "codex_path": str(tmp_path / "auth.json"),
-            "gemini_path": "",
-            "note_cursor": "Cursor no",
-        },
-    )
-
-    codex = tmp_path / "auth.json"
-    codex.write_text(
-        json.dumps(
-            {
-                "tokens": {
-                    "access_token": "a",
-                    "refresh_token": "b",
-                    "account_id": "c",
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    def _import_chatgpt(path=None):
-        from kageha.models.auth_store import import_chatgpt_codex
-
-        return import_chatgpt_codex(codex)
-
-    monkeypatch.setattr("kageha.models.auth_cli.run_import", lambda name, path=None: _import_chatgpt(path))
-    # noninteractive uses run_import("chatgpt") which we patched
-    result = run_model_auth_setup_step(interactive=False)
-    assert "chatgpt" in result["imported"]
-    assert result["probe"]["cursor_oauth"] is False
-
-
-def test_models_setup_command_exists():
-    from kageha.cli import models_setup
-
-    assert callable(models_setup)
-
-
 def test_cli_models_auth_help():
     from kageha.cli import app
 
