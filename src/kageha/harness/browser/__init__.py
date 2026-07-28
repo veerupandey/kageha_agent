@@ -13,12 +13,18 @@ implement the same BrowserEngine protocol if protocol parsing becomes the bottle
 
 from __future__ import annotations
 
-from kageha.harness.browser.engine import BrowserEngine, resolve_browser_mode, resolve_cdp_endpoint
+from kageha.harness.browser.engine import (
+    BrowserEngine,
+    cdp_reachable,
+    resolve_browser_mode,
+    resolve_cdp_endpoint,
+)
 from kageha.harness.browser.fetch import fetch_url
 from kageha.harness.browser.prefs import apply_browser_prefs, load_browser_prefs, set_backend
 
 __all__ = [
     "BrowserEngine",
+    "cdp_reachable",
     "fetch_url",
     "resolve_browser_mode",
     "resolve_cdp_endpoint",

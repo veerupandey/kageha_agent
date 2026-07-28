@@ -395,6 +395,7 @@ class LoopController:
         max_steps_limit: int | None = None,
         export_dir: Path | None = None,
         log_handler: Callable[[str], None] | None = None,
+        on_text_delta: Callable[[str], None] | None = None,
         cancel_event: asyncio.Event | None = None,
         inject_queue: asyncio.Queue[str] | None = None,
         defer_human_input: bool = False,
@@ -413,7 +414,9 @@ class LoopController:
         self.auto_approve = auto_approve
         # Plan Build gate — independent of tool auto_approve.
         self.auto_build = auto_build
-        self.approver = approver or (None if auto_approve else cli_approver)
+        # Always keep an approver so elevated / Codex-style Once|Session|Full can ask
+        # even when tool auto_approve is on (require() short-circuits; require_explicit does not).
+        self.approver = approver or cli_approver
         self.attached_kbs = attached_kbs or []
         self.skill_catalog = skill_catalog
         self.kb_pins = kb_pins
@@ -424,6 +427,7 @@ class LoopController:
         self.max_steps_limit = max_steps_limit
         self.export_dir = export_dir
         self.log_handler = log_handler
+        self.on_text_delta = on_text_delta
         self.cancel_event = cancel_event or asyncio.Event()
         self.inject_queue = inject_queue or asyncio.Queue()
         self.defer_human_input = defer_human_input
@@ -961,10 +965,22 @@ class LoopController:
             router.set_session_override(override)
             self._log(f"[kageha] model_override={override}")
             events.emit("model_override", {"model_id": override})
+        def _on_permission_grant(grant: dict[str, Any]) -> None:
+            if grant.get("auto_approve"):
+                self.auto_approve = True
+            msg = str(grant.get("message") or "").strip()
+            if msg:
+                self._log(f"[kageha] permissions: {msg}")
+            try:
+                events.emit("permissions", dict(grant))
+            except Exception:  # noqa: BLE001
+                pass
+
         gate = ApprovalGate(
             approver=self.approver,
             auto_approve=self.auto_approve,
             audit=self.approval_audit,
+            on_permission_grant=_on_permission_grant,
         )
         ctx = HarnessContext(
             workspace=workspace,
@@ -1907,6 +1923,11 @@ class LoopController:
             import time as _time
 
             llm_t0 = _time.perf_counter()
+            step_delta = self.on_text_delta
+            if callable(step_delta):
+                begin = getattr(step_delta, "begin_step", None)
+                if callable(begin):
+                    begin()
             try:
                 model, resp = await router.chat(
                     assembled.messages,
@@ -1915,8 +1936,13 @@ class LoopController:
                     task_id=workspace.run_id,
                     max_tokens=8192,
                     effort=effort,
+                    on_text_delta=step_delta if callable(step_delta) else None,
                 )
             except Exception as e:  # noqa: BLE001
+                if callable(step_delta):
+                    end = getattr(step_delta, "end_step", None)
+                    if callable(end):
+                        end(had_tool_calls=True)
                 events.emit("error", {"error": str(e)})
                 self._log(f"[kageha] model error: {e}")
                 task_state.record_tool(
@@ -1927,6 +1953,11 @@ class LoopController:
                 task_state.save(state_path)
                 final = StopDecision(StopReason.ERROR, str(e))
                 break
+            else:
+                if callable(step_delta):
+                    end = getattr(step_delta, "end_step", None)
+                    if callable(end):
+                        end(had_tool_calls=bool(resp.message.tool_calls))
             llm_ms = (_time.perf_counter() - llm_t0) * 1000.0
 
             for notice in router.drain_failover_notices():

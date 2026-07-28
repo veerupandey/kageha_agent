@@ -27,9 +27,10 @@ def _ctx(tmp_path: Path) -> HarnessContext:
 
 def test_resolve_browser_mode(monkeypatch) -> None:
     monkeypatch.delenv("KAGEHA_BROWSER_MODE", raising=False)
-    assert resolve_browser_mode() == "headless"
+    assert resolve_browser_mode() == "auto"
     assert resolve_browser_mode("comet") == "cdp"
     assert resolve_browser_mode("cdp") == "cdp"
+    assert resolve_browser_mode("headless") == "headless"
     monkeypatch.setenv("KAGEHA_BROWSER_MODE", "comet")
     assert resolve_browser_mode() == "cdp"
 
@@ -39,6 +40,54 @@ def test_resolve_cdp_endpoint(monkeypatch) -> None:
     assert resolve_cdp_endpoint() == "http://127.0.0.1:9222"
     monkeypatch.setenv("KAGEHA_COMET_CDP", "http://127.0.0.1:9333")
     assert resolve_cdp_endpoint() == "http://127.0.0.1:9333"
+
+
+def test_browser_connect_auto_falls_back_to_headless(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("KAGEHA_BROWSER_MODE", raising=False)
+    from kageha.harness.tools.browser import register_browser_tools
+
+    page = MagicMock()
+    page.url = "about:blank"
+    page.is_closed.return_value = False
+    page.close = AsyncMock()
+    page.bring_to_front = AsyncMock()
+
+    browser = MagicMock()
+    browser.contexts = []
+    browser.close = AsyncMock()
+    browser.new_page = AsyncMock(return_value=page)
+
+    chromium = MagicMock()
+    chromium.connect_over_cdp = AsyncMock()
+    chromium.launch = AsyncMock(return_value=browser)
+
+    pw = MagicMock()
+    pw.chromium = chromium
+    pw.stop = AsyncMock()
+    pw_cm = MagicMock()
+    pw_cm.start = AsyncMock(return_value=pw)
+
+    ctx = _ctx(tmp_path)
+    reg = register_browser_tools(ctx)
+
+    async def _run() -> None:
+        with (
+            patch(
+                "kageha.harness.browser.engine._require_playwright",
+                return_value=lambda: pw_cm,
+            ),
+            patch(
+                "kageha.harness.browser.engine.cdp_reachable",
+                new=AsyncMock(return_value=False),
+            ),
+        ):
+            connected = await reg.get("browser_connect").call(target="auto")
+            assert "headless" in connected.lower()
+            assert "auto-fallback" in connected.lower()
+            chromium.launch.assert_awaited()
+            assert chromium.connect_over_cdp.await_count == 0
+
+    asyncio.run(_run())
 
 
 def test_browser_connect_comet_uses_cdp_and_close_disconnects(tmp_path: Path, monkeypatch) -> None:
@@ -87,9 +136,15 @@ def test_browser_connect_comet_uses_cdp_and_close_disconnects(tmp_path: Path, mo
     reg = register_browser_tools(ctx)
 
     async def _run() -> None:
-        with patch(
-            "kageha.harness.browser.engine._require_playwright",
-            return_value=lambda: pw_cm,
+        with (
+            patch(
+                "kageha.harness.browser.engine._require_playwright",
+                return_value=lambda: pw_cm,
+            ),
+            patch(
+                "kageha.harness.browser.engine.cdp_reachable",
+                new=AsyncMock(return_value=True),
+            ),
         ):
             connected = await reg.get("browser_connect").call(target="comet")
             assert "comet/cdp" in connected

@@ -227,7 +227,8 @@ class ResearchBackend:
                 "Interactive control: enable browser pack "
                 "(`KAGEHA_TOOL_PACKS=browser`) then use browser_connect / "
                 "browser_open / browser_snapshot / browser_click. "
-                "For logged-in pages: browser_connect(target='comet').\n"
+                "For logged-in pages: browser_connect(target='auto') "
+                "(Comet when reachable, else headless).\n"
             )
 
         return self._format(

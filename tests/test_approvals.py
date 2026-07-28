@@ -11,6 +11,9 @@ def test_shell_classification():
     gate = ApprovalGate(auto_approve=True)
     assert gate.classify_shell("ls -la") == ApprovalDecision.AUTO
     assert gate.classify_shell("pip install cowsay") == ApprovalDecision.ASK
+    assert gate.classify_shell("pip3 install cowsay") == ApprovalDecision.ASK
+    assert gate.classify_shell("python -m pip install httpx") == ApprovalDecision.ASK
+    assert gate.classify_shell("uv pip install pillow") == ApprovalDecision.ASK
     assert gate.classify_shell("uv sync --extra browser") == ApprovalDecision.ASK
     assert gate.classify_shell("uv add httpx") == ApprovalDecision.ASK
     assert gate.classify_shell("uv tool install kageha") == ApprovalDecision.ASK
@@ -140,5 +143,44 @@ def test_request_approval_tool_uses_explicit_bus(tmp_path):
         data = json.loads(out)
         assert data["status"] == "denied"
         assert data["approved"] is False
+
+    asyncio.run(_run())
+
+
+def test_session_and_full_scopes_grant_permissions(monkeypatch):
+    import os
+
+    from kageha.harness import approvals as ap
+    from kageha.harness.approvals import ApprovalOutcome
+
+    monkeypatch.delenv("KAGEHA_SANDBOX_ALLOW_NETWORK", raising=False)
+    ap._PROCESS_PERMISSIONS.update(
+        {"auto_approve": False, "sandbox_network": False, "scope": "ask"}
+    )
+    grants: list[dict] = []
+
+    async def approver(_req: ApprovalRequest) -> ApprovalOutcome:
+        return ApprovalOutcome(True, scope="full")
+
+    gate = ApprovalGate(
+        auto_approve=False,
+        approver=approver,
+        on_permission_grant=lambda g: grants.append(g),
+    )
+
+    async def _run():
+        ok = await gate.require(
+            ApprovalRequest(
+                action="bash",
+                detail="pip install x",
+                risk_class="shell_network_or_destructive",
+            )
+        )
+        assert ok is True
+        assert gate.auto_approve is True
+        assert gate.last_scope == "full"
+        assert os.environ.get("KAGEHA_SANDBOX_ALLOW_NETWORK") == "1"
+        assert grants and grants[0]["scope"] == "full"
+        assert ap.process_permissions()["auto_approve"] is True
 
     asyncio.run(_run())

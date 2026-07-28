@@ -18,8 +18,13 @@ DEFAULT_CDP = "http://127.0.0.1:9222"
 
 
 def resolve_browser_mode(explicit: str | None = None) -> str:
-    """Return 'headless', 'cdp', or 'docker'."""
-    raw = (explicit or os.environ.get("KAGEHA_BROWSER_MODE") or "headless").strip().lower()
+    """Return 'auto', 'headless', 'cdp', or 'docker'.
+
+    ``auto`` (default): prefer Comet/CDP when reachable, else headless Chromium.
+    """
+    raw = (explicit or os.environ.get("KAGEHA_BROWSER_MODE") or "auto").strip().lower()
+    if raw in {"auto", "prefer-comet", "prefer_comet", ""}:
+        return "auto"
     if raw in {"comet", "cdp", "logged_in", "logged-in", "chrome"}:
         return "cdp"
     if raw in {"docker", "sandbox", "browser-sandbox", "sandboxed"}:
@@ -29,6 +34,21 @@ def resolve_browser_mode(explicit: str | None = None) -> str:
 
 def resolve_cdp_endpoint(explicit: str | None = None) -> str:
     return (explicit or os.environ.get("KAGEHA_COMET_CDP") or DEFAULT_CDP).strip()
+
+
+async def cdp_reachable(endpoint: str, *, timeout: float = 0.8) -> bool:
+    """True when a Chrome DevTools endpoint answers /json/version."""
+    import httpx
+
+    url = endpoint.rstrip("/") + "/json/version"
+    try:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:  # noqa: BLE001
+        return False
+    return isinstance(data, dict) and bool(data.get("webSocketDebuggerUrl"))
 
 
 def _require_playwright() -> Any:
@@ -87,6 +107,9 @@ class BrowserEngine:
                 f"session: docker sandbox ({self.cdp}) "
                 f"— container Chromium, no host login cookies{extra}"
             )
+        note = getattr(self, "_fallback_note", "") or ""
+        if note:
+            return f"session: headless chromium — no login cookies ({note})"
         return "session: headless chromium — no login cookies"
 
     async def disconnect(self) -> None:
@@ -178,6 +201,21 @@ class BrowserEngine:
         self.docker_session = session
         return tab
 
+    async def _attach_cdp_or_headless(
+        self, endpoint: str, *, prefer_label: str = "comet/cdp"
+    ) -> tuple[TabHandle, str]:
+        """Try CDP; on failure launch headless and return a fallback note."""
+        self._fallback_note = ""
+        try:
+            tab = await self._attach_cdp(endpoint)
+            return tab, ""
+        except Exception as cdp_err:  # noqa: BLE001
+            detail = str(cdp_err).split("\n", 1)[0][:180]
+            tab = await self._launch_headless()
+            note = f"fell back from {prefer_label} ({endpoint}): {detail}"
+            self._fallback_note = note
+            return tab, note
+
     async def ensure_page(self) -> Any:
         page = self.page
         if page is not None:
@@ -188,22 +226,61 @@ class BrowserEngine:
                 pass
             await self.disconnect()
 
-        mode = resolve_browser_mode(self.mode)
         sticky = (self.mode or "").strip().lower()
-        if sticky == "cdp" or mode == "cdp":
-            return (await self._attach_cdp(resolve_cdp_endpoint(self.cdp))).page
+        mode = resolve_browser_mode(
+            sticky if sticky in {"cdp", "docker", "headless", "auto"} else None
+        )
         if sticky == "docker" or mode == "docker":
             return (await self._launch_docker()).page
-        return (await self._launch_headless()).page
+        if sticky == "headless" or mode == "headless":
+            return (await self._launch_headless()).page
+        # auto or cdp: prefer Comet/CDP, else headless (never block the agent).
+        ep = resolve_cdp_endpoint(self.cdp)
+        if mode == "auto" and not await cdp_reachable(ep):
+            tab = await self._launch_headless()
+            self._fallback_note = f"Comet CDP not reachable at {ep}"
+            return tab.page
+        tab, _note = await self._attach_cdp_or_headless(ep)
+        return tab.page
 
-    async def connect(self, target: str = "comet", endpoint: str = "") -> str:
-        t = (target or "comet").strip().lower()
+    async def connect(self, target: str = "auto", endpoint: str = "") -> str:
+        t = (target or "auto").strip().lower() or "auto"
         await self.disconnect()
+        self._fallback_note = ""
+        if t in {"auto", "prefer-comet", "prefer_comet"}:
+            ep = resolve_cdp_endpoint(endpoint or None)
+            self.cdp = ep
+            if await cdp_reachable(ep):
+                page = (await self._attach_cdp(ep)).page
+                return (
+                    f"connected: comet/cdp\nendpoint: {ep}\n"
+                    f"url: {page.url}\n"
+                    "Your Comet/Chrome login cookies are available. "
+                    "Use browser_open / browser_click / browser_type as usual."
+                )
+            page = (await self._launch_headless()).page
+            self._fallback_note = f"Comet CDP not reachable at {ep}"
+            return (
+                f"connected: headless (auto-fallback)\n"
+                f"reason: Comet/CDP not reachable at {ep}\n"
+                f"url: {page.url}\n"
+                "Fresh Chromium without login cookies. "
+                "Continue with browser_* — do not stop to ask for /comet "
+                "unless the site requires a logged-in session."
+            )
         if t in {"comet", "cdp", "logged_in", "logged-in", "chrome"}:
             ep = resolve_cdp_endpoint(endpoint or None)
-            self.mode = "cdp"
             self.cdp = ep
-            page = (await self._attach_cdp(ep)).page
+            tab, note = await self._attach_cdp_or_headless(ep, prefer_label="comet/cdp")
+            page = tab.page
+            if note:
+                return (
+                    f"connected: headless (auto-fallback)\n"
+                    f"reason: {note}\n"
+                    f"url: {page.url}\n"
+                    "Fresh Chromium without login cookies. Continue browsing; "
+                    "only ask for /comet if a logged-in session is required."
+                )
             return (
                 f"connected: comet/cdp\nendpoint: {ep}\n"
                 f"url: {page.url}\n"
@@ -213,7 +290,16 @@ class BrowserEngine:
             )
         if t in {"docker", "sandbox", "browser-sandbox", "sandboxed"}:
             self.mode = "docker"
-            page = (await self._launch_docker()).page
+            try:
+                page = (await self._launch_docker()).page
+            except Exception as docker_err:  # noqa: BLE001
+                page = (await self._launch_headless()).page
+                return (
+                    f"connected: headless (auto-fallback)\n"
+                    f"reason: docker failed ({str(docker_err)[:160]})\n"
+                    f"url: {page.url}\n"
+                    "Fresh Chromium without login cookies."
+                )
             novnc = getattr(self.docker_session, "novnc_url", "") or ""
             novnc_pw = getattr(self.docker_session, "novnc_password", "") or ""
             lines = [

@@ -34,7 +34,7 @@ video/carousel unless asked.
    - `standard` — flash + warm headless JS for thin/SPA pages (Lightpanda or Chromium pool)
    - `deep` — standard + then use `browser_*` for login/interaction
 3. Optional: `parallel_web_fetch` / `headless_fetch` for extra URLs.
-4. Only if a source needs login/clicks: skill `web_browse` (`browser_connect(comet)` → `browser_open` → snapshot/act). Screenshot only for evidence.
+4. Only if a source needs login/clicks: skill `web_browse` (`browser_connect(auto)` → `browser_open` → snapshot/act). Screenshot only for evidence.
 5. **Chat answer** with inline `[n]` citations and a `## Sources` section (title + URL per id from tool results). Never invent URLs.
 6. If the user asked for a saved brief: write findings to `research/notes.md`, then synthesize `research/brief.md` with the same citation style.
 7. `browser_close` if a browser session was opened.

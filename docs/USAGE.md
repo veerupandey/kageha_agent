@@ -109,7 +109,7 @@ export KAGEHA_TOOL_PACKS=browser,computer,media
 |------|------|
 | `browser` | Interactive browser / Comet |
 | `computer` | macOS desktop (cua-driver) |
-| `media` | Fal image/video (`FAL_KEY`) |
+| `media` | Fal video / optional Fal stills (`FAL_KEY`). Prefer core `nano_banana_generate` / `nano_banana_edit` (`GEMINI_API_KEY`) for stills. |
 
 Prefer **skills** or **MCP** for domain work.
 

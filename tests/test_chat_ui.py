@@ -59,6 +59,34 @@ def test_print_assistant_markdown_panel_on_tty():
     assert "kageha" in out.lower()
     assert "Hello" in out
     assert "world" in out
+    assert "\x1b[1m" in out  # emphasis rendered, not raw **
+
+
+def test_print_assistant_wraps_long_lines_without_cropping():
+    """Regression: soft_wrap+Panel was truncating mid-line before the border."""
+    from kageha.chat.markdown_render import render_chat_markdown
+
+    body = (
+        "I'm Kageha, an autonomous agent harness. I can chat, research the web, "
+        "browse sites, and run tools to get things done. "
+        "In short: ask me to do something, and I'll do it rather than just talk about it."
+    )
+    buf = StringIO()
+    c = Console(
+        file=buf,
+        force_terminal=True,
+        width=80,
+        color_system="truecolor",
+        soft_wrap=False,
+        no_color=False,
+        theme=ui._THEME,
+    )
+    c.print(ui._panel(render_chat_markdown(body), console=c, padding=(1, 2)))
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", buf.getvalue())
+    plain = re.sub(r"\x1b\]8;[^\x07\x1b]*[\x07\x1b\\]", "", plain)
+    assert "browse sites" in plain
+    assert "talk about it" in plain
+    assert "browse s\n" not in plain  # mid-word crop signature
 
 
 def test_print_assistant_plain_when_not_tty():

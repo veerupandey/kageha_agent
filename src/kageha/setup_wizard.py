@@ -438,8 +438,9 @@ def _configure_packs(env_path: Path) -> tuple[list[str], str | None]:
     ]
     print(
         "\nOptional capabilities (core tools always load).\n"
+        "  Nano Banana image gen is core — needs GEMINI_API_KEY\n"
         "  browser  — interactive Playwright / Comet\n"
-        "  media    — Fal image/video (needs FAL_KEY)\n"
+        "  media    — Fal video (+ optional Fal stills; needs FAL_KEY)\n"
         "  computer — macOS desktop automation\n"
         "Answers overwrite KAGEHA_TOOL_PACKS in .env.\n",
         flush=True,

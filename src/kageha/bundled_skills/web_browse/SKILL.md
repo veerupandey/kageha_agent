@@ -1,6 +1,6 @@
 ---
 name: web_browse
-description: Fast human-like web browsing — tiered web_fetch then Playwright AX snapshot/click/type. For login/cookies, browser_connect(target=comet) then browser_* against Comet CDP.
+description: Fast human-like web browsing — tiered web_fetch then Playwright AX snapshot/click/type. browser_connect(target=auto) prefers Comet/CDP when reachable, else headless.
 triggers:
   - open the site
   - open website
@@ -50,18 +50,19 @@ When the user asks to open/browse a specific site, **do the navigation** — do 
 
 ## Login / cookies / Comet
 
-If the page needs an authenticated session (LinkedIn, Instagram, private apps), or the user says “open Comet and browse …”:
+1. Call `browser_connect(target="auto")` once — prefers Comet/CDP when reachable,
+   otherwise launches headless Chromium. **Do not stop to ask for `/comet`**
+   unless the site truly needs login cookies and the tool reported headless fallback.
+2. Immediately `browser_open(url=…)` — do **not** stop after connect.
+3. Use `browser_click` / `browser_fill` / `browser_scroll`.
+4. `browser_screenshot` for evidence; `browser_close` disconnects only.
 
-1. In Kageha chat, run `/comet` to start or verify Comet. From a standalone
-   terminal, use `open -na Comet --args --remote-debugging-port=9222`.
-2. Call `browser_connect(target="comet")` once.
-3. Immediately `browser_open(url=…)` for the requested page — do **not** stop after connect.
-4. Use normal `browser_click` / `browser_fill` / `browser_scroll` — cookies come from Comet.
-5. `browser_screenshot` for evidence; `browser_close` disconnects only (does **not** quit Comet).
+If login cookies are required and connect fell back to headless, tell the user
+to run `/comet` (or `open -na Comet --args --remote-debugging-port=9222`) and retry.
 
 Fallback one-shot screenshot: `browse_logged_in(url)`.
 
-Or set `KAGEHA_BROWSER_MODE=comet` so every `browser_*` call attaches via CDP automatically.
+Or set `KAGEHA_BROWSER_MODE=auto` (default) / `comet` / `headless`.
 
 ## Verification
 
@@ -71,4 +72,4 @@ Or set `KAGEHA_BROWSER_MODE=comet` so every `browser_*` call attaches via CDP au
 
 ## Observations
 
-- (2026-07-27) browser_open fails when Comet/CDP is not running on 9222. Fallback to computer_launch or local default browser launch via open command in bash.
+- (2026-07-27) Default mode is `auto`: Comet CDP when up, else headless — no ECONNREFUSED block.

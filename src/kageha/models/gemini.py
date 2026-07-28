@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 
-from kageha.models.base import ChatMessage, ChatResponse, ChatUsage, ToolCall, ToolSpec
+from kageha.models.base import (
+    ChatMessage,
+    ChatResponse,
+    ChatUsage,
+    StreamDelta,
+    ToolCall,
+    ToolSpec,
+)
 
 _TOOL_HISTORY_400 = (
     "function call turn",
@@ -381,6 +389,140 @@ class GeminiModel:
             {"thinkingBudget": 0} if not tools else {"thinkingBudget": 256},
             None,
         ]
+
+    def _build_generate_payload(
+        self,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec] | None = None,
+        *,
+        temperature: float = 0.2,
+        max_tokens: int = 4096,
+        effort: str | None = None,
+    ) -> dict[str, Any]:
+        system, contents = self._to_contents(messages)
+        gen_cfg: dict[str, Any] = {
+            "maxOutputTokens": max_tokens,
+        }
+        if not self._is_gemini3():
+            gen_cfg["temperature"] = temperature
+        gen_cfg["thinkingConfig"] = self._thinking_config(
+            tools=tools, max_tokens=max_tokens, effort=effort
+        )
+        payload: dict[str, Any] = {
+            "contents": contents,
+            "generationConfig": gen_cfg,
+        }
+        if system:
+            payload["systemInstruction"] = {"parts": [{"text": system}]}
+        if tools:
+            payload["tools"] = [
+                {"functionDeclarations": [t.gemini_schema() for t in tools]}
+            ]
+        return payload
+
+    async def stream(
+        self,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec] | None = None,
+        *,
+        temperature: float = 0.2,
+        max_tokens: int = 4096,
+        effort: str | None = None,
+    ) -> AsyncIterator[StreamDelta]:
+        """Yield text / functionCall deltas via ``streamGenerateContent`` (SSE)."""
+        payload = self._build_generate_payload(
+            messages,
+            tools,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            effort=effort,
+        )
+        url = (
+            f"{self.base_url}/models/{self.model}:streamGenerateContent"
+            f"?alt=sse"
+        )
+        headers = {
+            "x-goog-api-key": self.api_key,
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with client.stream(
+                "POST", url, headers=headers, json=payload
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data_str = line[len("data:") :].strip()
+                    if not data_str or data_str == "[DONE]":
+                        continue
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    candidates = chunk.get("candidates") or [{}]
+                    cand0 = candidates[0] if candidates else {}
+                    finish = cand0.get("finishReason")
+                    parts = ((cand0.get("content") or {}).get("parts")) or []
+                    meta = chunk.get("usageMetadata") or {}
+                    usage = None
+                    if meta:
+                        usage = ChatUsage(
+                            prompt_tokens=int(meta.get("promptTokenCount") or 0),
+                            completion_tokens=int(
+                                meta.get("candidatesTokenCount") or 0
+                            ),
+                            cached_tokens=int(
+                                meta.get("cachedContentTokenCount") or 0
+                            ),
+                        )
+                    for part in parts:
+                        if "text" in part and not part.get("thought"):
+                            text = part.get("text") or ""
+                            if text:
+                                yield StreamDelta(
+                                    text=text,
+                                    finish_reason=str(finish) if finish else None,
+                                    usage=usage,
+                                    model=self.model,
+                                )
+                        fc = part.get("functionCall")
+                        if fc:
+                            args = fc.get("args") or {}
+                            if isinstance(args, str):
+                                try:
+                                    args = json.loads(args)
+                                except json.JSONDecodeError:
+                                    args = {"_raw": args}
+                            meta_tc: dict[str, Any] = {}
+                            if part.get("thoughtSignature"):
+                                meta_tc["thought_signature"] = part[
+                                    "thoughtSignature"
+                                ]
+                            yield StreamDelta(
+                                text="",
+                                tool_call=ToolCall(
+                                    id=fc.get("id")
+                                    or f"call_{uuid.uuid4().hex[:8]}",
+                                    name=fc.get("name") or "",
+                                    arguments=(
+                                        args
+                                        if isinstance(args, dict)
+                                        else {"value": args}
+                                    ),
+                                    meta=meta_tc,
+                                ),
+                                finish_reason=str(finish) if finish else None,
+                                usage=usage,
+                                model=self.model,
+                            )
+                    if finish and not parts:
+                        yield StreamDelta(
+                            text="",
+                            finish_reason=str(finish),
+                            usage=usage,
+                            model=self.model,
+                        )
 
     async def smoke(self) -> str:
         r = await self.chat(

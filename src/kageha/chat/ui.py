@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any
+from typing import Any, Callable
 
 from rich import box
 from rich.columns import Columns
@@ -58,7 +58,9 @@ def get_console(*, reset: bool = False) -> Console:
         no_color = bool(os.environ.get("NO_COLOR"))
         _console = Console(
             highlight=True,
-            soft_wrap=True,
+            # soft_wrap=True crops Panel/Text mid-line instead of wrapping —
+            # that was trimming chat replies short of the right border.
+            soft_wrap=False,
             no_color=no_color or None,
             theme=_THEME,
         )
@@ -152,34 +154,39 @@ def print_ok(text: str, *, console: Console | None = None) -> None:
 
 
 def _approval_chip(approvals: str) -> Text | None:
-    a = (approvals or "").lower()
-    if not approvals:
+    raw = (approvals or "").strip()
+    if not raw:
         return None
-    if "auto" in a:
+    low = raw.lower()
+    if "auto" in low:
         return _chip("approvals", "auto", kind="ok")
-    return _chip("approvals", "ask", kind="warn")
+    if "ask" in low:
+        return _chip("approvals", "ask", kind="warn")
+    return _chip("approvals", raw[:24])
 
 
 def _model_chips(model_line: str) -> list[Text]:
-    """Parse model status / ladder line into colorful chips."""
     line = (model_line or "").strip()
     if not line:
         return []
     chips: list[Text] = []
-    # planner=x, executor=y, default=z, session=…
-    for key in ("default", "session", "planner", "executor", "once"):
-        m = re.search(rf"(?:^|[\s,]){key}=([^\s,]+)", line, re.I)
-        if m:
-            chips.append(_chip(key, m.group(1), kind="model"))
-    if chips:
-        return chips
-    # Fallback: whole line as one chip
+    # "Models (from setup ladders): planner=x, executor=y" or "/model" block.
     short = line.replace("Models (from setup ladders): ", "").replace(
-        "Session model: ", ""
+        "Models: ", ""
     )
-    if len(short) > 48:
+    if len(short) > 48 and "=" not in short:
         short = short[:45] + "…"
-    return [_chip("model", short, kind="model")]
+        return [_chip("model", short, kind="model")]
+    for part in re.split(r",\s*", short):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" in part:
+            k, _, v = part.partition("=")
+            chips.append(_chip(k.strip()[:16], v.strip()[:28], kind="model"))
+        else:
+            chips.append(_chip("model", part[:28], kind="model"))
+    return chips[:6]
 
 
 def print_banner(
@@ -328,7 +335,9 @@ def print_model_block(text: str, *, console: Console | None = None) -> None:
 
 
 def print_assistant(text: str, *, console: Console | None = None) -> None:
-    """Render assistant reply (Markdown on TTY, plain otherwise)."""
+    """Render assistant reply as markdown with clickable web/file links."""
+    from kageha.chat.markdown_render import render_chat_markdown
+
     c = console or get_console()
     body = (text or "").rstrip() or "Done."
     c.print()
@@ -339,7 +348,7 @@ def print_assistant(text: str, *, console: Console | None = None) -> None:
         )
         c.print(
             _panel(
-                Markdown(body),
+                render_chat_markdown(body),
                 console=c,
                 title=title,
                 title_align="left",
@@ -351,6 +360,103 @@ def print_assistant(text: str, *, console: Console | None = None) -> None:
     else:
         c.print(f"kageha> {body}")
     c.print()
+
+
+class StreamReply:
+    """Token sink for terminal chat (callable as ``on_text_delta``).
+
+    Does **not** use Rich Live — Live redraws pin the viewport and block
+    scrollback in Cursor/VS Code terminals. Tokens append to normal output.
+    """
+
+    def __init__(
+        self,
+        *,
+        console: Console | None = None,
+        on_suspend: Callable[[], None] | None = None,
+        on_resume: Callable[[], None] | None = None,
+    ) -> None:
+        self.console = console or get_console()
+        self.on_suspend = on_suspend
+        self.on_resume = on_resume
+        self._buf = ""
+        self._active = False
+        self._finalized = False
+        self._saw_text = False
+
+    def begin_step(self) -> None:
+        if self._saw_text and self._buf:
+            # End prior open stream line before a new step.
+            self.console.print()
+        self._buf = ""
+        self._saw_text = False
+        self._active = False
+
+    def __call__(self, text: str) -> None:
+        self.feed(text)
+
+    def feed(self, text: str) -> None:
+        if not text or self._finalized:
+            return
+        if not self._saw_text:
+            self._saw_text = True
+            self._active = True
+            if self.on_suspend:
+                try:
+                    self.on_suspend()
+                except Exception:  # noqa: BLE001
+                    pass
+            self.console.print()
+            self.console.print(
+                Text.assemble(
+                    ("✦ ", "bold #2dd4bf"),
+                    ("kageha", "bold #22d3ee"),
+                    (" · streaming", "dim #94a3b8"),
+                )
+            )
+        self._buf += text
+        # Plain append into scrollback — user can scroll while tokens arrive.
+        self.console.print(text, end="", highlight=False, markup=False, soft_wrap=True)
+
+    def end_step(self, had_tool_calls: bool = False) -> None:
+        """Close the buffer for this model step.
+
+        Tool-call steps discard streamed narration and resume progress.
+        Final-answer steps keep the buffer for ``finalize``.
+        """
+        if had_tool_calls:
+            if self._saw_text:
+                self.console.print()
+            self._buf = ""
+            self._saw_text = False
+            self._active = False
+            if self.on_resume:
+                try:
+                    self.on_resume()
+                except Exception:  # noqa: BLE001
+                    pass
+            return
+
+    def text(self) -> str:
+        return self._buf
+
+    def finalize(self, final_text: str | None = None) -> str:
+        """End the stream line, then print the canonical linked reply panel."""
+        body = (final_text if final_text is not None else self._buf).rstrip()
+        if self._saw_text:
+            self.console.print()
+        self._active = False
+        if self._finalized:
+            return body
+        self._finalized = True
+        if body:
+            print_assistant(body, console=self.console)
+        return body
+
+    def close(self) -> None:
+        if self._saw_text and not self._finalized:
+            self.console.print()
+        self._active = False
 
 
 def ladder_model_summary() -> str:

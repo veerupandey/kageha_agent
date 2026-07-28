@@ -131,22 +131,32 @@ def wrap_shell_command(
     allow_network: bool = False,
     elevated: bool = False,
     profile: str | None = None,
+    extra_write_roots: list[Path] | None = None,
 ) -> tuple[str, Path | None]:
     """Return (command_to_run, cleanup_path_or_None).
 
     When isolation is unavailable or elevated=True, returns the original command.
+    ``extra_write_roots`` grants write access to session dirs (e.g. artifacts)
+    outside the coding cwd — needed for ``$KAGEHA_ARTIFACTS`` downloads.
     """
     if elevated or _env_truthy("KAGEHA_SANDBOX_ELEVATED"):
         return command, None
     mode = (profile or resolve_sandbox_profile()).strip().lower()
+    extras = list(extra_write_roots or [])
     if mode in {"off", "none", "cwd"}:
         return command, None
     if mode == "seatbelt":
-        return _wrap_seatbelt(command, cwd, allow_network=allow_network)
+        return _wrap_seatbelt(
+            command, cwd, allow_network=allow_network, extra_write_roots=extras
+        )
     if mode in {"bwrap", "bubblewrap"}:
-        return _wrap_bwrap(command, cwd, allow_network=allow_network)
+        return _wrap_bwrap(
+            command, cwd, allow_network=allow_network, extra_write_roots=extras
+        )
     if mode == "docker":
-        return _wrap_docker(command, cwd, allow_network=allow_network)
+        return _wrap_docker(
+            command, cwd, allow_network=allow_network, extra_write_roots=extras
+        )
     if mode == "ssh":
         host = (os.environ.get("KAGEHA_SANDBOX_SSH_HOST") or "").strip()
         if not shutil.which("ssh") or not host:
@@ -182,8 +192,45 @@ def scratch_dir_for(cwd: Path) -> Path:
     return path
 
 
+def _normalize_extra_roots(
+    cwd: Path, extra_write_roots: list[Path] | None
+) -> list[Path]:
+    """Dedupe extra write roots; skip anything inside cwd or blocked prefixes."""
+    root = cwd.resolve()
+    out: list[Path] = []
+    seen: set[str] = set()
+    for raw in extra_write_roots or []:
+        try:
+            path = Path(raw).expanduser().resolve()
+        except Exception:  # noqa: BLE001
+            continue
+        text = str(path)
+        if not text or text in seen:
+            continue
+        if text == str(root) or text.startswith(str(root) + os.sep):
+            continue
+        if any(text == p or text.startswith(p + os.sep) for p in _BLOCKED_BIND_PREFIXES):
+            continue
+        # Never grant home credential dirs as writable roots.
+        if re_search_cred_dir(text):
+            continue
+        seen.add(text)
+        out.append(path)
+    return out
+
+
+def re_search_cred_dir(path: str) -> bool:
+    low = path.replace("\\", "/")
+    markers = ("/.ssh", "/.aws", "/.gnupg", "/.docker", "/.config/gcloud")
+    return any(m in low for m in markers)
+
+
 def _wrap_seatbelt(
-    command: str, cwd: Path, *, allow_network: bool
+    command: str,
+    cwd: Path,
+    *,
+    allow_network: bool,
+    extra_write_roots: list[Path] | None = None,
 ) -> tuple[str, Path | None]:
     exe = shutil.which("sandbox-exec")
     if not exe:
@@ -218,6 +265,8 @@ def _wrap_seatbelt(
     else:
         # Read-only workspace: only the in-root scratch dir is writable.
         lines.append(f'(allow file-write* (subpath "{scratch}"))')
+    for extra in _normalize_extra_roots(root_path, extra_write_roots):
+        lines.append(f'(allow file-write* (subpath "{extra}"))')
     if allow_network:
         lines.append("(allow network*)")
     else:
@@ -232,7 +281,11 @@ def _wrap_seatbelt(
 
 
 def _wrap_bwrap(
-    command: str, cwd: Path, *, allow_network: bool
+    command: str,
+    cwd: Path,
+    *,
+    allow_network: bool,
+    extra_write_roots: list[Path] | None = None,
 ) -> tuple[str, Path | None]:
     exe = shutil.which("bwrap")
     if not exe:
@@ -280,6 +333,8 @@ def _wrap_bwrap(
         "--chdir",
         str(root),
     ]
+    for extra in _normalize_extra_roots(root, extra_write_roots):
+        parts.extend(["--bind", str(extra), str(extra)])
     if not allow_network:
         parts.append("--unshare-net")
     parts.extend(["--", "/bin/sh", "-lc", command])
@@ -314,7 +369,11 @@ def _parse_extra_binds() -> list[str]:
 
 
 def _wrap_docker(
-    command: str, cwd: Path, *, allow_network: bool
+    command: str,
+    cwd: Path,
+    *,
+    allow_network: bool,
+    extra_write_roots: list[Path] | None = None,
 ) -> tuple[str, Path | None]:
     exe = shutil.which("docker")
     if not exe:
@@ -343,6 +402,8 @@ def _wrap_docker(
             pass
     for bind in _parse_extra_binds():
         hardened += f"-v {shlex.quote(bind)} "
+    for extra in _normalize_extra_roots(root, extra_write_roots):
+        hardened += f"-v {shlex.quote(str(extra))}:{shlex.quote(str(extra))}:rw "
     hardened += (
         f"-v {shlex.quote(str(root))}:/work:{mount_mode} -w /work "
         f"{shlex.quote(image)} /bin/sh -lc '{inner}'"

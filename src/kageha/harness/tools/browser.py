@@ -1,12 +1,14 @@
 """Interactive Playwright browser tools (optional extra).
 
 Backends:
-  - headless (default): fresh Chromium, no cookies/login
-  - comet/cdp: attach to running Comet/Chrome via CDP (uses your login)
-  - docker: Chromium in a hardened container with CDP
+  - auto (default): prefer Comet/CDP when reachable, else headless Chromium
+  - headless: fresh Chromium, no cookies/login
+  - comet/cdp: attach to running Comet/Chrome via CDP (uses your login);
+    auto-falls back to headless if CDP is down
+  - docker: Chromium in a hardened container with CDP (falls back to headless)
 
 Env:
-  KAGEHA_BROWSER_MODE=headless|comet|cdp|docker
+  KAGEHA_BROWSER_MODE=auto|headless|comet|cdp|docker
   KAGEHA_COMET_CDP=http://127.0.0.1:9222
   KAGEHA_BROWSER_DOCKER_IMAGE=browserless/chrome:latest
 
@@ -39,14 +41,16 @@ def register_browser_tools(ctx: "HarnessContext") -> ToolRegistry:
 
     @tool(
         description=(
-            "Attach browser tools to a backend. target=comet|cdp uses your logged-in "
-            "Comet/Chrome via CDP; target=docker runs Chromium in a sandbox container; "
-            "target=headless launches a fresh host Chromium. "
-            "Call this before browsing login-protected sites (use comet)."
+            "Attach browser tools to a backend. "
+            "target=auto (default) prefers Comet/CDP when reachable, else headless. "
+            "target=comet|cdp uses logged-in Comet/Chrome via CDP and auto-falls back "
+            "to headless if CDP is down — do not stop to ask for /comet unless login "
+            "cookies are required. target=docker runs Chromium in a sandbox; "
+            "target=headless launches a fresh host Chromium."
         ),
         risk_class="browser",
     )
-    async def browser_connect(target: str = "comet", endpoint: str = "") -> str:
+    async def browser_connect(target: str = "auto", endpoint: str = "") -> str:
         return await engine.connect(target=target, endpoint=endpoint)
 
     @tool(

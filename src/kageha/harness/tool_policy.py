@@ -24,6 +24,7 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
             "request_approval",
             "ask_human",
             "forge_tool",
+            "install_python_packages",
         }
     ),
     "group:web": frozenset(
@@ -31,6 +32,7 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
             "web_search",
             "parallel_web_search",
             "web_fetch",
+            "download_file",
             "http_get",
             "research_run",
             "parallel_web_fetch",
@@ -78,6 +80,8 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
     "group:messaging": frozenset({"ask_human", "request_approval"}),
     "group:media": frozenset(
         {
+            "nano_banana_generate",
+            "nano_banana_edit",
             "fal_generate_image",
             "fal_edit_image",
             "fal_image_to_video",

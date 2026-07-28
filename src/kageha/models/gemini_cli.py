@@ -10,8 +10,15 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+from collections.abc import AsyncIterator
 
-from kageha.models.base import ChatMessage, ChatResponse, ChatUsage, ToolSpec
+from kageha.models.base import (
+    ChatMessage,
+    ChatResponse,
+    ChatUsage,
+    StreamDelta,
+    ToolSpec,
+)
 
 
 def gemini_cli_available() -> bool:
@@ -56,43 +63,7 @@ class GeminiCliModel:
                 parts.append(f"[tool {m.name or ''}]\n{m.content or ''}")
         return "\n\n".join(p for p in parts if p).strip()
 
-    async def chat(
-        self,
-        messages: list[ChatMessage],
-        tools: list[ToolSpec] | None = None,
-        *,
-        temperature: float = 0.2,
-        max_tokens: int = 4096,
-        effort: str | None = None,
-    ) -> ChatResponse:
-        del temperature, max_tokens, effort
-        exe = shutil.which("gemini")
-        if not exe:
-            raise RuntimeError(
-                "gemini CLI not found. Install Gemini CLI and sign in "
-                "(Antigravity or `gemini`), then retry."
-            )
-        # Never pretend tools work on this path — models invent "tools missing"
-        # and burn the whole computer-use / browser loop. Fail over to an API model.
-        if tools:
-            names = ", ".join(t.name for t in tools[:8])
-            raise RuntimeError(
-                "Antigravity/gemini-cli cannot execute Kageha native tool loops "
-                f"(requested: {names}{'…' if len(tools) > 8 else ''}). "
-                "Use GEMINI_API_KEY + /model gemini-flash (or gemini-pro)."
-            )
-        prompt = self._flatten(messages)
-        cmd = [
-            exe,
-            "-p",
-            prompt,
-            "-m",
-            self.model,
-            "-o",
-            "text",
-            # Omit --approval-mode plan: gemini-cli ≥0.29 requires experimental.plan
-            # for that mode and otherwise hard-fails, forcing Kageha onto API fallbacks.
-        ]
+    def _cli_env(self) -> dict[str, str]:
         # Force Antigravity / Gemini CLI OAuth — do not let GEMINI_API_KEY /
         # GOOGLE_API_KEY steal the request onto the public Generative Language API.
         env = os.environ.copy()
@@ -105,11 +76,58 @@ class GeminiCliModel:
             "GCLOUD_PROJECT",
         ):
             env.pop(key, None)
+        return env
+
+    def _cli_cmd(self, prompt: str) -> list[str]:
+        exe = shutil.which("gemini")
+        if not exe:
+            raise RuntimeError(
+                "gemini CLI not found. Install Gemini CLI and sign in "
+                "(Antigravity or `gemini`), then retry."
+            )
+        return [
+            exe,
+            "-p",
+            prompt,
+            "-m",
+            self.model,
+            "-o",
+            "text",
+            # Omit --approval-mode plan: gemini-cli ≥0.29 requires experimental.plan
+            # for that mode and otherwise hard-fails, forcing Kageha onto API fallbacks.
+        ]
+
+    @staticmethod
+    def _reject_tools(tools: list[ToolSpec] | None) -> None:
+        # Never pretend tools work on this path — models invent "tools missing"
+        # and burn the whole computer-use / browser loop. Fail over to an API model.
+        if not tools:
+            return
+        names = ", ".join(t.name for t in tools[:8])
+        raise RuntimeError(
+            "Antigravity/gemini-cli cannot execute Kageha native tool loops "
+            f"(requested: {names}{'…' if len(tools) > 8 else ''}). "
+            "Use GEMINI_API_KEY + /model gemini-flash (or gemini-pro)."
+        )
+
+    async def chat(
+        self,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec] | None = None,
+        *,
+        temperature: float = 0.2,
+        max_tokens: int = 4096,
+        effort: str | None = None,
+    ) -> ChatResponse:
+        del temperature, max_tokens, effort
+        self._reject_tools(tools)
+        prompt = self._flatten(messages)
+        cmd = self._cli_cmd(prompt)
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=env,
+            env=self._cli_env(),
         )
         try:
             out_b, err_b = await asyncio.wait_for(
@@ -135,6 +153,71 @@ class GeminiCliModel:
             model=self.model,
             raw={"cli": "gemini", "stderr": err[:500]},
         )
+
+    async def stream(
+        self,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec] | None = None,
+        *,
+        temperature: float = 0.2,
+        max_tokens: int = 4096,
+        effort: str | None = None,
+    ) -> AsyncIterator[StreamDelta]:
+        """Best-effort stdout chunking (CLI often buffers until exit)."""
+        del temperature, max_tokens, effort
+        self._reject_tools(tools)
+        prompt = self._flatten(messages)
+        cmd = self._cli_cmd(prompt)
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=self._cli_env(),
+        )
+        assert proc.stdout is not None
+        err_chunks: list[bytes] = []
+
+        async def _drain_stderr() -> None:
+            assert proc.stderr is not None
+            while True:
+                block = await proc.stderr.read(4096)
+                if not block:
+                    break
+                err_chunks.append(block)
+
+        stderr_task = asyncio.create_task(_drain_stderr())
+        try:
+            while True:
+                try:
+                    block = await asyncio.wait_for(
+                        proc.stdout.read(256), timeout=self.timeout
+                    )
+                except asyncio.TimeoutError as exc:
+                    proc.kill()
+                    raise RuntimeError(
+                        f"gemini CLI timed out after {self.timeout}s"
+                    ) from exc
+                if not block:
+                    break
+                text = block.decode("utf-8", errors="replace")
+                if text:
+                    yield StreamDelta(text=text, model=self.model)
+            await asyncio.wait_for(proc.wait(), timeout=self.timeout)
+        finally:
+            if not stderr_task.done():
+                stderr_task.cancel()
+                try:
+                    await stderr_task
+                except asyncio.CancelledError:
+                    pass
+            else:
+                await stderr_task
+        err = b"".join(err_chunks).decode("utf-8", errors="replace").strip()
+        if proc.returncode not in (0, None) and err:
+            # If we already streamed stdout, keep it; else surface stderr.
+            yield StreamDelta(text=err, model=self.model, finish_reason="error")
+        else:
+            yield StreamDelta(text="", model=self.model, finish_reason="stop")
 
     async def smoke(self) -> str:
         response = await self.chat(

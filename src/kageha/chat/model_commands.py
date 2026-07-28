@@ -85,6 +85,10 @@ _MODEL_ALIASES: dict[str, str] = {
     "gpt-5.6-sol": "gpt-codex",
     "gemini-3.6-flash": "gemini-flash",
     "gemini-3.1-pro": "gemini-pro",
+    "glm": "glm-5.2",
+    "glm5.2": "glm-5.2",
+    "glm-5": "glm-5.2",
+    "zai-org/glm-5.2": "glm-5.2",
 }
 
 

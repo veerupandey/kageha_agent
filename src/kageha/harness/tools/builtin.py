@@ -6,6 +6,8 @@ import asyncio
 import json
 import os
 import re
+import shlex
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -193,49 +195,111 @@ def register(ctx: "HarnessContext") -> ToolRegistry:
 
     @tool(
         description=(
-            "Run a shell command (OS-sandboxed by default). CWD is the project root "
-            "when bound, else the session workspace. For user deliverables "
-            "(.pptx/.pdf/.html), write under $KAGEHA_SESSION/artifacts/ so they bind "
-            "to this agent and appear in WebUI Artifacts. Prefer read-only commands. "
-            "Do not use bash read/prompts — use ask_human. Set elevated=true only "
-            "when the command must run on the host outside the sandbox (HITL required)."
+            "Run a shell command. Privilege ladder (ask the human when you need more):\n"
+            "1) default — OS sandbox, NO network\n"
+            "2) network=true — sandbox + internet (HITL ask; prefer this for pip/curl/"
+            "uv when first-class tools cannot help)\n"
+            "3) elevated=true — FULL HOST ESCAPE outside the sandbox (ALWAYS asks the "
+            "human, even with --auto-approve). Use only when sandbox blocks writes/"
+            "exec that network=true cannot fix.\n"
+            "Prefer first-class tools first: download_file, web_fetch, "
+            "nano_banana_generate/edit, install_python_packages. "
+            "Do NOT elevated=true just for network. Deliverables → $KAGEHA_ARTIFACTS/."
         )
     )
-    async def bash(command: str, elevated: bool = False) -> str:
+    async def bash(
+        command: str,
+        network: bool = False,
+        elevated: bool = False,
+    ) -> str:
         # Interactive shell prompts are invisible (stdout piped) — force ask_human
         if re.search(r"\bread\b|\bread\s+-p\b", command):
             return (
                 "ERROR: Do not use bash `read` for human input — prompts are invisible. "
                 "Call ask_human(question=..., save_path=...) instead."
             )
+        # Steer common failure modes to first-class tools before hitting the sandbox.
+        low = (command or "").lower()
+        if re.search(r"\b(curl|wget)\b", low) and re.search(
+            r"\.(png|jpe?g|gif|webp|mp4|pdf|zip)(\b|$)|/artifacts/|kageha_artifacts",
+            low,
+        ):
+            return (
+                "ERROR: Prefer download_file(url=..., path='artifacts/…') for binary "
+                "downloads — it bypasses shell sandbox write/network limits. "
+                "Do not use curl/wget for images or artifacts."
+            )
+        if re.search(
+            r"\b(pip3?\s+install|python3?\s+-m\s+pip\s+install|uv\s+pip\s+install)\b",
+            low,
+        ) and re.search(r"google-genai|google\.generativeai|openai|fal[-_]client", low):
+            return (
+                "ERROR: Do not pip-install image/LLM SDKs. Use nano_banana_generate / "
+                "nano_banana_edit (Gemini Nano Banana) or fal_* tools instead."
+            )
+
+        want_elevated = bool(elevated)
         decision = gate.classify_shell(command)
-        allow_network = False
-        needs_hitl = decision != ApprovalDecision.AUTO or bool(elevated)
-        if needs_hitl:
-            detail = command
-            risk = "shell_network_or_destructive"
-            if elevated:
-                detail = f"[ELEVATED host escape]\n{command}"
-                risk = "shell_elevated"
-            ok = await gate.require(
+        # Classifier or explicit network=true → request sandbox+network (not host escape).
+        want_network = bool(network) or decision != ApprovalDecision.AUTO
+        if want_elevated and want_network:
+            # Elevated already has host network; keep both flags for audit clarity.
+            pass
+
+        if want_elevated:
+            # Elevated is a principal escalation — always ask a human (ignore auto-approve).
+            detail = (
+                "[ELEVATED — HOST ESCAPE]\n"
+                "This runs OUTSIDE the OS sandbox with full host privileges.\n"
+                "Prefer bash(network=true) if you only need internet inside the sandbox.\n"
+                f"\nCommand:\n{command}"
+            )
+            ok = await gate.require_explicit(
                 ApprovalRequest(
-                    action="bash_elevated" if elevated else "bash",
+                    action="bash_elevated",
                     detail=detail,
-                    risk_class=risk,
+                    risk_class="shell_elevated",
                     default=ApprovalDecision.ASK,
                 )
             )
             if not ok:
-                return gate.denial_message("shell command")
-            # HITL-approved network/destructive cmds may use the network sandbox.
-            if decision != ApprovalDecision.AUTO:
-                allow_network = True
+                return (
+                    gate.denial_message("elevated shell")
+                    + " Hint: retry with network=true (sandbox+internet) if that is enough, "
+                    "or use download_file / install_python_packages / nano_banana_*."
+                )
+            allow_network = True
+        elif want_network:
+            detail = (
+                "[SANDBOX + NETWORK]\n"
+                "Allow internet inside the OS sandbox (still jailed; not host escape).\n"
+                "Approve for pip/uv/curl/apt-style work when first-class tools cannot help.\n"
+                f"\nCommand:\n{command}"
+            )
+            ok = await gate.require(
+                ApprovalRequest(
+                    action="bash",
+                    detail=detail,
+                    risk_class="shell_network_or_destructive",
+                    default=ApprovalDecision.ASK,
+                )
+            )
+            if not ok:
+                return (
+                    gate.denial_message("network shell")
+                    + " Hint: ask the user to approve sandbox+network, or use "
+                    "download_file / install_python_packages / nano_banana_* instead of elevated."
+                )
+            allow_network = True
+        else:
+            allow_network = False
+
         session_root = str(ctx.session_root())
         result = await run_shell(
             command,
             cwd=_cwd(),
             allow_network=allow_network,
-            elevated=bool(elevated),
+            elevated=want_elevated,
             env={
                 "KAGEHA_SESSION": session_root,
                 "KAGEHA_ARTIFACTS": str(Path(session_root) / "artifacts"),
@@ -244,18 +308,27 @@ def register(ctx: "HarnessContext") -> ToolRegistry:
                 ctx.meta.get("security_profile") or "approval_fallback"
             ),
         )
-        return json.dumps(
-            {
-                "exit_code": result.exit_code,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "elevated": bool(elevated),
-                "sandboxed": result.sandboxed,
-                "security_profile": result.security_profile,
-                "cwd": str(_cwd()),
-                "session": session_root,
-            }
+        hint = _bash_failure_hint(
+            command,
+            exit_code=result.exit_code,
+            stderr=result.stderr,
+            allow_network=allow_network,
+            elevated=want_elevated,
         )
+        payload: dict[str, Any] = {
+            "exit_code": result.exit_code,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "elevated": want_elevated,
+            "sandboxed": result.sandboxed,
+            "allow_network": allow_network,
+            "security_profile": result.security_profile,
+            "cwd": str(_cwd()),
+            "session": session_root,
+        }
+        if hint:
+            payload["hint"] = hint
+        return json.dumps(payload)
 
     @tool(
         description=(
@@ -503,6 +576,7 @@ def register(ctx: "HarnessContext") -> ToolRegistry:
             "Fetch a public http(s) URL and extract main text + links (no Chromium). "
             "Prefer this over browser_open for docs, blogs, READMEs, and static pages. "
             "Use browser_* only for JS apps, logins, or multi-step UI. "
+            "For binary files (images/pdf/zip) use download_file instead. "
             "Result includes title/url — cite as a source in the final answer."
         )
     )
@@ -515,6 +589,36 @@ def register(ctx: "HarnessContext") -> ToolRegistry:
         if cite is None:
             return text
         return text + sources_marker([cite])
+
+    @tool(
+        description=(
+            "Download a binary http(s) URL into the session workspace (default "
+            "artifacts/). FIRST-CLASS replacement for curl/wget — uses in-process "
+            "HTTP (no shell sandbox). Use for product images, PDFs, zip files, etc. "
+            "path examples: artifacts/product.png or artifacts/refs/hero.jpg."
+        ),
+        risk_class="network",
+    )
+    async def download_file(
+        url: str,
+        path: str = "",
+        max_mb: float = 50.0,
+    ) -> str:
+        return await _download_file(ctx, url=url, path=path, max_mb=max_mb)
+
+    @tool(
+        description=(
+            "Install Python packages into the project ``.kageha_pkgs`` directory "
+            "(sandboxed, network allowed). FIRST-CLASS replacement for "
+            "`pip install` / elevated bash. Returns PYTHONPATH to prepend when "
+            "running scripts. Prefer nano_banana_* / fal_* over installing "
+            "google-genai or image SDKs. packages: space or comma-separated "
+            "(e.g. 'pillow reportlab')."
+        ),
+        risk_class="network",
+    )
+    async def install_python_packages(packages: str) -> str:
+        return await _install_python_packages(ctx, packages=packages)
 
     for t in (
         escalate_plan,
@@ -530,12 +634,206 @@ def register(ctx: "HarnessContext") -> ToolRegistry:
         web_search,
         parallel_web_search,
         web_fetch,
+        download_file,
+        install_python_packages,
     ):
         # decorator returns Tool instances when used as @tool on async def — but
         # assignment above captures Tool objects from decorator return.
         if hasattr(t, "name"):
             reg.register(t)  # type: ignore[arg-type]
     return reg
+
+
+def _bash_failure_hint(
+    command: str,
+    *,
+    exit_code: int,
+    stderr: str,
+    allow_network: bool,
+    elevated: bool,
+) -> str:
+    if exit_code == 0 or elevated:
+        return ""
+    err = (stderr or "").lower()
+    cmd = (command or "").lower()
+    networkish = any(
+        tok in err
+        for tok in (
+            "operation not permitted",
+            "network is unreachable",
+            "could not resolve",
+            "nodename nor servname",
+            "connection refused",
+            "failed to establish",
+            "network is down",
+            "permission denied",
+        )
+    )
+    if not networkish and exit_code not in {1, 6, 7, 126, 127}:
+        return ""
+    hints: list[str] = []
+    if re.search(r"\b(curl|wget)\b", cmd):
+        hints.append("Use download_file(url, path='artifacts/…') instead of curl/wget.")
+    if re.search(r"\bpip3?\b|\buv\s+pip\b|python3?\s+-m\s+pip", cmd):
+        hints.append(
+            "Use install_python_packages('pkg1 pkg2') — installs into .kageha_pkgs "
+            "with network. For Gemini images use nano_banana_generate (no pip)."
+        )
+    if not allow_network and networkish:
+        hints.append(
+            "Network denied in sandbox. Retry bash(..., network=true) to ASK the "
+            "human for sandbox+internet, or use download_file / "
+            "install_python_packages / nano_banana_*. Use elevated=true only if the "
+            "sandbox itself blocks the work (always prompts the human)."
+        )
+    elif allow_network and not elevated and networkish:
+        hints.append(
+            "Sandbox+network still failed. Prefer first-class tools; if the jail "
+            "blocks writes/exec, retry bash(..., elevated=true) — that ALWAYS asks "
+            "the human for host escape."
+        )
+    if "operation not permitted" in err and "artifacts" in cmd:
+        hints.append(
+            "Writing session artifacts via shell may be blocked — use download_file "
+            "or write_file paths under artifacts/."
+        )
+    return " ".join(hints)
+
+
+async def _download_file(
+    ctx: "HarnessContext",
+    *,
+    url: str,
+    path: str,
+    max_mb: float,
+) -> str:
+    import httpx
+    from urllib.parse import unquote, urlparse
+
+    from kageha.harness.tools.paths import rel_to_workspace
+
+    raw_url = (url or "").strip()
+    if not raw_url.lower().startswith(("http://", "https://")):
+        return "ERROR: url must be http(s)"
+    cap = max(0.25, min(200.0, float(max_mb or 50.0)))
+    max_bytes = int(cap * 1024 * 1024)
+
+    dest_rel = (path or "").strip()
+    if not dest_rel:
+        name = Path(unquote(urlparse(raw_url).path)).name or "download.bin"
+        dest_rel = f"artifacts/{name}"
+    try:
+        dest = ctx.resolve_write_path(dest_rel)
+    except ValueError as e:
+        return f"ERROR: {e}"
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=120.0, follow_redirects=True, trust_env=False
+        ) as client:
+            async with client.stream("GET", raw_url) as resp:
+                if resp.status_code >= 400:
+                    return f"ERROR: HTTP {resp.status_code} for {raw_url}"
+                chunks: list[bytes] = []
+                total = 0
+                async for chunk in resp.aiter_bytes():
+                    total += len(chunk)
+                    if total > max_bytes:
+                        return f"ERROR: download exceeds {cap:g} MB limit"
+                    chunks.append(chunk)
+                data = b"".join(chunks)
+    except Exception as exc:  # noqa: BLE001
+        return f"ERROR: download failed: {exc}"
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+    ctx.note_touched(dest)
+    return json.dumps(
+        {
+            "path": rel_to_workspace(dest, ctx.session_root()),
+            "bytes": len(data),
+            "url": raw_url,
+            "max_mb": cap,
+        }
+    )
+
+
+async def _install_python_packages(ctx: "HarnessContext", *, packages: str) -> str:
+    raw = (packages or "").strip()
+    pkgs = [p.strip() for p in raw.replace(",", " ").split() if p.strip()]
+    if not pkgs:
+        return "ERROR: packages required (space or comma-separated)"
+    blocked = {
+        "google-genai",
+        "google.generativeai",
+        "google-generativeai",
+        "fal-client",
+        "fal_client",
+    }
+    bad = [p for p in pkgs if p.lower().replace("_", "-") in blocked or p.lower() in blocked]
+    if bad:
+        return (
+            "ERROR: do not install "
+            + ", ".join(bad)
+            + ". Use nano_banana_generate/edit or fal_* tools instead."
+        )
+
+    target = (ctx.coding_root() / ".kageha_pkgs").resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    # Prefer uv when present; fall back to python -m pip --target.
+    uv = shutil.which("uv")
+    if uv:
+        cmd = (
+            f"{shlex.quote(uv)} pip install --target {shlex.quote(str(target))} "
+            + " ".join(shlex.quote(p) for p in pkgs)
+        )
+    else:
+        py = shutil.which("python3") or shutil.which("python") or "python3"
+        cmd = (
+            f"{shlex.quote(py)} -m pip install --target {shlex.quote(str(target))} "
+            + " ".join(shlex.quote(p) for p in pkgs)
+        )
+
+    session_root = str(ctx.session_root())
+    result = await run_shell(
+        cmd,
+        cwd=ctx.coding_root(),
+        allow_network=True,
+        elevated=False,
+        timeout=300.0,
+        env={
+            "KAGEHA_SESSION": session_root,
+            "KAGEHA_ARTIFACTS": str(Path(session_root) / "artifacts"),
+            "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+        },
+        security_profile=str(ctx.meta.get("security_profile") or "approval_fallback"),
+    )
+    if result.exit_code != 0:
+        return json.dumps(
+            {
+                "ok": False,
+                "exit_code": result.exit_code,
+                "stderr": result.stderr[-2000:],
+                "stdout": result.stdout[-1000:],
+                "hint": (
+                    "Install failed inside the sandbox. Retry with fewer packages, "
+                    "or avoid SDKs — use nano_banana_* / download_file instead."
+                ),
+            }
+        )
+    return json.dumps(
+        {
+            "ok": True,
+            "packages": pkgs,
+            "target": str(target),
+            "pythonpath": str(target),
+            "usage": (
+                f"Run scripts with: PYTHONPATH={target}:$PYTHONPATH python your_script.py "
+                "(or export PYTHONPATH before bash)."
+            ),
+            "stdout": result.stdout[-1500:],
+        }
+    )
 
 
 _SEARCH_API_ORDER = ("brave", "tavily", "perplexity")

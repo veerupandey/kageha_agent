@@ -19,6 +19,16 @@ class BackendSpec:
 
 BACKENDS: tuple[BackendSpec, ...] = (
     BackendSpec(
+        id="auto",
+        kind="interactive",
+        label="Auto (Comet → headless)",
+        description="Prefer Comet/CDP when reachable; otherwise headless Chromium.",
+        aliases=("prefer-comet", "prefer_comet", "default"),
+        needs_pack=True,
+        env_browser_mode="auto",
+        env_headless="chromium",
+    ),
+    BackendSpec(
         id="http",
         kind="http",
         label="HTTP extract",

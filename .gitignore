@@ -17,6 +17,7 @@ build/
 *.egg-info/
 .kageha/
 .kageha-tmp/
+.kageha_pkgs/
 *.db
 .DS_Store
 .coverage

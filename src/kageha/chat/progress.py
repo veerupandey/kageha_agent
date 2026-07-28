@@ -8,13 +8,12 @@ import weakref
 from types import FrameType, TracebackType
 
 from rich.console import Console
-from rich.live import Live
 from rich.text import Text
 
 
 _CHECK_RE = re.compile(r"^[-*]\s+\[([ xX])\]\s+(.*)$")
 
-# Active Live progress instances — refreshed on terminal resize (SIGWINCH).
+# Active progress instances — refreshed on terminal resize (SIGWINCH).
 _ACTIVE: weakref.WeakSet["TransientProgress"] = weakref.WeakSet()
 _PREV_WINCH: object | None = None
 _WINCH_INSTALLED = False
@@ -46,7 +45,7 @@ def _install_winch_handler() -> None:
         signal.signal(signal.SIGWINCH, _on_winch)
         _WINCH_INSTALLED = True
     except Exception:  # noqa: BLE001
-        # Not on main thread / unsupported — Live still truncates on updates.
+        # Not on main thread / unsupported — status still truncates on updates.
         pass
 
 
@@ -76,7 +75,11 @@ def _progress_text(message: str, *, max_width: int | None = None) -> Text:
 
 
 class TransientProgress:
-    """Show agent status live; detailed mode keeps reasoning + todo checkmarks."""
+    """Show agent status on one CR-updated line (no Rich Live).
+
+    Rich Live redraws pin the Cursor/VS Code terminal viewport and block
+    scrollback during long turns — use a plain carriage-return status instead.
+    """
 
     def __init__(
         self,
@@ -88,9 +91,12 @@ class TransientProgress:
         self.console = console or Console()
         self.enabled = enabled
         self.detailed = detailed
-        self._live: Live | None = None
+        # True while a CR status line is open (compat name: tests use _live).
+        self._live: bool | None = None
         self._last_status = ""
         self._waiting_for_input = False
+        # True while StreamReply owns the cursor — never sticky-print Step lines.
+        self._paused_for_stream = False
         self._todo_done = 0
         self._todo_total = 0
         self._step_label = ""
@@ -108,13 +114,10 @@ class TransientProgress:
             return 78
 
     def _on_terminal_resize(self) -> None:
-        """Re-measure and redraw the Live line after the pane changes size."""
-        if self._live is None or not self._last_status:
+        """Re-measure and redraw the status line after the pane changes size."""
+        if not self._live or not self._last_status:
             return
-        self._live.update(
-            _progress_text(self._last_status, max_width=self._status_width()),
-            refresh=True,
-        )
+        self._write_status_line(self._last_status)
 
     def __enter__(self) -> "TransientProgress":
         _ACTIVE.add(self)
@@ -128,6 +131,15 @@ class TransientProgress:
             return
         raw = (message or "").rstrip()
         low = " ".join(raw.split()).lower()
+
+        # Streaming reply owns the terminal — remember status but do not print
+        # sticky "Step N/40" lines under the live panel.
+        if self._paused_for_stream:
+            step_m = re.search(r"step\s+(\d+)\s*/\s*(\d+)", low)
+            if step_m:
+                self._step_label = f"Step {step_m.group(1)}/{step_m.group(2)}"
+            self._remember_todo_counts(raw)
+            return
 
         # A Rich Live line and a terminal input prompt cannot safely own the
         # cursor at the same time. Suspend Live before ask_human writes `>`.
@@ -209,34 +221,78 @@ class TransientProgress:
 
     def _set_status(self, compact: str) -> None:
         self._last_status = compact
+        if self.transient:
+            if not self._live:
+                self._start_live(compact)
+            else:
+                self._write_status_line(compact)
+        else:
+            width = self._status_width()
+            render = compact
+            if "\n" not in render and len(render) > width:
+                render = render[: width - 1].rstrip() + "…"
+            self.console.print(_progress_text(render, max_width=width))
+
+    def _write_status_line(self, compact: str) -> None:
+        """Carriage-return one status line (does not pin scrollback like Live)."""
         width = self._status_width()
         render = compact
         if "\n" not in render and len(render) > width:
             render = render[: width - 1].rstrip() + "…"
         text = _progress_text(render, max_width=width)
-        if self._live is not None:
-            self._live.update(text, refresh=True)
-        else:
+        # Render to plain+ansi string, then CR-overwrite the current line.
+        try:
+            with self.console.capture() as cap:
+                self.console.print(text, end="")
+            line = cap.get().rstrip("\n")
+            pad = max(0, width - len(Text.from_ansi(line).plain))
+            file = getattr(self.console, "file", None)
+            if file is not None:
+                file.write("\r" + line + (" " * pad))
+                file.flush()
+            else:
+                self.console.print(text)
+        except Exception:  # noqa: BLE001
             self.console.print(text)
 
+    def _clear_status_line(self) -> None:
+        if not self._live:
+            return
+        width = self._status_width()
+        file = getattr(self.console, "file", None)
+        if file is not None:
+            try:
+                file.write("\r" + (" " * width) + "\r")
+                file.flush()
+            except Exception:  # noqa: BLE001
+                pass
+        self._live = None
+
     def _start_live(self, initial: str) -> None:
-        if self._live is not None:
+        if self._live:
+            self._write_status_line(initial)
+            self._last_status = initial
             return
         self._last_status = initial
-        self._live = Live(
-            _progress_text(initial, max_width=self._status_width()),
-            console=self.console,
-            refresh_per_second=14,
-            transient=True,
-            # Re-layout when the host terminal (IDE pane) changes size.
-            vertical_overflow="ellipsis",
-        )
-        self._live.start()
+        self._live = True
+        self._write_status_line(initial)
+
+    def suspend(self) -> None:
+        """Clear the status line so a stream writer can own the cursor."""
+        self._paused_for_stream = True
+        self._clear_status_line()
+
+    def resume(self, message: str = "Working…") -> None:
+        """Restart the status line after streaming pauses."""
+        self._paused_for_stream = False
+        if not self.transient or self._waiting_for_input:
+            return
+        if not self._live:
+            self._start_live(message)
 
     def close(self) -> None:
-        if self._live is not None:
-            self._live.stop()
-            self._live = None
+        self._paused_for_stream = False
+        self._clear_status_line()
         _ACTIVE.discard(self)
 
     def __exit__(

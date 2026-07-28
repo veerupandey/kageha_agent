@@ -112,7 +112,7 @@ packs: [browser, computer]
 |------|---------|
 | `browser` | Interactive Playwright / Comet control |
 | `computer` | macOS desktop automation (cua-driver) |
-| `media` | Fal image/video (`FAL_KEY` / `FAL_API_KEY`) |
+| `media` | Fal video (+ optional Fal stills; `FAL_KEY` / `FAL_API_KEY`). Still images: core **Nano Banana** tools need `GEMINI_API_KEY`. |
 
 ## Config home
 

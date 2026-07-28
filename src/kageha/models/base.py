@@ -112,8 +112,20 @@ class ChatResponse:
 class StreamDelta:
     """Incremental assistant output from a streaming chat completion."""
 
-    text: str
+    text: str = ""
+    # Provider "thinking" / chain-of-thought — never shown as the user reply.
+    reasoning: str = ""
     role: str | None = None
+    # OpenAI-style streamed tool-call fragments (index + partial fields).
+    tool_call_index: int | None = None
+    tool_call_id: str | None = None
+    tool_name: str | None = None
+    arguments_json: str = ""
+    finish_reason: str | None = None
+    # Gemini may emit a complete functionCall in one chunk.
+    tool_call: ToolCall | None = None
+    usage: ChatUsage | None = None
+    model: str | None = None
 
 
 @runtime_checkable

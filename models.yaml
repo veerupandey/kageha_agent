@@ -52,10 +52,20 @@ models:
     usd_per_1k_output: 0.005
     capabilities: [tool_calling, vision, structured_output]
     context_window: 1000000
+  # SiliconFlow: prefer GLM-5.2 over Kimi-K3 (much cheaper for agent ladders).
+  - id: glm-5.2
+    provider: siliconflow
+    model: zai-org/GLM-5.2
+    roles: [default, planning, coding, tool_calling]
+    usd_per_1k_input: 0.0014
+    usd_per_1k_output: 0.0044
+    capabilities: [tool_calling, structured_output]
+    context_window: 1000000
+  # Opt-in only via /model kimi-plan — empty roles so it never joins ladders.
   - id: kimi-plan
     provider: siliconflow
     model: moonshotai/Kimi-K3
-    roles: [default, planning, coding]
+    roles: []
     usd_per_1k_input: 0.0006
     usd_per_1k_output: 0.0025
     capabilities: [tool_calling, structured_output]
@@ -197,13 +207,13 @@ voice:
 # Role ladders — prefer native tool-capable API models first.
 # Antigravity/gemini-cli is text-only (no Kageha tool loops); keep as fallback.
 roles:
-  default: [azure-mini, gemini-flash, kimi-plan, gemini-pro, antigravity-flash, antigravity]
-  planning: [azure-mini, kimi-plan, gemini-pro, antigravity, gemini-flash]
+  default: [azure-mini, gemini-flash, glm-5.2, gemini-pro, antigravity-flash, antigravity]
+  planning: [azure-mini, glm-5.2, gemini-pro, antigravity, gemini-flash]
   fast_worker: [azure-mini, gemini-flash, gpt-fast, antigravity-flash]
   monitor: [azure-mini, gemini-flash, gpt-fast, antigravity-flash]
-  tool_calling: [azure-mini, gemini-flash, kimi-plan, gemini-pro, gpt-5.4-mini]
-  coding: [azure-mini, gemini-pro, kimi-plan, gemini-flash, claude-sonnet, antigravity]
+  tool_calling: [azure-mini, gemini-flash, glm-5.2, gemini-pro, gpt-5.4-mini]
+  coding: [azure-mini, gemini-pro, glm-5.2, gemini-flash, claude-sonnet, antigravity]
 
 # Optional /model allowlist (OpenClaw-style). Empty / omitted = all configured models.
 # model_policy:
-#   allow: [gemini-flash, gemini-pro, kimi-plan]
+#   allow: [gemini-flash, gemini-pro, glm-5.2]

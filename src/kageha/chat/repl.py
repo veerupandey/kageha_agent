@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import uuid
@@ -28,6 +29,7 @@ from kageha.chat.turn_manager import (
     resolve_artifact_references,
 )
 from kageha.chat.ui import (
+    StreamReply,
     get_console,
     ladder_model_summary,
     print_banner,
@@ -72,16 +74,27 @@ Commands:
   /resume <id>   /new
   /model [list|reset|<id>]
   /browser …     /computer …     /research …
-  /permissions [auto|ask]   Tool approvals only (not Plan Build)
+  /permissions [ask|auto|full]   ask · session auto · full (auto+network)
   /memory …
   /verbose  /quiet  /quit
 
+Ctrl+C while running stops the turn (keeps chat). Ctrl+C at the prompt quits.
 ↑/↓ history · Tab completes /commands, models, sessions, @files
 """.strip()
 
 
 def _permissions_status(auto_approve: bool) -> str:
-    return "Approvals: auto" if auto_approve else "Approvals: ask before risky tools"
+    net = os.environ.get("KAGEHA_SANDBOX_ALLOW_NETWORK", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if auto_approve and net:
+        return "Approvals: full (auto + sandbox network)"
+    if auto_approve:
+        return "Approvals: auto"
+    return "Approvals: ask before risky tools"
 
 
 def _model_line(
@@ -99,15 +112,38 @@ def _model_line(
 
 
 def _apply_permissions(arg: str, *, auto_approve: bool) -> tuple[bool, str]:
-    """Parse /permissions [mode]. Returns (new_flag, message)."""
+    """Parse /permissions [mode]. Returns (new_flag, message).
+
+    Modes (Codex-like):
+      ask  — prompt on risky tools
+      auto — auto-approve risky tools (sandbox still applies)
+      full — auto-approve + sandbox network (all permissions this process)
+    """
     token = (arg or "").strip().lower()
     if not token:
         return auto_approve, _permissions_status(auto_approve)
-    if token in {"auto", "on", "yes", "true", "1", "allow"}:
+    if token in {"full", "all", "always", "danger"}:
+        from kageha.harness.approvals import apply_permission_scope
+
+        apply_permission_scope("full")
+        return True, _permissions_status(True)
+    if token in {"auto", "on", "yes", "true", "1", "allow", "session"}:
+        from kageha.harness.approvals import apply_permission_scope
+
+        apply_permission_scope("session")
         return True, _permissions_status(True)
     if token in {"ask", "off", "no", "false", "0", "prompt", "hitl"}:
+        from kageha.harness import approvals as _approvals
+
+        os.environ.pop("KAGEHA_SANDBOX_ALLOW_NETWORK", None)
+        _approvals._PROCESS_PERMISSIONS.update(
+            {"auto_approve": False, "sandbox_network": False, "scope": "ask"}
+        )
         return False, _permissions_status(False)
-    return auto_approve, "Usage: /permissions [auto|ask]\n" + _permissions_status(auto_approve)
+    return (
+        auto_approve,
+        "Usage: /permissions [ask|auto|full]\n" + _permissions_status(auto_approve),
+    )
 
 
 def list_sessions(limit: int = 20) -> list[dict[str, str]]:
@@ -228,7 +264,10 @@ async def run_chat_repl(
         voice=voice_mode,
         console=console,
     )
-    print_status("Tip: type / for live command completion · Tab to cycle", console=console)
+    print_status(
+        "Tip: type / for commands · Tab to cycle · Ctrl+C stops a running turn",
+        console=console,
+    )
 
     while True:
         try:
@@ -345,6 +384,7 @@ async def run_chat_repl(
         if low == "/comet" or low.startswith("/comet "):
             from kageha.chat.comet import handle_comet_command
 
+            print_info("Starting Comet in the background…", console=console)
             handled, message = await handle_comet_command(line)
             if handled:
                 print_chat_reply(message)
@@ -704,6 +744,7 @@ async def run_chat_repl(
                 if workspace
                 else {}
             )
+            stream_reply = StreamReply(console=console)
             with TransientProgress(
                 enabled=not quiet,
                 detailed=verbose,
@@ -711,6 +752,8 @@ async def run_chat_repl(
             ) as progress:
                 from kageha.runtime import SecurityProfile, TurnRequest
 
+                stream_reply.on_suspend = progress.suspend
+                stream_reply.on_resume = lambda: progress.resume("Working…")
                 if route == "resume" and run_id and workspace:
                     _append_chat_log(workspace, "user", line)
                     objective = agent_line
@@ -744,6 +787,7 @@ async def run_chat_repl(
                     "model_override": model_override or "",
                     "live": not quiet,
                     "log_handler": progress.update,
+                    "on_text_delta": stream_reply,
                     "defer_human_input": True,
                     "platform": "cli",
                     # Act/followup by default; full for plan/goal.
@@ -795,19 +839,39 @@ async def run_chat_repl(
                         ),
                         active_skills=list(remote.get("active_skills") or []),
                     )
+                    run_id = result.run_id
                 elif use_existing and run_id:
-                    result = await durable_runtime.execute_resume(
+                    from kageha.chat.interrupt import await_run_with_interrupt
+
+                    handle = durable_runtime.resume(
                         run_id,
                         objective,
                         **request_args,
                     )
+                    result = await await_run_with_interrupt(
+                        handle, console=console
+                    )
+                    run_id = result.run_id or handle.session_id
                 else:
-                    result = await durable_runtime.execute(
+                    from kageha.chat.interrupt import await_run_with_interrupt
+
+                    handle = durable_runtime.submit(
                         TurnRequest(objective=objective, **request_args)
                     )
-                run_id = result.run_id
+                    result = await await_run_with_interrupt(
+                        handle, console=console
+                    )
+                    run_id = result.run_id or handle.session_id
                 if not run_id:
                     raise RuntimeError("turn completed without a run_id")
+                # Sync Codex-style Session/Full grants chosen mid-turn.
+                try:
+                    from kageha.harness.approvals import process_permissions
+
+                    if process_permissions().get("auto_approve"):
+                        approve_all = True
+                except Exception:  # noqa: BLE001
+                    pass
                 workspace = open_workspace(run_id)
                 if model_override and workspace.get_model_override() != model_override:
                     workspace.set_model_override(model_override)
@@ -888,7 +952,12 @@ async def run_chat_repl(
                 max_files=3,
             )
             _append_chat_log(workspace, "assistant", chat_text)
-            print_chat_reply(chat_text)
+            # Prefer streamed tokens → one final panel; else classic print.
+            if stream_reply.text().strip():
+                stream_reply.finalize(chat_text)
+            else:
+                stream_reply.close()
+                print_chat_reply(chat_text)
             if voice_mode:
                 from kageha.chat.voice_io import (
                     play_audio,
@@ -919,6 +988,11 @@ async def run_chat_repl(
                     registry=SkillRegistry(),
                     interactive=True,
                 )
+        except KeyboardInterrupt:
+            print_status("\nBye.", console=console)
+            with contextlib.suppress(Exception):
+                durable_runtime.close()
+            break
         except Exception as e:  # noqa: BLE001
             if memory_settings.enabled:
                 memory.capture_turn(

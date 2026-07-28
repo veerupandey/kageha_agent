@@ -6,11 +6,11 @@ import re
 from pathlib import Path
 
 
-def clean_reply_text(text: str, *, max_chars: int = 1200) -> str:
+def clean_reply_text(text: str, *, max_chars: int = 12000) -> str:
     """Normalize model output for chat display.
 
     Keeps markdown for Rich rendering. Strips interactive DOM dumps and
-    collapses extreme whitespace.
+    collapses extreme whitespace. Only truncates very long replies.
     """
     t = (text or "").strip()
     if not t:

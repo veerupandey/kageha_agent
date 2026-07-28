@@ -29,16 +29,18 @@ def test_primary_and_worker_role_ladders():
 
 
 def test_anti_retry_ledger_does_not_poison_later_requests(monkeypatch):
-    reg = ModelRegistry.load()
+    reg = ModelRegistry.load(_REPO_MODELS)
     router = ModelRouter(reg)
-    router.anti_retry.add(("run-1", "kimi-plan", "hard_fail"))
+    router.anti_retry.add(("run-1", "glm-5.2", "hard_fail"))
     fake = object()
 
     monkeypatch.setattr(
         reg,
         "available_models",
-        lambda: [reg.models["kimi-plan"], reg.models["gemini-pro"]],
+        lambda: [reg.models["glm-5.2"], reg.models["gemini-pro"]],
     )
     monkeypatch.setattr(reg, "build", lambda model_id: fake)
+    # Keep the ladder short so pick hits the mocked available models.
+    monkeypatch.setattr(router, "ladder", lambda role: ["glm-5.2", "gemini-pro"])
 
     assert router.pick("tool_calling", task_id="run-1") is fake

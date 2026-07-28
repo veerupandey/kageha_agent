@@ -100,6 +100,8 @@ class TurnRequest:
     live: bool = True
     platform: str = "cli"
     log_handler: Any = None
+    # Optional live token sink for terminal / UI streaming (str chunks).
+    on_text_delta: Any = None
     approver: Any = None
     defer_human_input: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)

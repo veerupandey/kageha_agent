@@ -46,10 +46,16 @@ class ApprovalOutcome:
 
     ``feedback`` is set when the human Suggests (deny + steering) instead of
     a bare Approve/Deny — HITL with Suggest.
+
+    ``scope`` (Codex-style):
+      - ``once`` — approve this request only
+      - ``session`` — auto-approve risky tools for the rest of this chat
+      - ``full`` — session + sandbox network (all permissions this process)
     """
 
     approved: bool
     feedback: str = ""
+    scope: str = "once"  # once | session | full
 
     def __bool__(self) -> bool:
         return self.approved
@@ -71,22 +77,93 @@ Approver = Callable[
 
 def normalize_approval_result(result: Any) -> ApprovalOutcome:
     if isinstance(result, ApprovalOutcome):
+        scope = str(result.scope or "once").strip().lower() or "once"
+        if scope not in {"once", "session", "full", "always"}:
+            scope = "once"
+        if scope == "always":
+            scope = "full"
         return ApprovalOutcome(
             approved=bool(result.approved),
             feedback=str(result.feedback or "").strip(),
+            scope=scope,
         )
     if isinstance(result, dict):
+        scope = str(result.get("scope") or "once").strip().lower() or "once"
+        if scope == "always":
+            scope = "full"
+        if scope not in {"once", "session", "full"}:
+            scope = "once"
         return ApprovalOutcome(
             approved=bool(result.get("approved", False)),
             feedback=str(result.get("feedback") or "").strip(),
+            scope=scope,
         )
     return ApprovalOutcome(approved=bool(result))
 
 
+# Process-wide grants so Session/Full stick across turns (gate is recreated).
+_PROCESS_PERMISSIONS: dict[str, Any] = {
+    "auto_approve": False,
+    "sandbox_network": False,
+    "scope": "ask",
+}
+
+
+def process_permissions() -> dict[str, Any]:
+    """Current Once/Session/Full grants for this process."""
+    net = os.environ.get("KAGEHA_SANDBOX_ALLOW_NETWORK", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    return {
+        "auto_approve": bool(_PROCESS_PERMISSIONS.get("auto_approve")),
+        "sandbox_network": bool(_PROCESS_PERMISSIONS.get("sandbox_network") or net),
+        "scope": str(_PROCESS_PERMISSIONS.get("scope") or "ask"),
+    }
+
+
+def apply_permission_scope(scope: str) -> dict[str, Any]:
+    """Apply session/full grants. Returns a status dict for the UI."""
+    scope = (scope or "once").strip().lower()
+    if scope == "always":
+        scope = "full"
+    if scope == "session":
+        _PROCESS_PERMISSIONS["auto_approve"] = True
+        _PROCESS_PERMISSIONS["scope"] = "session"
+        return {
+            "scope": "session",
+            "auto_approve": True,
+            "sandbox_network": False,
+            "message": "Session grant: auto-approve risky tools for this chat.",
+        }
+    if scope == "full":
+        os.environ["KAGEHA_SANDBOX_ALLOW_NETWORK"] = "1"
+        _PROCESS_PERMISSIONS["auto_approve"] = True
+        _PROCESS_PERMISSIONS["sandbox_network"] = True
+        _PROCESS_PERMISSIONS["scope"] = "full"
+        return {
+            "scope": "full",
+            "auto_approve": True,
+            "sandbox_network": True,
+            "message": (
+                "Full access: auto-approve + sandbox network for this process. "
+                "Elevated host-escape still asks once unless you approve it."
+            ),
+        }
+    return {"scope": "once", "auto_approve": False, "sandbox_network": False, "message": ""}
+
+
 
 _NET_SHELL = re.compile(
-    r"\b(curl|wget|pip\s+install|uv\s+(?:add|lock|sync|tool\s+install|python\s+install)|"
-    r"npm\s+install|yarn\s+add|pnpm\s+add|apt|brew|sudo)\b",
+    r"\b("
+    r"curl|wget|fetch|"
+    r"pip3?\s+install|(?:python3?|py)\s+-m\s+pip\s+install|"
+    r"uv\s+(?:add|lock|sync|pip|tool\s+install|python\s+install)|"
+    r"npm\s+install|yarn\s+add|pnpm\s+add|"
+    r"apt(?:-get)?|brew|sudo"
+    r")\b",
     re.I,
 )
 _DESTRUCTIVE = re.compile(
@@ -164,14 +241,19 @@ class ApprovalGate:
         *,
         auto_approve: bool = False,
         audit: Callable[[ApprovalRequest, str], None] | None = None,
+        on_permission_grant: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self.approver = approver
-        self.auto_approve = auto_approve
+        # Inherit Session/Full grants from earlier turns in this process.
+        perms = process_permissions()
+        self.auto_approve = bool(auto_approve or perms.get("auto_approve"))
         self.audit = audit
+        self.on_permission_grant = on_permission_grant
         self.log: list[ApprovalRequest] = []
         self._lock = asyncio.Lock()
         self._allowlist = _load_allowlist()
         self.last_feedback: str = ""
+        self.last_scope: str = str(perms.get("scope") or "once")
 
     def denial_message(self, what: str) -> str:
         """User-facing denial; includes Suggest steering when present."""
@@ -182,6 +264,19 @@ class ApprovalGate:
                 f"User suggestion: {fb}. Adjust and retry (do not repeat the same action)."
             )
         return f"DENIED: {what} not approved"
+
+    def _apply_outcome_scope(self, outcome: ApprovalOutcome) -> None:
+        self.last_scope = outcome.scope or "once"
+        if not outcome.approved or self.last_scope == "once":
+            return
+        grant = apply_permission_scope(self.last_scope)
+        if grant.get("auto_approve"):
+            self.auto_approve = True
+        if self.on_permission_grant is not None:
+            try:
+                self.on_permission_grant(grant)
+            except Exception:  # noqa: BLE001
+                pass
 
     def classify_shell(self, command: str) -> ApprovalDecision:
         for segment in shell_segments(command):
@@ -264,9 +359,13 @@ class ApprovalGate:
             raw = result
         outcome = normalize_approval_result(raw)
         self.last_feedback = outcome.feedback
+        self._apply_outcome_scope(outcome)
         if self.audit is not None:
             if outcome.approved:
-                self.audit(req, "approved")
+                label = "approved"
+                if outcome.scope in {"session", "full"}:
+                    label = f"approved_{outcome.scope}"
+                self.audit(req, label)
             elif outcome.feedback:
                 self.audit(req, "suggested")
             else:
@@ -274,6 +373,7 @@ class ApprovalGate:
         if (
             outcome.approved
             and persist_allowlist
+            and outcome.scope == "once"
             and (
                 req.action in {"bash", "shell"} or req.action.startswith("tool:")
             )
@@ -509,30 +609,58 @@ def race_tty_and_file(
 
 
 async def cli_approver(req: ApprovalRequest) -> ApprovalOutcome:
-    detail = (req.detail or "")[:400]
+    detail = (req.detail or "")[:500]
     is_plan = (req.risk_class or "") == "plan" or req.action == "approve_plan"
-    lines = [
-        f"{'Build/approve this plan' if is_plan else f'Allow {req.action}'}?",
-        f"  {detail}",
-        "[Y] Yes    [N] No    [S] Suggest — type: s <feedback>",
-    ]
+    if is_plan:
+        lines = [
+            "Build/approve this plan?",
+            f"  {detail}",
+            "[Y] Yes    [N] No    [!] Suggest — type: ! <feedback>",
+        ]
+    else:
+        lines = [
+            f"Allow {req.action}?  ({req.risk_class})",
+            f"  {detail}",
+            "[1] Once     — this action only",
+            "[2] Session  — auto-approve risky tools for this chat",
+            "[3] Full     — all permissions this process (auto + sandbox network)",
+            "[N] Deny     [!] Suggest — type: ! <feedback>",
+        ]
 
     def _ask() -> ApprovalOutcome:
-        ans = race_tty_and_file(lines).strip()
+        from kageha.chat.interrupt import hitl_stop_event
+
+        ans = race_tty_and_file(
+            lines,
+            external_stop=hitl_stop_event(),
+        ).strip()
+        if hitl_stop_event().is_set() and not ans:
+            return ApprovalOutcome(False, feedback="Cancelled by user.")
         low = ans.lower()
-        if low in {"y", "yes", "approve", "ok", "build"}:
-            return ApprovalOutcome(True)
-        if low in {"s", "suggest"}:
-            return ApprovalOutcome(
-                False, feedback="Please revise with clearer steps and constraints."
-            )
-        if low.startswith("s ") or low.startswith("suggest"):
-            fb = (
-                ans.split(":", 1)[1].strip()
-                if ":" in low and low.startswith("suggest")
-                else ans.split(None, 1)[1].strip()
-            )
-            return ApprovalOutcome(False, feedback=fb)
+        # Suggest (Codex-style freeform steer)
+        if low in {"!", "suggest"} or low.startswith("! ") or low.startswith("suggest"):
+            if low in {"!", "suggest"}:
+                fb = "Please revise with clearer steps and constraints."
+            elif low.startswith("!"):
+                fb = ans[1:].strip()
+            else:
+                fb = (
+                    ans.split(":", 1)[1].strip()
+                    if ":" in low
+                    else ans.split(None, 1)[1].strip()
+                )
+            return ApprovalOutcome(False, feedback=fb or "Please revise.")
+        if is_plan:
+            if low in {"y", "yes", "approve", "ok", "build", "1"}:
+                return ApprovalOutcome(True, scope="once")
+            return ApprovalOutcome(False)
+        # Codex-like 3-way grant
+        if low in {"1", "y", "yes", "approve", "ok", "once"}:
+            return ApprovalOutcome(True, scope="once")
+        if low in {"2", "session", "s"}:
+            return ApprovalOutcome(True, scope="session")
+        if low in {"3", "full", "always", "a", "all"}:
+            return ApprovalOutcome(True, scope="full")
         return ApprovalOutcome(False)
 
     return await asyncio.to_thread(_ask)
@@ -585,9 +713,18 @@ async def cli_ask_human(
         answer = str(text or "").strip()
     else:
         def _ask() -> str:
-            return race_tty_and_file(lines).strip()
+            from kageha.chat.interrupt import hitl_stop_event
+
+            return race_tty_and_file(
+                lines,
+                external_stop=hitl_stop_event(),
+            ).strip()
 
         answer = await asyncio.to_thread(_ask)
+        from kageha.chat.interrupt import hitl_stop_event
+
+        if hitl_stop_event().is_set() and not answer:
+            return "no" if binary else ""
     if binary:
         low = answer.lower()
         if low in {"y", "yes", "approve", "ok"}:

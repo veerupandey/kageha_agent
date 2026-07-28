@@ -63,8 +63,9 @@ _SLASH_COMMANDS = (
     "/research standard",
     "/research deep",
     "/permissions",
-    "/permissions auto",
     "/permissions ask",
+    "/permissions auto",
+    "/permissions full",
     "/memory status",
     "/memory list",
     "/memory why",
@@ -84,7 +85,7 @@ _SLASH_COMMANDS = (
 # First-token → static second-token hints (dynamic sources layered on top).
 _SUBCOMMANDS: dict[str, tuple[str, ...]] = {
     "/model": ("list", "reset"),
-    "/permissions": ("auto", "ask"),
+    "/permissions": ("ask", "auto", "full"),
     "/browser": (
         "list",
         "status",
@@ -148,7 +149,7 @@ def _model_ids() -> list[str]:
         ids = [m.id for m in reg.available_models()] or list(reg.models.keys())
         return sorted(ids)
     except Exception:  # noqa: BLE001
-        return ["azure-mini", "gemini-flash", "gemini-pro", "kimi-plan"]
+        return ["azure-mini", "gemini-flash", "gemini-pro", "glm-5.2"]
 
 
 def _session_ids(limit: int = 20) -> list[str]:

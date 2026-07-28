@@ -332,7 +332,7 @@ def humanize_turn_reply(
             "budget": "I couldn't complete that request before the cost limit.",
             "budget_exceeded": "I couldn't complete that request before the cost limit.",
             "no_progress": "I couldn't complete that request because the available approach stopped making progress.",
-            "cancelled": "The request was cancelled before completion.",
+            "cancelled": "Stopped. Send another message whenever you're ready.",
             "error": "I couldn't complete that request because the run failed.",
             "hitl": "I need your input before I can complete that request.",
             "ask_user": "I need your input before I can complete that request.",

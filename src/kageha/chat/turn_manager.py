@@ -824,9 +824,11 @@ def expand_user_message(message: str, ctx: TurnContext) -> str:
         url = _extract_browse_url(text) or "https://example.com"
         use_comet = bool(re.search(r"\bcomet\b", text, re.I))
         connect = (
-            "First call browser_connect(target='comet'). "
+            "First call browser_connect(target='auto') — prefers Comet/CDP, "
+            "falls back to headless automatically. "
             if use_comet
-            else "Use browser_* tools (browser_connect(target='comet') if a logged-in session is needed). "
+            else "Use browser_* tools (browser_connect(target='auto'); "
+            "only need a logged-in Comet session if cookies are required). "
         )
         return (
             f"Do this now with tools (do NOT list capabilities or ask whether you can):\n"

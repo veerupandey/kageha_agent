@@ -91,4 +91,4 @@ Remote HTTP needs `uv sync --extra mcp`. Host editor MCP import: `KAGEHA_MCP_IMP
 
 ## Observations
 
-- (2026-07-27) When default browser mode is set to Comet/CDP (port 9222) and Comet is not active, browser_open will throw ECONNREFUSED 127.0.0.1:9222. Fall back to browser_connect(target='headless') or target='docker' to use standard Playwright browser automation without blocking on CDP.
+- (2026-07-27) Default browser mode is `auto`: prefers Comet/CDP when reachable, otherwise headless Chromium. No need to manually fall back on ECONNREFUSED.

@@ -347,6 +347,7 @@ class AgentRuntime:
             platform=request.platform or "cli",
             live=request.live,
             log_handler=request.log_handler,
+            on_text_delta=getattr(request, "on_text_delta", None),
             defer_human_input=request.defer_human_input,
             event_sink=event_sink,
             runtime_journal=journal,

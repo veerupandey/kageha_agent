@@ -19,8 +19,10 @@ def test_transient_progress_erases_status_when_closed():
 
     with TransientProgress(console=console) as progress:
         progress.update("[kageha] step 2/40 — thinking…")
+        assert progress._live is True
 
-    assert "step 2/40" not in output.getvalue()
+    # CR status line is cleared on close (no Rich Live viewport lock).
+    assert progress._live is None
 
 
 def test_controller_routes_live_logs_to_handler(capsys):
@@ -33,6 +35,20 @@ def test_controller_routes_live_logs_to_handler(capsys):
     assert capsys.readouterr().out == ""
 
 
+def test_suspended_progress_does_not_sticky_print_steps():
+    output = StringIO()
+    console = Console(file=output, force_terminal=True, width=80)
+    with TransientProgress(console=console) as progress:
+        progress.update("[kageha] step 1/40 — thinking…")
+        progress.suspend()
+        before = output.getvalue()
+        progress.update("[kageha] step 1/40 — Checking the result…")
+        progress.update("[kageha] followup verify — deterministic pass")
+        after = output.getvalue()
+    # No new sticky Step lines while streaming owns the cursor.
+    assert after == before
+
+
 def test_live_status_truncates_to_console_width():
     output = StringIO()
     console = Console(file=output, force_terminal=True, width=40)
@@ -40,12 +56,9 @@ def test_live_status_truncates_to_console_width():
     long = "Step 2/40 · Running web_search with a very long query string"
     with progress:
         progress.update(long)
-        assert progress._live is not None
+        assert progress._live is True
         # Force a resize redraw path used by SIGWINCH.
         progress._on_terminal_resize()
-    # Stored status keeps full text; rendered line is width-aware.
-    assert progress._last_status  # cleared only on close of live, status kept
-    # After close, ensure truncation helper keeps one line under width.
     from kageha.chat.progress import _progress_text
 
     rendered = _progress_text(long, max_width=38)
@@ -155,7 +168,7 @@ def test_live_progress_releases_cursor_for_human_input():
     output = StringIO()
     console = Console(file=output, force_terminal=True, width=120)
     with TransientProgress(console=console) as progress:
-        assert progress._live is not None
+        assert progress._live is True
         progress.update("[kageha] tools: ask_human (parallel≤8)")
         assert progress._waiting_for_input is True
         assert progress._live is None
@@ -166,4 +179,4 @@ def test_live_progress_releases_cursor_for_human_input():
 
         progress.update('[kageha] ← ask_human: {"answer":"professional"}')
         assert progress._waiting_for_input is False
-        assert progress._live is not None
+        assert progress._live is True

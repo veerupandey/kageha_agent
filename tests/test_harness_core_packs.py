@@ -119,7 +119,15 @@ def test_pack_summary_lists_core_and_optional(monkeypatch, tmp_path):
 def test_core_pack_set_frozen():
     """Soft CI budget: default core packs must not silently grow."""
     assert CORE_PACK_NAMES == frozenset(
-        {"forge", "skills", "mcp", "memory", "subagent", "research"}
+        {
+            "forge",
+            "skills",
+            "mcp",
+            "memory",
+            "subagent",
+            "research",
+            "nano_banana",
+        }
     )
     # Device control must never return as optional harness packs.
     assert "bravia" not in OPTIONAL_PACK_NAMES

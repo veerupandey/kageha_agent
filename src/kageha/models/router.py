@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -232,7 +233,10 @@ class ModelRouter:
         max_tokens: int = 4096,
         effort: str | None = None,
         exclude_providers: set[str] | None = None,
+        on_text_delta: Callable[[str], None] | None = None,
     ) -> tuple[ChatModel, ChatResponse]:
+        from kageha.models.streaming import collect_stream, supports_stream
+
         attempt_errors: list[str] = []
         tried: set[str] = set()
         failed_ids: list[str] = []
@@ -265,13 +269,32 @@ class ModelRouter:
                 force=bool(prev_model and prev_model != model.model_id),
             )
             try:
-                resp = await model.chat(
-                    use_messages,
-                    tools,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    effort=effort,
-                )
+                resp: ChatResponse | None = None
+                if on_text_delta is not None and supports_stream(model):
+                    try:
+                        resp = await collect_stream(
+                            model.stream(
+                                use_messages,
+                                tools,
+                                temperature=temperature,
+                                max_tokens=max_tokens,
+                                effort=effort,
+                            ),
+                            on_text_delta=on_text_delta,
+                            model_id=model.model_id,
+                        )
+                    except Exception as stream_exc:  # noqa: BLE001
+                        # Fall back to buffered chat on this model before ladder.
+                        last_err = _short_err(stream_exc)
+                        resp = None
+                if resp is None:
+                    resp = await model.chat(
+                        use_messages,
+                        tools,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        effort=effort,
+                    )
                 # Empty text with no tools is a soft failure — try next model.
                 if not (resp.message.content or "").strip() and not resp.message.tool_calls:
                     raise RuntimeError("empty model response")
@@ -404,7 +427,7 @@ class ModelRouter:
         if require_tool_calling and skipped_for_tools:
             hint = (
                 " Native tool loops need GEMINI_API_KEY + /model gemini-flash "
-                "(or gemini-pro / kimi-plan). Antigravity CLI cannot call computer_*."
+                "(or gemini-pro / glm-5.2). Antigravity CLI cannot call computer_*."
             )
         raise RuntimeError(
             f"No model available for role={role}. Tried: {', '.join(errors) or 'none'}.{hint}"

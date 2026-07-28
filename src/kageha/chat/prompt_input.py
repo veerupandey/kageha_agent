@@ -44,7 +44,7 @@ _META: dict[str, str] = {
     "/browser": "browser pack",
     "/computer": "macOS computer-use",
     "/research": "web research",
-    "/permissions": "auto | ask",
+    "/permissions": "ask | auto | full",
     "/memory": "memory controls",
     "/verbose": "show routing",
     "/quiet": "compact status",

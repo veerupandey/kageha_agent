@@ -61,8 +61,8 @@ PRESETS: list[ProviderPreset] = [
         protocol="openai_compat",
         base_url="https://api.siliconflow.com/v1",
         api_key_env="SILICONFLOW_API_KEY",
-        default_model="moonshotai/Kimi-K3",
-        label="SiliconFlow (Kimi / OpenAI-compat)",
+        default_model="zai-org/GLM-5.2",
+        label="SiliconFlow (GLM-5.2 / OpenAI-compat)",
     ),
 ]
 

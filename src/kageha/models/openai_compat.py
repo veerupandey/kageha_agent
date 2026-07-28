@@ -137,8 +137,20 @@ class OpenAICompatModel:
 
         choice = data["choices"][0]
         msg = choice.get("message") or {}
-        # Some models (e.g. Kimi thinking) put text in reasoning_content
-        content = msg.get("content") or msg.get("reasoning_content") or ""
+        # Kimi / thinking models: keep reasoning_content out of the user reply.
+        content = msg.get("content") or ""
+        reasoning = msg.get("reasoning_content") or ""
+        if isinstance(content, str):
+            content_s = content
+        else:
+            content_s = str(content) if content else ""
+        if isinstance(reasoning, str):
+            reasoning_s = reasoning
+        else:
+            reasoning_s = str(reasoning) if reasoning else ""
+        # Only fall back to reasoning when the provider sent no content at all.
+        if not content_s.strip() and reasoning_s.strip():
+            content_s, reasoning_s = reasoning_s, ""
         tool_calls: list[ToolCall] = []
         for raw in msg.get("tool_calls") or []:
             fn = raw.get("function") or {}
@@ -164,8 +176,9 @@ class OpenAICompatModel:
         return ChatResponse(
             message=ChatMessage(
                 role="assistant",
-                content=content if isinstance(content, str) else str(content),
+                content=content_s,
                 tool_calls=tool_calls,
+                reasoning=reasoning_s.strip(),
             ),
             usage=usage,
             model=data.get("model") or self.model,
@@ -182,10 +195,7 @@ class OpenAICompatModel:
         max_tokens: int = 4096,
         effort: str | None = None,
     ) -> AsyncIterator[StreamDelta]:
-        if tools:
-            raise NotImplementedError(
-                "OpenAI-compat streaming with tools is not supported yet"
-            )
+        del effort
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": self._serialize_messages(messages),
@@ -193,6 +203,9 @@ class OpenAICompatModel:
             **self._token_limit_fields(max_tokens),
             "stream": True,
         }
+        if tools:
+            payload["tools"] = [t.openai_schema() for t in tools]
+            payload["tool_choice"] = "auto"
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             async with client.stream(
@@ -214,19 +227,75 @@ class OpenAICompatModel:
                         chunk = json.loads(data_str)
                     except json.JSONDecodeError:
                         continue
+                    usage_raw = chunk.get("usage") or {}
+                    usage = None
+                    if usage_raw:
+                        details = usage_raw.get("prompt_tokens_details") or {}
+                        usage = ChatUsage(
+                            prompt_tokens=int(usage_raw.get("prompt_tokens") or 0),
+                            completion_tokens=int(
+                                usage_raw.get("completion_tokens") or 0
+                            ),
+                            cached_tokens=int(details.get("cached_tokens") or 0),
+                        )
+                    model_name = chunk.get("model") or self.model
                     for choice in chunk.get("choices") or []:
                         delta = choice.get("delta") or {}
                         role = delta.get("role")
-                        piece = delta.get("content")
-                        if piece is None:
-                            piece = delta.get("reasoning_content")
-                        if not piece:
-                            continue
-                        text = piece if isinstance(piece, str) else str(piece)
-                        yield StreamDelta(
-                            text=text,
-                            role=str(role) if role else None,
-                        )
+                        finish = choice.get("finish_reason")
+                        content_piece = delta.get("content")
+                        reasoning_piece = delta.get("reasoning_content")
+                        emitted = False
+                        if reasoning_piece:
+                            emitted = True
+                            rtext = (
+                                reasoning_piece
+                                if isinstance(reasoning_piece, str)
+                                else str(reasoning_piece)
+                            )
+                            yield StreamDelta(
+                                reasoning=rtext,
+                                role=str(role) if role else None,
+                                finish_reason=str(finish) if finish else None,
+                                usage=usage,
+                                model=model_name,
+                            )
+                        if content_piece:
+                            emitted = True
+                            text = (
+                                content_piece
+                                if isinstance(content_piece, str)
+                                else str(content_piece)
+                            )
+                            yield StreamDelta(
+                                text=text,
+                                role=str(role) if role else None,
+                                finish_reason=str(finish) if finish else None,
+                                usage=usage,
+                                model=model_name,
+                            )
+                        for tc in delta.get("tool_calls") or []:
+                            emitted = True
+                            fn = tc.get("function") or {}
+                            yield StreamDelta(
+                                text="",
+                                role=str(role) if role else None,
+                                tool_call_index=int(tc.get("index") or 0),
+                                tool_call_id=tc.get("id"),
+                                tool_name=fn.get("name"),
+                                arguments_json=str(fn.get("arguments") or ""),
+                                finish_reason=str(finish) if finish else None,
+                                usage=usage,
+                                model=model_name,
+                            )
+                        if finish and not emitted:
+                            yield StreamDelta(
+                                text="",
+                                role=str(role) if role else None,
+                                finish_reason=str(finish),
+                                usage=usage,
+                                model=model_name,
+                            )
 
     async def smoke(self) -> str:
         r = await self.chat(

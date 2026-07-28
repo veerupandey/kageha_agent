@@ -294,8 +294,26 @@ async def run_shell(
                 security_profile=selected_security,
             ).truncate()
 
+    extra_roots: list[Path] = []
+    session_env = (merged.get("KAGEHA_SESSION") or "").strip()
+    if session_env:
+        try:
+            extra_roots.append(Path(session_env).expanduser().resolve())
+        except Exception:  # noqa: BLE001
+            pass
+    artifacts_env = (merged.get("KAGEHA_ARTIFACTS") or "").strip()
+    if artifacts_env:
+        try:
+            extra_roots.append(Path(artifacts_env).expanduser().resolve())
+        except Exception:  # noqa: BLE001
+            pass
+
     wrapped, cleanup = wrap_shell_command(
-        command, cwd, allow_network=allow_network, elevated=elevated
+        command,
+        cwd,
+        allow_network=allow_network,
+        elevated=elevated,
+        extra_write_roots=extra_roots,
     )
     # DEVNULL stdin: interactive bash `read` / hung pipes must not steal Terminal
     # keystrokes meant for HITL (/dev/tty race in approvals.py).
