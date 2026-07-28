@@ -7,18 +7,18 @@ from pathlib import Path
 
 
 def clean_reply_text(text: str, *, max_chars: int = 1200) -> str:
-    """Normalize model output into short chat prose."""
+    """Normalize model output for chat display.
+
+    Keeps markdown for Rich rendering. Strips interactive DOM dumps and
+    collapses extreme whitespace.
+    """
     t = (text or "").strip()
     if not t:
         return ""
-    # Drop markdown chrome that reads as dump in a terminal chat
-    t = re.sub(r"^#+\s*", "", t, flags=re.M)
-    t = re.sub(r"\*\*([^*]+)\*\*", r"\1", t)
-    t = re.sub(r"`([^`]+)`", r"\1", t)
-    t = re.sub(r"\n{3,}", "\n\n", t)
     # Cut interactive a11y dumps / DOM noise that sometimes leaks into replies
     if "Interactive snapshot" in t or "[e0]" in t:
         t = t.split("Interactive snapshot")[0].strip()
+    t = re.sub(r"\n{3,}", "\n\n", t)
     if len(t) > max_chars:
         # Prefer ending on a sentence boundary
         cut = t[:max_chars].rsplit(".", 1)[0]
@@ -58,6 +58,7 @@ def format_chat_reply(
 
 
 def print_chat_reply(text: str) -> None:
-    print()
-    print(f"kageha> {text}")
-    print()
+    """Print assistant reply via Rich UI (plain fallback when non-TTY)."""
+    from kageha.chat.ui import print_assistant
+
+    print_assistant(text)

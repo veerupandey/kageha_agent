@@ -27,6 +27,18 @@ from kageha.chat.turn_manager import (
     route_for_decision,
     resolve_artifact_references,
 )
+from kageha.chat.ui import (
+    get_console,
+    ladder_model_summary,
+    print_banner,
+    print_error,
+    print_help,
+    print_info,
+    print_model_block,
+    print_ok,
+    print_sessions,
+    print_status,
+)
 from kageha.config import security_profile
 from kageha.harness.sandbox import SessionWorkspace
 from kageha.loop.artifacts import (
@@ -70,6 +82,20 @@ Commands:
 
 def _permissions_status(auto_approve: bool) -> str:
     return "Approvals: auto" if auto_approve else "Approvals: ask before risky tools"
+
+
+def _model_line(
+    override: str | None,
+    once: str | None,
+    role_overrides: dict[str, str],
+) -> str:
+    from kageha.chat.model_commands import model_status
+
+    status = model_status(override, once=once, role_overrides=role_overrides)
+    if status.startswith("Session model: auto"):
+        ladder = ladder_model_summary()
+        return ladder or status
+    return status
 
 
 def _apply_permissions(arg: str, *, auto_approve: bool) -> tuple[bool, str]:
@@ -133,14 +159,15 @@ async def run_chat_repl(
     # never nested TTY reads.
     os.environ["KAGEHA_CHAT_MODE"] = "1"
     cwd = (project_root or os.getcwd()).strip() or os.getcwd()
+    console = get_console()
     if attach:
         from kageha.chat.remote_turn import remote_ping
 
         try:
             await remote_ping(attach)
-            print(f"[kageha] attached App Server ({attach})")
+            print_info(f"Attached App Server ({attach})", console=console)
         except Exception as exc:  # noqa: BLE001
-            print(f"ERROR: could not attach to App Server: {exc}")
+            print_error(f"ERROR: could not attach to App Server: {exc}", console=console)
             return
     skills = SkillRegistry()
     catalog = skills.catalog(limit=40)
@@ -180,36 +207,38 @@ async def run_chat_repl(
         model_override = workspace.get_model_override()
         model_once = workspace.get_model_once()
         model_role_overrides = workspace.get_model_role_overrides()
-        print(f"Resumed · {resume}")
-    else:
-        print("Kageha chat · type a request, or /help")
-    if voice_mode:
-        print(
-            "Voice mode on — empty Enter records mic (needs ffmpeg/sox + mic). "
-            "Type to send text. Toggle with /voice. "
-            "Spoken replies when KAGEHA_VOICE_REPLY=1."
-        )
 
-    setup_line_editing()
-    print(_permissions_status(approve_all))
-    if model_override or model_once or model_role_overrides:
-        from kageha.chat.model_commands import model_status
+    # Prefer prompt_toolkit (live / completion); fall back to readline.
+    _use_pt = False
+    try:
+        from kageha.chat.prompt_input import read_chat_line
 
-        print(
-            model_status(
-                model_override,
-                once=model_once,
-                role_overrides=model_role_overrides,
-            )
-        )
-    print()
+        _use_pt = True
+    except Exception:  # noqa: BLE001
+        setup_line_editing()
+        read_chat_line = None  # type: ignore[assignment]
+
+    if not _use_pt:
+        setup_line_editing()
+
+    print_banner(
+        resumed=resume if resume else None,
+        approvals=_permissions_status(approve_all),
+        model_line=_model_line(model_override, model_once, model_role_overrides),
+        voice=voice_mode,
+        console=console,
+    )
+    print_status("Tip: type / for live command completion · Tab to cycle", console=console)
 
     while True:
         try:
             prompt = "you> " if not voice_mode else "you/mic> "
-            line = input(prompt).strip()
+            if _use_pt and read_chat_line is not None:
+                line = (await read_chat_line(prompt)).strip()
+            else:
+                line = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
-            print("\nBye.")
+            print_status("\nBye.", console=console)
             durable_runtime.close()
             break
 
@@ -219,12 +248,12 @@ async def run_chat_repl(
             try:
                 line = await listen_once()
             except Exception as exc:  # noqa: BLE001
-                print(f"Voice capture failed: {exc}")
+                print_error(f"Voice capture failed: {exc}", console=console)
                 continue
             if not line:
-                print("(empty transcription)")
+                print_status("(empty transcription)", console=console)
                 continue
-            print(f"you> {line}")
+            print_info(f"you> {line}", console=console)
 
         if not line:
             continue
@@ -232,26 +261,30 @@ async def run_chat_repl(
 
         low = line.lower()
         if low in {"/quit", "/exit", ":q", "quit", "exit"}:
-            print("Bye.")
+            print_status("Bye.", console=console)
             durable_runtime.close()
             break
         if low in {"/", "/help", "help", "?"}:
-            print(HELP)
+            print_help(HELP, console=console)
             continue
         if low == "/voice":
             voice_mode = not voice_mode
-            print("Voice mode on." if voice_mode else "Voice mode off.")
+            print_info(
+                "Voice mode on." if voice_mode else "Voice mode off.",
+                console=console,
+            )
             continue
         if low == "/verbose":
             verbose = True
-            print(
+            print_info(
                 "Verbose on — reasoning traces, todo checklists, and tool steps "
-                "will print as they happen."
+                "will print as they happen.",
+                console=console,
             )
             continue
         if low == "/quiet":
             verbose = False
-            print("Quiet on — compact status only.")
+            print_info("Quiet on — compact status only.", console=console)
             continue
         if low == "/new":
             run_id = None
@@ -261,24 +294,30 @@ async def run_chat_repl(
             model_role_overrides = {}
             sticky_agent_mode = None
             build_once = False
-            print("Ready for a new task.")
+            print_banner(
+                approvals=_permissions_status(approve_all),
+                model_line=_model_line(model_override, model_once, model_role_overrides),
+                voice=voice_mode,
+                console=console,
+            )
+            print_ok("Ready for a new task.", console=console)
             continue
         if low == "/build" or low.startswith("/build "):
             if not run_id or workspace is None:
-                print("Nothing to build — run /plan <task> first.")
+                print_status("Nothing to build — run /plan <task> first.", console=console)
                 continue
             from kageha.loop.mode_policy import plan_already_approved
 
             plan_path = workspace.root / "plan.md"
             if not plan_path.is_file() and not plan_already_approved(workspace.root):
-                print("No plan.md yet — run /plan <task> first.")
+                print_status("No plan.md yet — run /plan <task> first.", console=console)
                 continue
             build_once = True
             sticky_agent_mode = sticky_agent_mode or "plan"
             rest = line.split(maxsplit=1)[1].strip() if " " in line.strip() else ""
             line = rest or "Execute the approved plan."
             low = line.lower()
-            print("[kageha] Building — approving plan and executing…")
+            print_info("Building — approving plan and executing…", console=console)
         if low == "/model" or low.startswith("/model ") or low in {"/models"} or low.startswith(
             "/models "
         ):
@@ -296,12 +335,12 @@ async def run_chat_repl(
                     model_override = result.override
                     model_once = result.once
                     model_role_overrides = dict(result.role_overrides)
-                print(result.message)
+                print_model_block(result.message, console=console)
                 continue
         if low == "/permissions" or low.startswith("/permissions "):
             arg = line.split(maxsplit=1)[1] if " " in line else ""
             approve_all, msg = _apply_permissions(arg, auto_approve=approve_all)
-            print(msg)
+            print_info(msg, console=console)
             continue
         if low == "/comet" or low.startswith("/comet "):
             from kageha.chat.comet import handle_comet_command
@@ -340,25 +379,24 @@ async def run_chat_repl(
                 project_root=cwd,
             )
             if handled:
-                print(message)
+                print_model_block(message, console=console)
                 continue
         if low in {"/status", "/where"}:
             if workspace and run_id:
                 if low == "/where":
                     print_chat_reply(answer_where(workspace))
                 else:
-                    from kageha.chat.model_commands import model_status
-
-                    print(f"Session {run_id}")
-                    print(workspace.root)
-                    print(_permissions_status(approve_all))
-                    print(
-                        model_status(
+                    print_info(f"Session {run_id}", console=console)
+                    print_status(str(workspace.root), console=console)
+                    print_status(_permissions_status(approve_all), console=console)
+                    print_model_block(
+                        _model_line(
                             model_override or workspace.get_model_override(),
-                            once=model_once or workspace.get_model_once(),
-                            role_overrides=model_role_overrides
+                            model_once or workspace.get_model_once(),
+                            model_role_overrides
                             or workspace.get_model_role_overrides(),
-                        )
+                        ),
+                        console=console,
                     )
             else:
                 print_chat_reply(answer_before_workspace(low))
@@ -379,39 +417,33 @@ async def run_chat_repl(
                 }
                 for row in durable_runtime.store.list_sessions(15)
             ]
-            if not rows:
-                print("No sessions yet.")
-                continue
-            for r in rows:
-                print(f"{r['run_id']}  {r['mtime']}  [{r['status']}]  {r['task']}")
+            print_sessions(rows, console=console)
             continue
         if low.startswith("/resume"):
             parts = line.split(maxsplit=1)
             if len(parts) < 2 or not parts[1].strip():
-                print("usage: /resume <run_id>")
+                print_status("usage: /resume <run_id>", console=console)
                 continue
             rid = parts[1].strip()
             try:
                 workspace = open_workspace(rid)
             except FileNotFoundError as e:
-                print(f"ERROR: {e}")
+                print_error(f"ERROR: {e}", console=console)
                 continue
             run_id = rid
             model_override = workspace.get_model_override()
             model_once = workspace.get_model_once()
             model_role_overrides = workspace.get_model_role_overrides()
-            print(f"Resumed · {rid}")
+            print_banner(
+                resumed=rid,
+                approvals=_permissions_status(approve_all),
+                model_line=_model_line(
+                    model_override, model_once, model_role_overrides
+                ),
+                voice=voice_mode,
+                console=console,
+            )
             print_chat_reply(answer_where(workspace))
-            if model_override or model_once or model_role_overrides:
-                from kageha.chat.model_commands import model_status
-
-                print(
-                    model_status(
-                        model_override,
-                        once=model_once,
-                        role_overrides=model_role_overrides,
-                    )
-                )
             continue
         # Mode switches: /plan|/goal|/normal — not "unknown commands".
         from kageha.loop.mode_policy import (
@@ -431,7 +463,7 @@ async def run_chat_repl(
                 continue
             # /plan do X — fall through into the agent turn below.
         elif line.startswith("/"):
-            print(f"Unknown command: {line}  (/help)")
+            print_status(f"Unknown command: {line}  (/help)", console=console)
             continue
 
         try:
@@ -489,10 +521,11 @@ async def run_chat_repl(
             agent_mode=agent_mode,
         )
         if verbose:
-            print(
+            print_status(
                 f"[turn] {decision.intent} "
                 f"(route={route}, mode={agent_mode}, loop={loop_mode}, "
-                f"source={decision.source}) — {decision.reason}"
+                f"source={decision.source}) — {decision.reason}",
+                console=console,
             )
 
         correction = memory.apply_natural_correction(
@@ -674,6 +707,7 @@ async def run_chat_repl(
             with TransientProgress(
                 enabled=not quiet,
                 detailed=verbose,
+                console=console,
             ) as progress:
                 from kageha.runtime import SecurityProfile, TurnRequest
 
@@ -868,13 +902,14 @@ async def run_chat_repl(
                         await synthesize_reply_wav(chat_text, wav)
                         play_audio(wav)
                     except Exception as exc:  # noqa: BLE001
-                        print(f"(voice reply skipped: {exc})")
+                        print_status(f"(voice reply skipped: {exc})", console=console)
             if verbose:
-                print(
+                print_status(
                     f"[{result.run_id} · {result.status} · "
-                    f"{result.steps} steps · ~${result.spent_usd:.3f}]"
+                    f"{result.steps} steps · ~${result.spent_usd:.3f}]",
+                    console=console,
                 )
-                print()
+                console.print()
             if not approve_all:
                 from kageha.memory.learning_loop import maybe_prompt_skill_distill
 
@@ -899,4 +934,4 @@ async def run_chat_repl(
                         learn=memory_settings.learning,
                     )
                 )
-            print(f"Something went wrong: {e}")
+            print_error(f"Something went wrong: {e}", console=console)

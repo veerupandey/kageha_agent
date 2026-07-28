@@ -52,3 +52,9 @@ For multi-angle topics, spawn subagents each calling `research_run` on a differe
 ## Observations
 
 - (2026-07-27) Observed pitfall: research_run/web_search failed twice with 'GEMINI_API_KEY not configured' and DDG fallback returned no results. Procedure should not rely on web_search when the configured search backend is unavailable; instead, fall back to direct URL fetches/headless reads for known domains and use browser-based search only if necessary. Add a note to prefer web_fetch/headless_fetch on explicit URLs and to treat search backend errors as a signal to switch methods rather than retrying the same query.
+
+## Refinements
+
+### 2026-07-28
+
+When researching a person, start with research_run or web_search to identify candidate authoritative profiles. If web_fetch returns HTTP 999/403/404 on LinkedIn, Tracxn, or similar blocked pages, do not retry the same URL. Instead, pivot immediately to alternative authoritative sources such as company websites, university pages, conference bios, certification profiles, or public registries. Prefer one or two sources only, and extract name variants, role, employer, location, education, and public identifiers/links. Keep the final answer concise and cite only successfully fetched sources.

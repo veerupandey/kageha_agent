@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -19,6 +20,17 @@ FAL_IMAGE_MODELS = {
     "flux": "fal-ai/flux/dev",
     "flux-schnell": "fal-ai/flux/schnell",
 }
+
+
+def default_fal_image_model() -> str:
+    """Default image model: ``KAGEHA_FAL_IMAGE_MODEL`` or ``flux-schnell``."""
+    raw = (os.environ.get("KAGEHA_FAL_IMAGE_MODEL") or "").strip()
+    if raw in FAL_IMAGE_MODELS or raw.startswith("fal-ai/"):
+        return raw
+    if raw:
+        # Unknown alias — still return it so the tool can error clearly.
+        return raw
+    return "flux-schnell"
 FAL_EDIT_MODELS = {
     "kontext": "fal-ai/flux-pro/kontext",
     "flux-kontext": "fal-ai/flux-pro/kontext",
@@ -74,13 +86,14 @@ def register_media_tools(ctx: "HarnessContext") -> ToolRegistry:
         risk_class="network",
     )
     async def fal_generate_image(
-        prompt: str, model: str = "flux-schnell", filename: str = "still.png"
+        prompt: str, model: str = "", filename: str = "still.png"
     ) -> str:
         if not fal.available:
             return "ERROR: FAL_KEY not configured (set FAL_KEY or FAL_API_KEY)"
-        model_id = FAL_IMAGE_MODELS.get(model, model)
+        chosen = (model or "").strip() or default_fal_image_model()
+        model_id = FAL_IMAGE_MODELS.get(chosen, chosen)
         if not model_id.startswith("fal-ai/"):
-            return f"ERROR: model not allowlisted: {model}"
+            return f"ERROR: model not allowlisted: {chosen}"
         result = await fal.run(
             model_id, {"prompt": prompt, "image_size": "square_hd"}
         )

@@ -35,9 +35,6 @@ def test_run_setup_openai_compat_and_packs(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("KAGEHA_HOME", str(home))
     monkeypatch.chdir(workspace)
 
-    # surface=both(3), workspace default, provider=compat(5),
-    # base_url, api_key_env, api_key, model, provider_name, model_id,
-    # browser=y, media=y, fal key, computer=n, smoke=n (via smoke_test=False)
     answers = iter(
         [
             "3",  # both
@@ -49,9 +46,12 @@ def test_run_setup_openai_compat_and_packs(tmp_path: Path, monkeypatch):
             "gpt-test",
             "mycompat",
             "compat-local",
+            "compat-local",  # planner
+            "compat-local",  # executor
             "y",  # browser
             "y",  # media
             "fal-test-key",
+            "flux",  # image model
             "n",  # computer
         ]
     )
@@ -62,12 +62,16 @@ def test_run_setup_openai_compat_and_packs(tmp_path: Path, monkeypatch):
     assert result["surface"] == "both"
     assert result["provider"] == "mycompat"
     assert result["model_id"] == "compat-local"
+    assert result["planner"] == "compat-local"
+    assert result["executor"] == "compat-local"
+    assert result["image_model"] == "flux"
     assert set(result["packs"]) == {"browser", "media"}
 
     env_text = Path(result["env_path"]).read_text()
     assert "OPENAI_API_KEY=sk-test-compat" in env_text
     assert "FAL_API_KEY=fal-test-key" in env_text
     assert "KAGEHA_TOOL_PACKS=browser,media" in env_text
+    assert "KAGEHA_FAL_IMAGE_MODEL=flux" in env_text
 
     yaml_text = (home / "models.yaml").read_text()
     assert "mycompat" in yaml_text
@@ -75,6 +79,47 @@ def test_run_setup_openai_compat_and_packs(tmp_path: Path, monkeypatch):
     assert "https://example.com/v1" in yaml_text
     data = yaml.safe_load(yaml_text)
     assert data.get("session_default_model") == "compat-local"
+    assert data.get("setup_pins", {}).get("planner") == "compat-local"
+    assert data.get("setup_pins", {}).get("executor") == "compat-local"
+
+
+def test_run_setup_role_models_and_image(tmp_path: Path, monkeypatch):
+    home = tmp_path / "khome"
+    home.mkdir()
+    workspace = tmp_path / "proj"
+    workspace.mkdir()
+    monkeypatch.setenv("KAGEHA_HOME", str(home))
+    monkeypatch.chdir(workspace)
+
+    answers = iter(
+        [
+            "1",
+            str(workspace),
+            "2",  # OpenAI
+            "gpt-4.1-mini",
+            "openai-default",
+            "sk-role",
+            "gemini-pro",  # planner
+            "gpt-fast",  # executor
+            "n",  # browser
+            "y",  # media
+            "fal-key",
+            "flux-schnell",
+            "n",  # computer
+        ]
+    )
+    monkeypatch.setattr("builtins.input", lambda *_a, **_k: next(answers))
+
+    result = run_setup(smoke_test=False)
+    assert result["ok"] is True
+    assert result["planner"] == "gemini-pro"
+    assert result["executor"] == "gpt-fast"
+    assert result["image_model"] == "flux-schnell"
+    data = yaml.safe_load((home / "models.yaml").read_text())
+    assert data["setup_pins"]["planner"] == "gemini-pro"
+    assert data["setup_pins"]["executor"] == "gpt-fast"
+    assert data["roles"]["planning"][0] == "gemini-pro"
+    assert data["roles"]["fast_worker"][0] == "gpt-fast"
 
 
 def test_run_setup_packs_overwrite_clears(tmp_path: Path, monkeypatch):
@@ -83,7 +128,11 @@ def test_run_setup_packs_overwrite_clears(tmp_path: Path, monkeypatch):
     workspace = tmp_path / "proj"
     workspace.mkdir()
     env = workspace / ".env"
-    env.write_text("KAGEHA_TOOL_PACKS=browser,media,computer\nOPENAI_API_KEY=old\n")
+    env.write_text(
+        "KAGEHA_TOOL_PACKS=browser,media,computer\n"
+        "KAGEHA_FAL_IMAGE_MODEL=flux\n"
+        "OPENAI_API_KEY=old\n"
+    )
     monkeypatch.setenv("KAGEHA_HOME", str(home))
     monkeypatch.chdir(workspace)
 
@@ -95,8 +144,10 @@ def test_run_setup_packs_overwrite_clears(tmp_path: Path, monkeypatch):
             "gpt-4.1-mini",
             "openai-default",
             "sk-new",
+            "",  # planner default
+            "",  # executor default
             "n",  # browser
-            "n",  # media
+            "n",  # media → clears image model
             "n",  # computer
         ]
     )
@@ -105,13 +156,12 @@ def test_run_setup_packs_overwrite_clears(tmp_path: Path, monkeypatch):
     result = run_setup(smoke_test=False)
     assert result["ok"] is True
     assert result["packs"] == []
+    assert result.get("image_model") is None
     env_text = Path(result["env_path"]).read_text()
-    assert "KAGEHA_TOOL_PACKS=\n" in env_text or "KAGEHA_TOOL_PACKS=\r\n" in env_text.replace(
-        "\r\n", "\n"
-    )
-    # normalize: key present with empty value
     assert "KAGEHA_TOOL_PACKS=" in env_text
     assert "browser,media" not in env_text.split("KAGEHA_TOOL_PACKS=")[1].splitlines()[0]
+    assert "KAGEHA_FAL_IMAGE_MODEL=" in env_text
+    assert "KAGEHA_FAL_IMAGE_MODEL=flux" not in env_text
     assert "OPENAI_API_KEY=sk-new" in env_text
 
 
@@ -149,6 +199,8 @@ def test_run_setup_oauth_codex(tmp_path: Path, monkeypatch):
             "1",  # chat
             str(workspace),
             "6",  # Codex OAuth
+            "",  # planner → gpt-codex
+            "",  # executor → gpt-codex
             "n",  # browser
             "n",  # media
             "n",  # computer
@@ -162,6 +214,7 @@ def test_run_setup_oauth_codex(tmp_path: Path, monkeypatch):
     assert result["model_id"] == "gpt-codex"
     data = yaml.safe_load((home / "models.yaml").read_text())
     assert data.get("session_default_model") == "gpt-codex"
+    assert data.get("setup_pins", {}).get("planner") == "gpt-codex"
     assert "KAGEHA_TOOL_PACKS=" in Path(result["env_path"]).read_text()
 
 
@@ -183,6 +236,8 @@ def test_run_setup_azure(tmp_path: Path, monkeypatch):
             "2024-12-01-preview",
             "gpt-5.4-mini",
             "azure-local",
+            "",  # planner
+            "",  # executor
             "n",  # browser
             "n",  # media
             "n",  # computer

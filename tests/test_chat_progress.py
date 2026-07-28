@@ -33,6 +33,25 @@ def test_controller_routes_live_logs_to_handler(capsys):
     assert capsys.readouterr().out == ""
 
 
+def test_live_status_truncates_to_console_width():
+    output = StringIO()
+    console = Console(file=output, force_terminal=True, width=40)
+    progress = TransientProgress(console=console)
+    long = "Step 2/40 · Running web_search with a very long query string"
+    with progress:
+        progress.update(long)
+        assert progress._live is not None
+        # Force a resize redraw path used by SIGWINCH.
+        progress._on_terminal_resize()
+    # Stored status keeps full text; rendered line is width-aware.
+    assert progress._last_status  # cleared only on close of live, status kept
+    # After close, ensure truncation helper keeps one line under width.
+    from kageha.chat.progress import _progress_text
+
+    rendered = _progress_text(long, max_width=38)
+    assert len(rendered.plain) <= 38
+
+
 def test_hitl_telemetry_becomes_one_human_status():
     assert (
         _friendly_status("[kageha] tools: ask_human (parallel≤8)")
@@ -41,6 +60,25 @@ def test_hitl_telemetry_becomes_one_human_status():
     assert _friendly_status("[kageha] step 2/40 — thinking…") == "Thinking…"
     assert _friendly_status("[kageha] workspace=/tmp/session") == ""
     assert _friendly_status("[kageha]   tools: skill_run") == "Running skill_run…"
+    assert (
+        _friendly_status("[kageha] spawn_subagents: 4 tasks, parallel≤4")
+        == "Spawning 4 subagents…"
+    )
+
+
+def test_detailed_progress_shows_subagent_assignments():
+    output = StringIO()
+    console = Console(file=output, force_terminal=True, width=140)
+    board = (
+        "[kageha] spawn_subagents: 2 tasks, parallel≤2\n"
+        "  1. [a] research angle A\n"
+        "  2. [b] write the report"
+    )
+    with TransientProgress(console=console, detailed=True) as progress:
+        progress.update(board)
+    text = output.getvalue()
+    assert "research angle A" in text
+    assert "write the report" in text
 
 
 def test_non_terminal_progress_deduplicates_status():

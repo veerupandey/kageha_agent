@@ -7,12 +7,29 @@ import json
 import time
 from unittest.mock import patch
 
-from kageha.agents.subagent import register_subagent_tools
+from kageha.agents.subagent import (
+    _format_subagent_assignments,
+    register_subagent_tools,
+)
 from kageha.harness.approvals import ApprovalGate
 from kageha.harness.runtime import HarnessContext
 from kageha.harness.sandbox import SessionWorkspace
 from kageha.models.registry import ModelRegistry
 from kageha.models.router import ModelRouter
+
+
+def test_format_subagent_assignments_lists_each_task():
+    text = _format_subagent_assignments(
+        [
+            ("a", "research angle A"),
+            ("b", "write the report"),
+        ],
+        kind="spawn_subagents",
+        parallel=2,
+    )
+    assert "2 tasks, parallel≤2" in text
+    assert "1. [a] research angle A" in text
+    assert "2. [b] write the report" in text
 
 
 def test_spawn_subagents_runs_in_parallel(tmp_path, monkeypatch):
@@ -65,6 +82,9 @@ def test_spawn_subagents_runs_in_parallel(tmp_path, monkeypatch):
     assert {r["label"] for r in data["results"]} == {"a", "b", "c"}
     # Serial would be ~0.24s; parallel should finish near one sleep.
     assert elapsed < 0.18
+    board = (ws.root / "subagents_tasks.md").read_text(encoding="utf-8")
+    assert "`a`: research angle A" in board
+    assert "`c`: research angle C" in board
 
 
 def test_spawn_subagents_rejects_bad_json(tmp_path, monkeypatch):

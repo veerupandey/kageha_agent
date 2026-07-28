@@ -300,11 +300,18 @@ def setup_line_editing(*, commands: tuple[str, ...] | None = None) -> bool:
         if "libedit" in doc.lower():
             readline.parse_and_bind("bind ^I rl_complete")
             readline.parse_and_bind("bind -e")
+            # Show matches when Tab on an ambiguous prefix (e.g. bare `/`).
+            try:
+                readline.parse_and_bind("bind ^I rl_complete")
+            except Exception:  # noqa: BLE001
+                pass
         else:
             readline.parse_and_bind("tab: complete")
             readline.parse_and_bind("set editing-mode emacs")
             readline.parse_and_bind("set horizontal-scroll-mode on")
             readline.parse_and_bind("set show-all-if-ambiguous on")
+            readline.parse_and_bind("set show-all-if-unmodified on")
+            readline.parse_and_bind("set menu-complete-display-prefix on")
             readline.parse_and_bind("set completion-ignore-case on")
     except Exception:  # noqa: BLE001
         pass

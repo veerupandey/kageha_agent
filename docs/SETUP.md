@@ -17,8 +17,8 @@ uv run kageha setup
 ```
 
 `kageha setup` is the **only** guided wizard. Re-running it overwrites the
-settings it owns (provider keys written this run, `KAGEHA_TOOL_PACKS`, and the
-global default model pins in `~/.kageha/models.yaml`).
+settings it owns (provider keys written this run, `KAGEHA_TOOL_PACKS`,
+`KAGEHA_FAL_IMAGE_MODEL`, and planner/executor pins in `~/.kageha/models.yaml`).
 
 The wizard asks:
 
@@ -29,8 +29,12 @@ The wizard asks:
    - OpenAI Codex OAuth (`codex login` → ChatGPT → default `/model gpt-codex`)
    - Antigravity / Gemini CLI OAuth (Google → default `/model antigravity`)
    - Both OAuth (then pick which model is the default)
-4. Optional packs (browser, media/Fal, computer on macOS) — always overwrites `KAGEHA_TOOL_PACKS`
-5. Optional smoke test
+4. Role models (overwrite previous pins):
+   - **Planner** → Plan mode (`roles.planning`)
+   - **Executor / subagents** → tool loops & workers (`tool_calling`, `fast_worker`, …)
+5. Optional packs (browser, media/Fal, computer on macOS) — always overwrites `KAGEHA_TOOL_PACKS`
+   - With media: Fal API key + default image model (`KAGEHA_FAL_IMAGE_MODEL`, e.g. `flux-schnell`)
+6. Optional smoke test
 
 Then it prints the exact next commands for your choices.
 

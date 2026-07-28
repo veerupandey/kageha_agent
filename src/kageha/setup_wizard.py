@@ -11,8 +11,9 @@ import platform
 from pathlib import Path
 from typing import Any, Literal
 
-from kageha.chat.model_commands import persist_global_model
+from kageha.chat.model_commands import persist_setup_model_pins
 from kageha.config import kageha_home, read_env_value, upsert_env_key
+from kageha.harness.tools.media import FAL_IMAGE_MODELS, default_fal_image_model
 from kageha.models.oauth_setup import (
     detect_tools,
     setup_antigravity_oauth,
@@ -362,7 +363,74 @@ def _write_model(
     return yaml_path
 
 
-def _configure_packs(env_path: Path) -> list[str]:
+def _read_setup_pins() -> dict[str, str]:
+    path = kageha_home() / "models.yaml"
+    if not path.is_file():
+        return {}
+    try:
+        import yaml
+
+        data = yaml.safe_load(path.read_text()) or {}
+    except Exception:  # noqa: BLE001
+        return {}
+    pins = data.get("setup_pins") if isinstance(data, dict) else None
+    if not isinstance(pins, dict):
+        return {}
+    return {str(k): str(v) for k, v in pins.items() if v}
+
+
+def _configure_role_models(session_default: str) -> dict[str, str]:
+    """Ask for planner + executor/subagent models (overwrite role pins)."""
+    reg = ModelRegistry.load()
+    known = sorted(reg.models.keys())
+    prev = _read_setup_pins()
+    planner_default = prev.get("planner") or session_default
+    executor_default = prev.get("executor") or session_default
+
+    print(
+        "\nRole models (overwrite previous pins)\n"
+        "-------------------------------------\n"
+        "  planner  — Plan mode / planning role\n"
+        "  executor — tool loops, coding, subagents\n"
+        f"Known ids (sample): {', '.join(known[:8])}{'…' if len(known) > 8 else ''}\n",
+        flush=True,
+    )
+    planner = _prompt("Planner model id", planner_default).strip() or planner_default
+    executor = (
+        _prompt("Executor / subagents model id", executor_default).strip()
+        or executor_default
+    )
+
+    if planner not in reg.models:
+        print(
+            f"Note: `{planner}` is not in the registry yet — pin written anyway.\n"
+            "Add it via models.yaml or re-run setup with an API provider.",
+            flush=True,
+        )
+    if executor not in reg.models:
+        print(
+            f"Note: `{executor}` is not in the registry yet — pin written anyway.",
+            flush=True,
+        )
+    else:
+        from kageha.chat.model_commands import _model_is_native_tool_caller
+
+        if not _model_is_native_tool_caller(executor, reg):
+            print(
+                f"Warning: `{executor}` cannot run native tool loops "
+                "(e.g. Antigravity/gemini-cli). "
+                "`tool_calling` will keep an API-capable ladder.",
+                flush=True,
+            )
+
+    return {
+        "session_default": session_default,
+        "planner": planner,
+        "executor": executor,
+    }
+
+
+def _configure_packs(env_path: Path) -> tuple[list[str], str | None]:
     existing = [
         p.strip()
         for p in (read_env_value("KAGEHA_TOOL_PACKS", env_path) or "").split(",")
@@ -377,6 +445,7 @@ def _configure_packs(env_path: Path) -> list[str]:
         flush=True,
     )
     packs: list[str] = []
+    image_model: str | None = None
     if _yn("Enable browser pack?", "browser" in existing):
         packs.append("browser")
     if _yn("Enable media pack (Fal)?", "media" in existing):
@@ -384,6 +453,19 @@ def _configure_packs(env_path: Path) -> list[str]:
         fal = _prompt_secret("Fal API key (FAL_KEY or FAL_API_KEY)", "FAL_API_KEY")
         if fal:
             upsert_env_key("FAL_API_KEY", fal, env_path)
+        aliases = ", ".join(sorted(FAL_IMAGE_MODELS))
+        image_default = (
+            read_env_value("KAGEHA_FAL_IMAGE_MODEL", env_path)
+            or default_fal_image_model()
+        )
+        image_model = _prompt(
+            f"Default Fal image model ({aliases})",
+            image_default,
+        ).strip() or image_default
+        upsert_env_key("KAGEHA_FAL_IMAGE_MODEL", image_model, env_path)
+    else:
+        # Clear previous image default when media pack is off.
+        upsert_env_key("KAGEHA_FAL_IMAGE_MODEL", "", env_path)
     if platform.system() == "Darwin":
         if _yn("Enable computer pack (macOS)?", "computer" in existing):
             packs.append("computer")
@@ -394,7 +476,7 @@ def _configure_packs(env_path: Path) -> list[str]:
         )
     # Always overwrite — empty string clears previous packs.
     upsert_env_key("KAGEHA_TOOL_PACKS", ",".join(packs), env_path)
-    return packs
+    return packs, image_model
 
 
 def _print_next_steps(
@@ -403,6 +485,9 @@ def _print_next_steps(
     workspace: Path,
     packs: list[str],
     model_id: str | None,
+    planner: str | None = None,
+    executor: str | None = None,
+    image_model: str | None = None,
 ) -> None:
     print("\nNext steps", flush=True)
     print("----------", flush=True)
@@ -431,9 +516,12 @@ def _print_next_steps(
             flush=True,
         )
     configured = f" (default: `{model_id}`)" if model_id else ""
+    planner_line = f"  /model planner {planner}\n" if planner else ""
+    executor_line = f"  /model executor {executor}\n" if executor else ""
     print(
         "\nIn chat later:\n"
         f"  /model  switch models{configured}\n"
+        f"{planner_line}{executor_line}"
         "  /plan   clarify → research → plan.md → /build\n"
         "  /goal   execute now with Approve / Deny / Suggest\n"
         "  /normal everyday chat",
@@ -443,16 +531,19 @@ def _print_next_steps(
         f"\nPacks in .env: KAGEHA_TOOL_PACKS={','.join(packs) or '(none)'}",
         flush=True,
     )
+    if image_model:
+        print(f"Image model: KAGEHA_FAL_IMAGE_MODEL={image_model}", flush=True)
     print(flush=True)
 
 
 def run_setup(*, smoke_test: bool | None = None) -> dict[str, Any]:
-    """Interactive guided setup. Re-run overwrites packs + default model pins."""
+    """Interactive guided setup. Re-run overwrites packs + role/image pins."""
     print(
         "\nKageha setup\n"
         "------------\n"
-        "One wizard for surface, model connection (API key or OAuth),\n"
-        "packs, and default model. Re-running overwrites those settings.\n",
+        "One wizard for surface, connection (API key or OAuth),\n"
+        "planner/executor models, packs, and image model.\n"
+        "Re-running overwrites those settings.\n",
         flush=True,
     )
     surface = _pick_surface()
@@ -470,14 +561,29 @@ def run_setup(*, smoke_test: bool | None = None) -> dict[str, Any]:
         )
         return {"ok": False, **provider, "surface": surface, "workspace": str(workspace)}
 
-    packs = _configure_packs(env_path)
     model_id = str(provider.get("model_id") or "")
+    role_pins = _configure_role_models(model_id) if model_id else {
+        "session_default": "",
+        "planner": "",
+        "executor": "",
+    }
+    packs, image_model = _configure_packs(env_path)
 
     yaml_path = provider.get("yaml_path") or str(kageha_home() / "models.yaml")
     if model_id:
-        pinned = persist_global_model(model_id)
+        pinned = persist_setup_model_pins(
+            session_default=role_pins["session_default"] or model_id,
+            planner=role_pins["planner"] or model_id,
+            executor=role_pins["executor"] or model_id,
+        )
         yaml_path = str(pinned)
-        print(f"\nPinned default model `{model_id}` → {yaml_path}", flush=True)
+        print(
+            f"\nPinned models → {yaml_path}\n"
+            f"  session:  {role_pins['session_default'] or model_id}\n"
+            f"  planner:  {role_pins['planner'] or model_id}\n"
+            f"  executor: {role_pins['executor'] or model_id}",
+            flush=True,
+        )
 
     print(f"Saved .env → {env_path}", flush=True)
     if provider.get("api_key_env"):
@@ -505,6 +611,9 @@ def run_setup(*, smoke_test: bool | None = None) -> dict[str, Any]:
         workspace=workspace,
         packs=packs,
         model_id=model_id or None,
+        planner=role_pins.get("planner") or None,
+        executor=role_pins.get("executor") or None,
+        image_model=image_model,
     )
     return {
         "ok": True,
@@ -514,6 +623,9 @@ def run_setup(*, smoke_test: bool | None = None) -> dict[str, Any]:
         "yaml_path": yaml_path,
         "provider": provider.get("provider"),
         "model_id": model_id,
+        "planner": role_pins.get("planner"),
+        "executor": role_pins.get("executor"),
+        "image_model": image_model,
         "packs": packs,
         "auth": provider.get("auth"),
         "smoke_ok": smoke_ok,

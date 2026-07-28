@@ -3,7 +3,7 @@ from pathlib import Path
 from kageha.chat.present import clean_reply_text, format_chat_reply
 
 
-def test_clean_strips_markdown_and_dom_dump():
+def test_clean_strips_dom_dump_keeps_prose():
     raw = (
         "Yes, I opened Google.\n\n"
         "## Interactive snapshot\n"

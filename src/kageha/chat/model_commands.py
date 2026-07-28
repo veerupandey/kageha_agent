@@ -298,13 +298,7 @@ def _model_is_native_tool_caller(model_id: str, registry: ModelRegistry) -> bool
     return True
 
 
-def persist_global_model(model_id: str, registry: ModelRegistry | None = None) -> Path:
-    """Write ~/.kageha/models.yaml overlay pinning model_id first on role ladders.
-
-    Antigravity / gemini-cli models are never pinned onto ``tool_calling`` —
-    native tool loops require an API/Codex model.
-    """
-    reg = registry or ModelRegistry.load()
+def _load_models_overlay() -> tuple[Path, dict[str, Any]]:
     path = kageha_home() / "models.yaml"
     data: dict[str, Any] = {}
     if path.is_file():
@@ -314,25 +308,93 @@ def persist_global_model(model_id: str, registry: ModelRegistry | None = None) -
                 data = loaded
         except Exception:  # noqa: BLE001
             data = {}
+    return path, data
+
+
+def _pin_role_first(
+    roles: dict[str, Any],
+    role: str,
+    model_id: str,
+    *,
+    base_ladder: list[str] | None = None,
+) -> None:
+    existing = list(roles.get(role) or base_ladder or [])
+    roles[role] = [model_id] + [m for m in existing if m != model_id]
+
+
+def persist_global_model(model_id: str, registry: ModelRegistry | None = None) -> Path:
+    """Write ~/.kageha/models.yaml overlay pinning model_id first on role ladders.
+
+    Antigravity / gemini-cli models are never pinned onto ``tool_calling`` —
+    native tool loops require an API/Codex model.
+    """
+    return persist_setup_model_pins(
+        session_default=model_id,
+        planner=model_id,
+        executor=model_id,
+        registry=registry,
+    )
+
+
+def persist_setup_model_pins(
+    *,
+    session_default: str,
+    planner: str,
+    executor: str,
+    registry: ModelRegistry | None = None,
+) -> Path:
+    """Pin planner + executor/subagent roles and session default (overwrite).
+
+    - planner → ``planning`` (+ ``default`` when not already executor-only)
+    - executor → ``tool_calling``, ``fast_worker``, ``monitor``, ``coding``
+    - Antigravity / non-tool models are not pinned onto ``tool_calling``
+    """
+    reg = registry or ModelRegistry.load()
+    path, data = _load_models_overlay()
     roles = dict(data.get("roles") or {})
-    pin_tools = _model_is_native_tool_caller(model_id, reg)
-    for role, ladder in (reg.roles or {}).items():
-        rest = [m for m in ladder if m != model_id]
-        if role == "tool_calling" and not pin_tools:
-            # Keep the existing tool_calling ladder (API-first); do not poison it.
-            roles[role] = list(ladder) if ladder else roles.get(role, [])
+
+    planner_id = (planner or session_default).strip()
+    executor_id = (executor or session_default).strip()
+    default_id = (session_default or planner_id or executor_id).strip()
+
+    for role in SLOT_TO_ROLES["planner"]:
+        _pin_role_first(
+            roles,
+            role,
+            planner_id,
+            base_ladder=list(reg.roles.get(role) or []),
+        )
+
+    exec_can_tools = _model_is_native_tool_caller(executor_id, reg)
+    for role in SLOT_TO_ROLES["executor"]:
+        if role == "tool_calling" and not exec_can_tools:
+            # Keep API-capable ladder; do not put gemini-cli on tool_calling.
+            ladder = list(roles.get(role) or reg.roles.get(role) or [])
+            roles[role] = ladder or ["gemini-flash"]
             continue
-        roles[role] = [model_id] + rest
-    if "default" not in roles:
-        roles["default"] = [model_id]
+        _pin_role_first(
+            roles,
+            role,
+            executor_id,
+            base_ladder=list(reg.roles.get(role) or []),
+        )
+
+    if "default" not in roles or not roles["default"]:
+        roles["default"] = [default_id]
     if "tool_calling" not in roles or not roles["tool_calling"]:
         roles["tool_calling"] = [
             m
             for m in (reg.roles.get("tool_calling") or ["gemini-flash", "gemini-pro"])
-            if _model_is_native_tool_caller(m, reg) or m == model_id and pin_tools
+            if _model_is_native_tool_caller(m, reg)
         ] or ["gemini-flash"]
+
     data["roles"] = roles
-    data["session_default_model"] = model_id
+    data["session_default_model"] = default_id
+    data["setup_pins"] = {
+        "planner": planner_id,
+        "executor": executor_id,
+        "session_default": default_id,
+    }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(data, sort_keys=False))
     return path

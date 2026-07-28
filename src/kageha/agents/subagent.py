@@ -16,6 +16,43 @@ if TYPE_CHECKING:
 Mode = Literal["communication"]
 
 
+def _format_subagent_assignments(
+    jobs: list[tuple[str, str]],
+    *,
+    kind: str = "spawn_subagents",
+    parallel: int | None = None,
+    max_task_chars: int = 120,
+) -> str:
+    """Human-readable assignment board for chat progress / logs."""
+    unit = "nodes" if kind == "spawn_task_graph" else "tasks"
+    head = f"[kageha] {kind}: {len(jobs)} {unit}"
+    if parallel is not None:
+        head += f", parallel≤{parallel}"
+    lines = [head]
+    for i, (label, task) in enumerate(jobs, 1):
+        body = " ".join((task or "").split())
+        if len(body) > max_task_chars:
+            body = body[: max_task_chars - 1].rstrip() + "…"
+        lines.append(f"  {i}. [{label}] {body}")
+    return "\n".join(lines)
+
+
+def _write_subagent_board(
+    ctx: "HarnessContext",
+    jobs: list[tuple[str, str]],
+    *,
+    kind: str,
+) -> None:
+    """Persist assignment list under the parent workspace for /files /where."""
+    try:
+        lines = [f"# {kind}\n"]
+        for label, task in jobs:
+            lines.append(f"- [ ] `{label}`: {task}")
+        ctx.workspace.write_text("subagents_tasks.md", "\n".join(lines) + "\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def _run_subagent(
     ctx: "HarnessContext",
     *,
@@ -281,10 +318,11 @@ def register_subagent_tools(ctx: "HarnessContext") -> ToolRegistry:
                 except Exception as e:  # noqa: BLE001
                     return {"ok": False, "label": label, "error": str(e)}
 
-        print(
-            f"[kageha] spawn_subagents: {len(jobs)} tasks, parallel≤{parallel}",
-            flush=True,
+        board = _format_subagent_assignments(
+            jobs, kind="spawn_subagents", parallel=parallel
         )
+        print(board, flush=True)
+        _write_subagent_board(ctx, jobs, kind="spawn_subagents")
         results = await asyncio.gather(*[one(label, task) for label, task in jobs])
         ok_n = sum(1 for r in results if r.get("ok"))
         return json.dumps(
@@ -345,11 +383,16 @@ def register_subagent_tools(ctx: "HarnessContext") -> ToolRegistry:
                 keep_worktree=True,
             )
 
+        graph_jobs = [(nid, node.task) for nid, node in graph.nodes.items()]
         print(
-            f"[kageha] spawn_task_graph: {len(graph.nodes)} nodes, "
-            f"parallel≤{max(1, min(int(max_parallel or 4), 8))}",
+            _format_subagent_assignments(
+                graph_jobs,
+                kind="spawn_task_graph",
+                parallel=max(1, min(int(max_parallel or 4), 8)),
+            ),
             flush=True,
         )
+        _write_subagent_board(ctx, graph_jobs, kind="spawn_task_graph")
         summary = await run_task_graph(
             graph,
             runner=runner,

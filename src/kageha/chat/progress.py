@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
-from types import TracebackType
+import signal
+import weakref
+from types import FrameType, TracebackType
 
 from rich.console import Console
 from rich.live import Live
@@ -11,6 +13,66 @@ from rich.text import Text
 
 
 _CHECK_RE = re.compile(r"^[-*]\s+\[([ xX])\]\s+(.*)$")
+
+# Active Live progress instances — refreshed on terminal resize (SIGWINCH).
+_ACTIVE: weakref.WeakSet["TransientProgress"] = weakref.WeakSet()
+_PREV_WINCH: object | None = None
+_WINCH_INSTALLED = False
+
+
+def _install_winch_handler() -> None:
+    global _PREV_WINCH, _WINCH_INSTALLED
+    if _WINCH_INSTALLED or not hasattr(signal, "SIGWINCH"):
+        return
+    try:
+        _PREV_WINCH = signal.getsignal(signal.SIGWINCH)
+    except Exception:  # noqa: BLE001
+        _PREV_WINCH = None
+
+    def _on_winch(signum: int, frame: FrameType | None) -> None:
+        for progress in list(_ACTIVE):
+            try:
+                progress._on_terminal_resize()
+            except Exception:  # noqa: BLE001
+                pass
+        prev = _PREV_WINCH
+        if callable(prev):
+            try:
+                prev(signum, frame)
+            except Exception:  # noqa: BLE001
+                pass
+
+    try:
+        signal.signal(signal.SIGWINCH, _on_winch)
+        _WINCH_INSTALLED = True
+    except Exception:  # noqa: BLE001
+        # Not on main thread / unsupported — Live still truncates on updates.
+        pass
+
+
+def _progress_text(message: str, *, max_width: int | None = None) -> Text:
+    """Colorful one-line live status (truncated to the current terminal width)."""
+    msg = (message or "").strip() or "…"
+    low = msg.lower()
+    if "waiting" in low:
+        style = "bold #fbbf24"
+        glyph = "⏸"
+    elif "think" in low or "reason" in low:
+        style = "bold #38bdf8"
+        glyph = "✦"
+    elif "step" in low or "tool" in low or "working" in low:
+        style = "bold #2dd4bf"
+        glyph = "▸"
+    elif "error" in low or "fail" in low:
+        style = "bold #fb7185"
+        glyph = "!"
+    else:
+        style = "bold #22d3ee"
+        glyph = "·"
+    # Glyph + spaces take ~3 cells; keep the bar on one line after resize.
+    if max_width is not None and max_width > 8 and len(msg) > max_width - 4:
+        msg = msg[: max_width - 5].rstrip() + "…"
+    return Text.assemble((f" {glyph} ", style), (msg, style))
 
 
 class TransientProgress:
@@ -37,7 +99,26 @@ class TransientProgress:
     def transient(self) -> bool:
         return self.enabled and not self.detailed and self.console.is_terminal
 
+    def _status_width(self) -> int:
+        try:
+            pinned = getattr(self.console, "_width", None)
+            width = int(pinned if pinned is not None else self.console.width)
+            return max(24, width - 2)
+        except Exception:  # noqa: BLE001
+            return 78
+
+    def _on_terminal_resize(self) -> None:
+        """Re-measure and redraw the Live line after the pane changes size."""
+        if self._live is None or not self._last_status:
+            return
+        self._live.update(
+            _progress_text(self._last_status, max_width=self._status_width()),
+            refresh=True,
+        )
+
     def __enter__(self) -> "TransientProgress":
+        _ACTIVE.add(self)
+        _install_winch_handler()
         if self.transient:
             self._start_live("Starting…")
         return self
@@ -71,14 +152,19 @@ class TransientProgress:
         if step_m:
             self._step_label = f"Step {step_m.group(1)}/{step_m.group(2)}"
 
-        # Multi-line checklist / reasoning — sticky in detailed mode.
-        if _is_checklist_log(raw) or _is_reasoning_log(raw):
+        # Multi-line checklist / reasoning / subagent board — sticky in detailed mode.
+        if (
+            _is_checklist_log(raw)
+            or _is_reasoning_log(raw)
+            or _is_subagent_board(raw)
+        ):
             self._remember_todo_counts(raw)
-            rendered = (
-                _render_checklist(raw)
-                if _is_checklist_log(raw)
-                else _render_reasoning(raw)
-            )
+            if _is_subagent_board(raw):
+                rendered = _render_subagent_board(raw)
+            elif _is_checklist_log(raw):
+                rendered = _render_checklist(raw)
+            else:
+                rendered = _render_reasoning(raw)
             if not rendered:
                 return
             if self.detailed or not self.transient:
@@ -87,12 +173,20 @@ class TransientProgress:
                     self.console.print(rendered)
                 return
             # Compact: fold into a one-line status with todo fraction.
-            compact = _compact_with_todos(
-                "Updating checklist…" if _is_checklist_log(raw) else "Thinking…",
-                self._step_label,
-                self._todo_done,
-                self._todo_total,
-            )
+            if _is_subagent_board(raw):
+                compact = _compact_with_todos(
+                    _friendly_status(raw.splitlines()[0]),
+                    self._step_label,
+                    self._todo_done,
+                    self._todo_total,
+                )
+            else:
+                compact = _compact_with_todos(
+                    "Updating checklist…" if _is_checklist_log(raw) else "Thinking…",
+                    self._step_label,
+                    self._todo_done,
+                    self._todo_total,
+                )
             self._set_status(compact)
             return
 
@@ -115,21 +209,27 @@ class TransientProgress:
 
     def _set_status(self, compact: str) -> None:
         self._last_status = compact
-        if len(compact) > 180 and "\n" not in compact:
-            compact = compact[:177].rstrip() + "…"
+        width = self._status_width()
+        render = compact
+        if "\n" not in render and len(render) > width:
+            render = render[: width - 1].rstrip() + "…"
+        text = _progress_text(render, max_width=width)
         if self._live is not None:
-            self._live.update(Text(compact, style="dim cyan"), refresh=True)
+            self._live.update(text, refresh=True)
         else:
-            self.console.print(compact)
+            self.console.print(text)
 
     def _start_live(self, initial: str) -> None:
         if self._live is not None:
             return
+        self._last_status = initial
         self._live = Live(
-            Text(initial, style="dim cyan"),
+            _progress_text(initial, max_width=self._status_width()),
             console=self.console,
-            refresh_per_second=12,
+            refresh_per_second=14,
             transient=True,
+            # Re-layout when the host terminal (IDE pane) changes size.
+            vertical_overflow="ellipsis",
         )
         self._live.start()
 
@@ -137,6 +237,7 @@ class TransientProgress:
         if self._live is not None:
             self._live.stop()
             self._live = None
+        _ACTIVE.discard(self)
 
     def __exit__(
         self,
@@ -207,12 +308,39 @@ def _compact_with_todos(
     return " · ".join(seen)
 
 
+def _is_subagent_board(message: str) -> bool:
+    head = (message or "").lstrip()
+    return bool(
+        re.match(
+            r"\[kageha\]\s+spawn_(subagents|task_graph):\s*\d+\s+(tasks|nodes)",
+            head,
+            re.I,
+        )
+    )
+
+
+def _render_subagent_board(message: str) -> str:
+    """Keep assignment lines readable in verbose / non-transient progress."""
+    lines = [ln.rstrip() for ln in (message or "").splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    out = [lines[0].removeprefix("[kageha] ").strip()]
+    for ln in lines[1:]:
+        out.append(ln if ln.startswith("  ") else f"  {ln}")
+    return "\n".join(out)
+
+
 def _friendly_status(message: str) -> str:
     """Translate controller telemetry into conversation-level progress."""
     compact = " ".join((message or "").split())
     low = compact.lower()
     if "tools:" in low and "ask_human" in low:
         return "Waiting for your answer…"
+    if "spawn_subagents:" in low or "spawn_task_graph:" in low:
+        m = re.search(r"(\d+)\s+(tasks|nodes)", low)
+        n = m.group(1) if m else "?"
+        kind = "subagents" if "spawn_subagents" in low else "graph nodes"
+        return f"Spawning {n} {kind}…"
     if "reasoning:" in low:
         return "Thinking…"
     if "action:" in low:
