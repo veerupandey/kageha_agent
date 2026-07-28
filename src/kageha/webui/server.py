@@ -227,11 +227,11 @@ _WEBUI_SLASH_BASE: tuple[dict[str, str], ...] = (
         "description": "Auto-approve risky tools",
         "kind": "prefs",
     },
-    # CLI /permissions maps to WebUI ask/auto (no separate permissions API).
+    # CLI /permissions maps to WebUI ask/auto/full.
     {
         "id": "permissions",
         "label": "/permissions",
-        "description": "Show ask/auto tool approval mode",
+        "description": "Show ask/auto/full tool approval mode",
         "kind": "prefs",
     },
     {
@@ -247,6 +247,12 @@ _WEBUI_SLASH_BASE: tuple[dict[str, str], ...] = (
         "kind": "prefs",
     },
     {
+        "id": "permissions-full",
+        "label": "/permissions full",
+        "description": "Auto-approve + sandbox network",
+        "kind": "prefs",
+    },
+    {
         "id": "attach",
         "label": "/attach",
         "description": "Attach files from disk (or drop / paste in composer)",
@@ -256,6 +262,12 @@ _WEBUI_SLASH_BASE: tuple[dict[str, str], ...] = (
         "id": "files",
         "label": "/files",
         "description": "Same as /attach — pick files for this message",
+        "kind": "prefs",
+    },
+    {
+        "id": "artifacts",
+        "label": "/artifacts",
+        "description": "Open canvas for images, video, PDFs, and files",
         "kind": "prefs",
     },
     {
@@ -1792,6 +1804,7 @@ class WebUIApp:
             approval_id = str(payload.get("approval_id") or "").strip()
             if not approval_id:
                 raise ValueError("approval_id is required")
+            scope = str(payload.get("scope") or "once").strip().lower() or "once"
             return _json_bytes(
                 self.rpc(
                     "thread/approve",
@@ -1799,9 +1812,27 @@ class WebUIApp:
                         "approval_id": approval_id,
                         "approved": bool(payload.get("approved", False)),
                         "feedback": str(payload.get("feedback") or "").strip(),
+                        "scope": scope,
                     },
                 )
             )
+
+        if method == "POST" and path == "/api/permissions":
+            payload = self._json_body(body)
+            mode = str(payload.get("mode") or payload.get("scope") or "ask").strip().lower()
+            if mode == "auto":
+                mode = "session"
+            if mode not in {"ask", "session", "full"}:
+                raise ValueError("mode must be ask|auto|full")
+            from kageha.harness.approvals import apply_permission_scope, process_permissions
+
+            grant = apply_permission_scope(mode)
+            return _json_bytes({"ok": True, **grant, **process_permissions()})
+
+        if method == "GET" and path == "/api/permissions":
+            from kageha.harness.approvals import process_permissions
+
+            return _json_bytes({"ok": True, **process_permissions()})
 
         if method == "POST" and path == "/api/chat":
             payload = self._json_body(body)

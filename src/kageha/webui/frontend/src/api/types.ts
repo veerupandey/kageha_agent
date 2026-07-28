@@ -111,6 +111,8 @@ export interface ComposerChip {
 
 export type Density = "comfortable" | "compact";
 
+export type ThemeMode = "light" | "dark";
+
 export interface UserPrefs {
   density: Density;
   /** Ask before risky tools on boot / new sessions. */
@@ -118,6 +120,7 @@ export interface UserPrefs {
   defaultAgentMode: AgentMode;
   reduceMotion: boolean;
   showToolCards: boolean;
+  theme: ThemeMode;
 }
 
 export interface ArtifactEntry {

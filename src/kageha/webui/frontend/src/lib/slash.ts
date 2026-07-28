@@ -319,25 +319,40 @@ export function applySlashCommand(
 
   if (id === "ask" || id === "permissions-ask") {
     clearToken();
-    store.setAskMode(true);
-    store.showToast("Ask mode · confirm risky tools");
+    void store.setPermissionsMode("ask");
     return;
   }
 
   if (id === "auto" || id === "permissions-auto") {
     clearToken();
-    store.setAskMode(false);
-    store.showToast("Auto mode · risky tools auto-approved");
+    void store.setPermissionsMode("auto");
+    return;
+  }
+
+  if (id === "permissions-full") {
+    clearToken();
+    void store.setPermissionsMode("full");
     return;
   }
 
   if (id === "permissions") {
     clearToken();
+    const scope = store.permissionScope || (store.autoApprove ? "session" : "ask");
     store.showToast(
-      store.autoApprove
-        ? "Permissions · auto (use /ask or /permissions ask)"
-        : "Permissions · ask (use /auto or /permissions auto)",
+      scope === "full"
+        ? "Permissions · full (ask|auto|full)"
+        : scope === "session"
+          ? "Permissions · auto (ask|auto|full)"
+          : "Permissions · ask (ask|auto|full)",
     );
+    return;
+  }
+
+  if (id === "artifacts") {
+    clearToken();
+    store.setCanvasOpen(true);
+    void store.refreshArtifacts();
+    store.showToast("Canvas · session files");
     return;
   }
 
@@ -346,7 +361,6 @@ export function applySlashCommand(
     id === "best-of-n" ||
     id === "review" ||
     id === "memory" ||
-    id === "artifacts" ||
     id === "spec"
   ) {
     clearToken();

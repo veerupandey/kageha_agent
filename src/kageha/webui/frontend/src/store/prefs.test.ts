@@ -43,6 +43,7 @@ describe("prefs load/save", () => {
       defaultAgentMode: "plan",
       reduceMotion: true,
       showToolCards: false,
+      theme: "dark",
     };
     savePrefs(prefs);
     expect(store.get(PREFS_KEY)).toBeTruthy();

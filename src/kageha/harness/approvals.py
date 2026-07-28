@@ -125,10 +125,26 @@ def process_permissions() -> dict[str, Any]:
 
 
 def apply_permission_scope(scope: str) -> dict[str, Any]:
-    """Apply session/full grants. Returns a status dict for the UI."""
+    """Apply ask/session/full grants. Returns a status dict for the UI."""
     scope = (scope or "once").strip().lower()
     if scope == "always":
         scope = "full"
+    if scope in {"auto"}:
+        scope = "session"
+    if scope in {"ask", "off", "none"}:
+        had_full_net = bool(_PROCESS_PERMISSIONS.get("sandbox_network"))
+        _PROCESS_PERMISSIONS["auto_approve"] = False
+        _PROCESS_PERMISSIONS["sandbox_network"] = False
+        _PROCESS_PERMISSIONS["scope"] = "ask"
+        # Only clear env when Full previously set it in this process.
+        if had_full_net:
+            os.environ.pop("KAGEHA_SANDBOX_ALLOW_NETWORK", None)
+        return {
+            "scope": "ask",
+            "auto_approve": False,
+            "sandbox_network": False,
+            "message": "Ask mode: confirm before risky tools.",
+        }
     if scope == "session":
         _PROCESS_PERMISSIONS["auto_approve"] = True
         _PROCESS_PERMISSIONS["scope"] = "session"

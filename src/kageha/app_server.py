@@ -534,16 +534,28 @@ class AppServer:
                 raise ValueError("approval_id required")
             approved = bool(params.get("approved", False))
             feedback = str(params.get("feedback") or "").strip()
+            scope = str(params.get("scope") or "once").strip().lower() or "once"
+            if scope == "always":
+                scope = "full"
+            if scope not in {"once", "session", "full"}:
+                scope = "once"
             fut = self._approval_waiters.get(approval_id)
             if fut is None:
                 raise KeyError(f"unknown or expired approval: {approval_id}")
             if not fut.done():
-                fut.set_result({"approved": approved, "feedback": feedback})
+                fut.set_result(
+                    {
+                        "approved": approved,
+                        "feedback": feedback,
+                        "scope": scope if approved else "once",
+                    }
+                )
             return {
                 "ok": True,
                 "approval_id": approval_id,
                 "approved": approved,
                 "feedback": feedback,
+                "scope": scope if approved else "once",
             }
         if method == "thread/resume":
             from kageha.memory.skills import SkillRegistry

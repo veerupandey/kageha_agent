@@ -7,6 +7,7 @@ import {
 } from "../api/slashCatalog";
 import type {
   AgentMode,
+  ArtifactEntry,
   ChatMessage,
   MetaPayload,
   PendingApproval,
@@ -15,6 +16,12 @@ import type {
   SessionSummary,
   ToastMessage,
 } from "../api/types";
+import {
+  isShowcaseArtifact,
+  showcaseSortKey,
+  toCanvasItem,
+} from "../lib/artifactMedia";
+import type { CanvasItem } from "../lib/artifactMedia";
 import {
   apiSoft,
   emptyRun,
@@ -241,6 +248,7 @@ export const useAppStore = create<AppState>((set, get) => {
     statusLabel: "Ready",
     agentMode: initialPrefs.defaultAgentMode,
     autoApprove: !initialPrefs.defaultAskMode,
+    permissionScope: initialPrefs.defaultAskMode ? "ask" : "session",
     sending: false,
     draft: "",
     error: null,
@@ -252,6 +260,10 @@ export const useAppStore = create<AppState>((set, get) => {
     tabs: [],
     runs: {},
     prefs: initialPrefs,
+    canvasOpen: false,
+    canvasExpanded: false,
+    canvasItems: [],
+    canvasSelectedPath: null,
     slashCatalog: SLASH_COMMANDS.slice(),
     capabilities: {
       projectFiles: null,
@@ -306,7 +318,42 @@ export const useAppStore = create<AppState>((set, get) => {
       const prefs = mergePrefs(get().prefs, { defaultAskMode: ask });
       savePrefs(prefs);
       applyPrefsToDocument(prefs);
-      set({ prefs, autoApprove: !ask });
+      set({
+        prefs,
+        autoApprove: !ask,
+        permissionScope: ask ? "ask" : "session",
+      });
+    },
+
+    setPermissionsMode: async (mode) => {
+      const normalized = mode === "auto" ? "session" : mode;
+      try {
+        await api("/api/permissions", {
+          method: "POST",
+          body: JSON.stringify({ mode: normalized === "session" ? "auto" : normalized }),
+        });
+      } catch (err) {
+        get().showToast(
+          `Permissions failed: ${err instanceof Error ? err.message : err}`,
+        );
+        return;
+      }
+      const ask = normalized === "ask";
+      const prefs = mergePrefs(get().prefs, { defaultAskMode: ask });
+      savePrefs(prefs);
+      applyPrefsToDocument(prefs);
+      set({
+        prefs,
+        autoApprove: !ask,
+        permissionScope: normalized,
+      });
+      const label =
+        normalized === "full"
+          ? "Full · auto-approve + sandbox network"
+          : normalized === "session"
+            ? "Auto · risky tools auto-approved"
+            : "Ask · confirm risky tools";
+      get().showToast(label);
     },
 
     setPrefs: (patch) => {
@@ -316,6 +363,7 @@ export const useAppStore = create<AppState>((set, get) => {
       const next: Partial<AppState> = { prefs };
       if (typeof patch.defaultAskMode === "boolean") {
         next.autoApprove = !prefs.defaultAskMode;
+        next.permissionScope = prefs.defaultAskMode ? "ask" : "session";
       }
       if (patch.defaultAgentMode) {
         next.agentMode = prefs.defaultAgentMode;
@@ -582,6 +630,8 @@ export const useAppStore = create<AppState>((set, get) => {
           sessionId: data.session_id,
           sessionTitle: data.title ?? null,
           sessionLoading: false,
+          canvasItems: [],
+          canvasSelectedPath: null,
           runs: { ...s.runs, [data.session_id]: run },
           pendingApproval: data.pending_approval
             ? { ...data.pending_approval, sessionId: data.session_id }
@@ -589,6 +639,7 @@ export const useAppStore = create<AppState>((set, get) => {
           ...syncFromRun(run),
         }));
         await get().refreshSessions();
+        void get().refreshArtifacts();
       } catch (err) {
         set({
           runStatus: "error",
@@ -653,6 +704,11 @@ export const useAppStore = create<AppState>((set, get) => {
         pendingApproval: null,
         agentMode: prefs.defaultAgentMode,
         autoApprove: !prefs.defaultAskMode,
+        permissionScope: prefs.defaultAskMode
+          ? "ask"
+          : get().permissionScope === "full"
+            ? "full"
+            : "session",
         runs: { ...s.runs, [nextId]: run },
         tabs: parallel || keepPreviousTab ? [...s.tabs.filter((id) => id !== nextId), nextId] : [],
         pendingFiles: carriedPending,
@@ -972,13 +1028,100 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     },
 
-    resolveApproval: async (approved, feedback) => {
+    setCanvasOpen: (open) => set({ canvasOpen: open }),
+    setCanvasExpanded: (expanded) => set({ canvasExpanded: expanded }),
+    selectCanvasItem: (path) => set({ canvasSelectedPath: path }),
+
+    openCanvasItem: (path, opts) => {
+      const sid = get().sessionId;
+      if (!sid || !path) return;
+      get().upsertCanvasPaths([path]);
+      set({
+        canvasOpen: true,
+        canvasSelectedPath: path,
+        canvasExpanded: Boolean(opts?.expand),
+      });
+    },
+
+    upsertCanvasPaths: (paths) => {
+      const sid = get().sessionId;
+      if (!sid || !paths.length) return;
+      set((s) => {
+        const byPath = new Map(s.canvasItems.map((i) => [i.path, i]));
+        for (const raw of paths) {
+          const path = String(raw || "").replace(/\\/g, "/").replace(/^\/+/, "");
+          if (!path || !isShowcaseArtifact(path) || byPath.has(path)) continue;
+          const item = toCanvasItem(sid, path);
+          if (item) byPath.set(path, item);
+        }
+        const canvasItems = Array.from(byPath.values()).sort((a, b) => {
+          const [ra, pa] = showcaseSortKey(a.path);
+          const [rb, pb] = showcaseSortKey(b.path);
+          return ra - rb || pa.localeCompare(pb);
+        });
+        return {
+          canvasItems,
+          canvasSelectedPath:
+            s.canvasSelectedPath && byPath.has(s.canvasSelectedPath)
+              ? s.canvasSelectedPath
+              : canvasItems[0]?.path || null,
+        };
+      });
+    },
+
+    refreshArtifacts: async () => {
+      const sid = get().sessionId;
+      if (!sid) {
+        set({ canvasItems: [], canvasSelectedPath: null });
+        return;
+      }
+      try {
+        const data = await api<{ artifacts?: ArtifactEntry[] }>(
+          `/api/sessions/${encodeURIComponent(sid)}/artifacts`,
+        );
+        const items: CanvasItem[] = [];
+        for (const row of data.artifacts || []) {
+          const path = String(row.path || "").replace(/\\/g, "/");
+          if (!path || !isShowcaseArtifact(path)) continue;
+          const item = toCanvasItem(sid, path, {
+            kindHint: row.kind,
+            url: row.url,
+            size: typeof row.size === "number" ? row.size : undefined,
+            name: row.name,
+          });
+          if (item) items.push(item);
+        }
+        items.sort((a, b) => {
+          const [ra, pa] = showcaseSortKey(a.path);
+          const [rb, pb] = showcaseSortKey(b.path);
+          return ra - rb || pa.localeCompare(pb);
+        });
+        set((s) => ({
+          canvasItems: items,
+          canvasSelectedPath:
+            s.canvasSelectedPath &&
+            items.some((i) => i.path === s.canvasSelectedPath)
+              ? s.canvasSelectedPath
+              : items[0]?.path || null,
+        }));
+      } catch (err) {
+        get().showToast(
+          `Artifacts: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    },
+
+    resolveApproval: async (approved, feedback, scope = "once") => {
       const pending = get().pendingApproval;
       if (!pending?.approval_id) return;
       const sid = pending.sessionId || pending.session_id || get().sessionId;
       const isPlan =
         pending.risk_class === "plan" || pending.action === "approve_plan";
       const note = String(feedback || "").trim();
+      const grant =
+        approved && !isPlan && (scope === "session" || scope === "full")
+          ? scope
+          : "once";
 
       set({ pendingApproval: null });
       if (sid) {
@@ -991,12 +1134,26 @@ export const useAppStore = create<AppState>((set, get) => {
             approval_id: pending.approval_id,
             approved: Boolean(approved),
             feedback: note,
+            scope: grant,
           }),
         });
+        if (approved && grant !== "once") {
+          const prefs = mergePrefs(get().prefs, { defaultAskMode: false });
+          savePrefs(prefs);
+          applyPrefsToDocument(prefs);
+          set({
+            prefs,
+            autoApprove: true,
+            permissionScope: grant,
+          });
+        }
         if (!sid || sid === get().sessionId) {
           let label: string;
           if (approved) {
-            label = isPlan ? "Build · executing…" : "Approved · continuing…";
+            if (isPlan) label = "Build · executing…";
+            else if (grant === "full") label = "Full access · continuing…";
+            else if (grant === "session") label = "Session grant · continuing…";
+            else label = "Approved · continuing…";
           } else if (note) {
             label = isPlan
               ? "Suggestion · revising plan…"

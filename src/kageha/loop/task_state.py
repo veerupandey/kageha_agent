@@ -88,6 +88,11 @@ class PlanStage:
     blocked_reason: str = ""
     attempts: int = 0
     last_error: str = ""
+    # stages sharing a parallel_group activate together when deps are met
+    parallel_group: str = ""
+    # budget hints — 0 means unknown; surfaced in projection for cost-aware steering
+    estimated_steps: int = 0
+    estimated_usd: float = 0.0
 
 
 @dataclass
@@ -211,7 +216,12 @@ class TaskState:
             sid = str(getattr(s, "id", None) or f"s{i+1}")
             desc = str(getattr(s, "description", None) or s)
             tools = list(getattr(s, "tools", None) or [])
-            deps = [stages[-1].id] if stages else []
+            deps = list(getattr(s, "depends_on", None) or [])
+            if not deps:
+                deps = [stages[-1].id] if stages else []
+            parallel_group = str(getattr(s, "parallel_group", None) or "")
+            estimated_steps = int(getattr(s, "estimated_steps", 0) or 0)
+            estimated_usd = float(getattr(s, "estimated_usd", 0.0) or 0.0)
             stages.append(
                 PlanStage(
                     id=sid,
@@ -219,6 +229,9 @@ class TaskState:
                     status=StageStatus.ACTIVE.value if i == 0 else StageStatus.PENDING.value,
                     tools=tools,
                     depends_on=deps,
+                    parallel_group=parallel_group,
+                    estimated_steps=estimated_steps,
+                    estimated_usd=estimated_usd,
                 )
             )
         self.stages = stages
@@ -361,26 +374,26 @@ class TaskState:
         cur = self.current_stage()
         if cur:
             cur.status = StageStatus.DONE.value
-        # activate next pending whose deps are done
+        # activate ALL pending whose deps are done — enables parallel stages
         done_ids = {s.id for s in self.stages if s.status == StageStatus.DONE.value}
         for s in self.stages:
             if s.status != StageStatus.PENDING.value:
                 continue
             if all(d in done_ids for d in s.depends_on):
                 s.status = StageStatus.ACTIVE.value
-                self.current_stage_id = s.id
-                return
-        self.current_stage_id = ""
+        active = [s for s in self.stages if s.status == StageStatus.ACTIVE.value]
+        self.current_stage_id = active[0].id if active else ""
 
     def anti_loop_hit(self, action: str, cause: str) -> bool:
         """True if same action+cause already failed recently without a required change applied."""
         recent = self.failures[-8:]
-        hits = [
-            f
-            for f in recent
-            if f.action == action and f.cause == cause
-        ]
-        return len(hits) >= 2
+        exact = [f for f in recent if f.action == action and f.cause == cause]
+        if len(exact) >= 2:
+            return True
+        # tool exhaustion: same action failing >= 3 times with any causes
+        if len([f for f in recent if f.action == action]) >= 3:
+            return True
+        return False
 
     def goals_all_passed(self) -> bool:
         return bool(self.goals) and all(g.get("passes") for g in self.goals)
@@ -414,7 +427,15 @@ class TaskState:
         lines.append("")
         lines.append("## Stages")
         for s in self.stages:
-            lines.append(f"- [{s.status}] `{s.id}` {s.description}")
+            cost = ""
+            if s.estimated_steps or s.estimated_usd:
+                parts = []
+                if s.estimated_steps:
+                    parts.append(f"~{s.estimated_steps} steps")
+                if s.estimated_usd:
+                    parts.append(f"~${s.estimated_usd:.2f}")
+                cost = f" ({', '.join(parts)})"
+            lines.append(f"- [{s.status}] `{s.id}` {s.description}{cost}")
         lines.append("")
         lines.append("## Goals")
         for g in self.goals:
@@ -430,7 +451,9 @@ class TaskState:
         if self.facts:
             lines.append("")
             lines.append("## Facts")
-            for f in self.facts[-12:]:
+            verified = [f for f in self.facts if f.certainty == ClaimCertainty.VERIFIED.value]
+            others = [f for f in self.facts if f.certainty != ClaimCertainty.VERIFIED.value]
+            for f in (verified[-8:] + others[-4:])[-12:]:
                 lines.append(f"- ({f.certainty}) {f.text}" + (f" [{f.source}]" if f.source else ""))
         if self.assumptions:
             lines.append("")

@@ -1,3 +1,4 @@
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   useCallback,
   useEffect,
@@ -7,6 +8,7 @@ import {
 } from "react";
 import type { AgentMode, SlashCommand } from "../api/types";
 import { filterSlashByCapabilities } from "../api/slashCatalog";
+import { cn } from "../lib/cn";
 import {
   applySlashCommand,
   filterSlashCommands,
@@ -33,13 +35,16 @@ interface FileHit {
   source?: string;
 }
 
+type PermissionMode = "ask" | "auto" | "full";
+
 export function Composer() {
   const draft = useAppStore((s) => s.draft);
   const setDraft = useAppStore((s) => s.setDraft);
   const agentMode = useAppStore((s) => s.agentMode);
   const setAgentMode = useAppStore((s) => s.setAgentMode);
   const autoApprove = useAppStore((s) => s.autoApprove);
-  const setAskMode = useAppStore((s) => s.setAskMode);
+  const permissionScope = useAppStore((s) => s.permissionScope);
+  const setPermissionsMode = useAppStore((s) => s.setPermissionsMode);
   const modelOverride = useAppStore((s) => s.modelOverride);
   const setModelOverride = useAppStore((s) => s.setModelOverride);
   const sending = useAppStore((s) => s.sending);
@@ -67,6 +72,13 @@ export function Composer() {
   const [atLoading, setAtLoading] = useState(false);
 
   const queueItems = queue || [];
+
+  const permMode: PermissionMode =
+    permissionScope === "full"
+      ? "full"
+      : autoApprove
+        ? "auto"
+        : "ask";
 
   const slashCommands = useMemo(
     () => filterSlashByCapabilities(slashCatalog, capabilities),
@@ -197,348 +209,382 @@ export function Composer() {
           String(composerChip.value).slice(1)
         : null;
 
+  const modeLabel = agentMode[0].toUpperCase() + agentMode.slice(1);
+  const permLabel =
+    permMode === "full" ? "Full" : permMode === "auto" ? "Auto" : "Ask";
+
   return (
     <form
-      className="composer composer-shell"
+      className="shrink-0 border-t border-line bg-canvas px-3 pb-3 pt-2 md:px-5"
       id="composer"
       onSubmit={(e) => {
         e.preventDefault();
         void sendMessage();
       }}
     >
-      <div className="composer-toolbar">
-        <div className="mode-chips" id="mode-chips" role="group" aria-label="Agent mode">
-          {MODES.map((mode) => (
+      <div className="mx-auto max-w-3xl">
+        {showGoalBanner ? (
+          <div
+            className="mb-2 flex items-center gap-2 rounded-md bg-warn-soft px-3 py-1.5 text-sm text-warn"
+            role="status"
+          >
+            <span className="flex-1">This looks like Normal</span>
             <button
-              key={mode}
               type="button"
-              className={`mode-chip${agentMode === mode ? " is-active" : ""}`}
-              data-mode={mode}
-              aria-pressed={agentMode === mode}
-              title={
-                mode === "plan"
-                  ? "Plan — clarify, research, then Build"
-                  : mode === "goal"
-                    ? "Goal — execute now with HITL when needed"
-                    : "Normal mode — standard chat"
-              }
-              onClick={() => setAgentMode(mode)}
+              className="font-medium underline-offset-2 hover:underline"
+              onClick={() => setAgentMode("normal")}
             >
-              {mode[0].toUpperCase() + mode.slice(1)}
+              Switch to Normal
             </button>
-          ))}
-        </div>
-        <div className="composer-toolbar-right">
-          <button
-            type="button"
-            className={`mode-chip mode-chip-ask${!autoApprove ? " is-active" : ""}`}
-            id="btn-ask-mode"
-            data-ask={autoApprove ? "auto" : "ask"}
-            aria-pressed={!autoApprove}
-            title={
-              autoApprove
-                ? "Auto-approve risky tools (click for Ask)"
-                : "Ask mode on · click for Auto"
-            }
-            onClick={() => setAskMode(autoApprove)}
-          >
-            {autoApprove ? "Auto" : "Ask"}
-          </button>
-          <input
-            ref={modelInputRef}
-            type="text"
-            id="model-input"
-            className="model-input"
-            placeholder="Model"
-            title="Optional model override"
-            autoComplete="off"
-            value={modelOverride}
-            onChange={(e) => setModelOverride(e.target.value)}
-            list="model-suggestions"
-          />
-          <datalist id="model-suggestions">
-            {models.map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
-        </div>
-      </div>
-
-      {showGoalBanner ? (
-        <div className="goal-qa-banner" id="goal-qa-banner" role="status">
-          <span className="goal-qa-banner-text" id="goal-qa-banner-text">
-            This looks like Normal
-          </span>
-          <button
-            type="button"
-            className="btn ghost compact"
-            id="btn-goal-qa-switch"
-            onClick={() => setAgentMode("normal")}
-          >
-            Switch to Normal
-          </button>
-        </div>
-      ) : null}
-
-      {pendingFiles.length > 0 ? (
-        <div className="attach-chips" id="attach-chips">
-          {pendingFiles.map((file, i) => (
-            <span key={`${file.name}-${i}`} className="attach-chip">
-              <span className="name">{file.name}</span>
-              <button
-                type="button"
-                className="chip-x"
-                aria-label={`Remove ${file.name}`}
-                onClick={() => removePendingFile(i)}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-      ) : null}
-
-      {queueItems.length > 0 ? (
-        <div className="queue-chips" id="queue-chips">
-          {queueItems.map((q, i) => (
-            <span key={i} className="queue-chip">
-              Queued · {(q.text || "(files)").slice(0, 48)}
-            </span>
-          ))}
-        </div>
-      ) : null}
-
-      <div className="composer-stage">
-        {slashCtx && slashItems.length > 0 ? (
-          <div
-            className="cmd-picker slash-picker"
-            id="slash-picker"
-            role="listbox"
-            aria-label="Slash commands"
-          >
-            {slashItems.map((cmd, i) => (
-              <button
-                key={cmd.id}
-                type="button"
-                role="option"
-                id={`slash-opt-${i}`}
-                aria-selected={i === slashIndex}
-                className={`slash-picker-item${i === slashIndex ? " is-active" : ""}`}
-                onMouseEnter={() => setSlashIndex(i)}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  pickSlash(cmd);
-                }}
-              >
-                <span className="slash-picker-title">
-                  {slashCommandTitle(cmd)}
-                </span>
-                <span className="slash-picker-cmd">{cmd.label}</span>
-                <span className="slash-picker-desc">{cmd.description}</span>
-              </button>
-            ))}
           </div>
         ) : null}
 
-        {atCtx ? (
-          <div
-            className="cmd-picker at-picker"
-            id="at-picker"
-            role="listbox"
-            aria-label="File mentions"
-          >
-            {atLoading ? (
-              <p className="muted" style={{ padding: "0.5rem 0.75rem" }}>
-                Searching…
-              </p>
-            ) : !atHits.length ? (
-              <p className="muted" style={{ padding: "0.5rem 0.75rem" }}>
-                No files
-              </p>
-            ) : (
-              atHits.map((hit, i) => (
-                <button
-                  key={hit.path}
-                  type="button"
-                  role="option"
-                  aria-selected={i === atIndex}
-                  className={`at-picker-item${i === atIndex ? " is-active" : ""}`}
-                  onMouseEnter={() => setAtIndex(i)}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    pickAt(hit);
-                  }}
-                >
-                  <span className="at-picker-path">{hit.path}</span>
-                  {hit.source ? (
-                    <span className="at-picker-src">{hit.source}</span>
-                  ) : null}
-                </button>
-              ))
-            )}
-          </div>
-        ) : null}
-
-        <div className="composer-row">
-          <button
-            type="button"
-            className="btn ghost icon"
-            id="btn-attach"
-            title="Attach files"
-            aria-label="Attach files"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            +
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            id="file-input"
-            multiple
-            hidden
-            accept="image/*,video/*,.pdf,.doc,.docx,.txt,.md,.csv,.json,.yaml,.yml,.zip"
-            onChange={(e) => {
-              addPendingFiles(e.target.files);
-              e.target.value = "";
-            }}
-          />
-          <div className="composer-input-wrap">
-            {chipLabel ? (
-              <div
-                className="composer-cmd-chip"
-                id="composer-cmd-chip"
-                data-kind={composerChip.kind || ""}
+        {pendingFiles.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {pendingFiles.map((file, i) => (
+              <span
+                key={`${file.name}-${i}`}
+                className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-2 py-0.5 text-xs"
               >
-                <span
-                  className="composer-cmd-chip-label"
-                  id="composer-cmd-chip-label"
-                >
-                  {chipLabel}
-                </span>
+                <span className="max-w-[10rem] truncate">{file.name}</span>
                 <button
                   type="button"
-                  className="composer-cmd-chip-x"
-                  id="composer-cmd-chip-x"
-                  aria-label="Clear command"
-                  title="Clear"
-                  onClick={() =>
-                    clearComposerChip({
-                      resetMode: composerChip.kind === "mode",
-                    })
-                  }
+                  className="text-faint hover:text-ink"
+                  aria-label={`Remove ${file.name}`}
+                  onClick={() => removePendingFile(i)}
                 >
                   ×
                 </button>
-              </div>
-            ) : null}
-            <label className="sr-only" htmlFor="message-input">
-              Message
-            </label>
-            <textarea
-              ref={textareaRef}
-              id="message-input"
-              className="message-input"
-              rows={1}
-              placeholder="Message Kageha…  / commands · @ files"
-              autoComplete="off"
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setCaret(e.target.selectionStart ?? e.target.value.length);
-              }}
-              onClick={syncCaret}
-              onKeyUp={syncCaret}
-              onSelect={syncCaret}
-              onPaste={(e) => {
-                const files = e.clipboardData?.files;
-                if (files?.length) {
-                  e.preventDefault();
-                  addPendingFiles(files);
-                }
-              }}
-              onKeyDown={(e) => {
-                if (slashCtx && slashItems.length) {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setSlashIndex((i) =>
-                      Math.min(i + 1, slashItems.length - 1),
-                    );
-                    return;
-                  }
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setSlashIndex((i) => Math.max(0, i - 1));
-                    return;
-                  }
-                  if (e.key === "Enter" || e.key === "Tab") {
-                    e.preventDefault();
-                    const cmd = slashItems[slashIndex];
-                    if (cmd) pickSlash(cmd);
-                    return;
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    replaceRange(slashCtx.start, caret, "");
-                    return;
-                  }
-                }
-                if (atCtx && atHits.length) {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setAtIndex((i) => Math.min(i + 1, atHits.length - 1));
-                    return;
-                  }
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setAtIndex((i) => Math.max(0, i - 1));
-                    return;
-                  }
-                  if (e.key === "Enter" || e.key === "Tab") {
-                    e.preventDefault();
-                    const hit = atHits[atIndex];
-                    if (hit) pickAt(hit);
-                    return;
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    replaceRange(atCtx.start, caret, "");
-                    return;
-                  }
-                }
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void sendMessage();
-                }
-              }}
-            />
+              </span>
+            ))}
           </div>
-          <div className="composer-actions">
-            {sending ? (
-              <>
+        ) : null}
+
+        {queueItems.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {queueItems.map((q, i) => (
+              <span
+                key={i}
+                className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent"
+              >
+                Queued · {(q.text || "(files)").slice(0, 48)}
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="relative rounded-xl border border-line bg-surface shadow-[0_1px_2px_rgba(28,27,25,0.04)]">
+          {slashCtx && slashItems.length > 0 ? (
+            <div
+              className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-56 overflow-auto rounded-lg border border-line bg-surface p-1 shadow-lg"
+              id="slash-picker"
+              role="listbox"
+              aria-label="Slash commands"
+            >
+              {slashItems.map((cmd, i) => (
                 <button
-                  type="submit"
-                  className="btn ghost"
-                  id="btn-queue"
-                  title="Queue while sending"
-                >
-                  Queue
-                </button>
-                <button
+                  key={cmd.id}
                   type="button"
-                  className="btn danger"
-                  id="btn-stop"
-                  onClick={() => {
-                    void stopGeneration();
+                  role="option"
+                  aria-selected={i === slashIndex}
+                  className={cn(
+                    "grid w-full gap-0.5 rounded-md px-2.5 py-1.5 text-left text-sm",
+                    i === slashIndex && "bg-accent-soft",
+                  )}
+                  onMouseEnter={() => setSlashIndex(i)}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pickSlash(cmd);
                   }}
                 >
-                  Stop
+                  <span className="font-medium">{slashCommandTitle(cmd)}</span>
+                  <span className="text-xs text-muted">{cmd.description}</span>
                 </button>
-              </>
-            ) : (
-              <button type="submit" className="btn primary" id="btn-send">
-                Send
-              </button>
-            )}
+              ))}
+            </div>
+          ) : null}
+
+          {atCtx ? (
+            <div
+              className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-56 overflow-auto rounded-lg border border-line bg-surface p-1 shadow-lg"
+              id="at-picker"
+              role="listbox"
+              aria-label="File mentions"
+            >
+              {atLoading ? (
+                <p className="px-2.5 py-2 text-sm text-muted">Searching…</p>
+              ) : !atHits.length ? (
+                <p className="px-2.5 py-2 text-sm text-muted">No files</p>
+              ) : (
+                atHits.map((hit, i) => (
+                  <button
+                    key={hit.path}
+                    type="button"
+                    role="option"
+                    aria-selected={i === atIndex}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm",
+                      i === atIndex && "bg-accent-soft",
+                    )}
+                    onMouseEnter={() => setAtIndex(i)}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      pickAt(hit);
+                    }}
+                  >
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs">
+                      {hit.path}
+                    </span>
+                    {hit.source ? (
+                      <span className="text-xs text-faint">{hit.source}</span>
+                    ) : null}
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
+
+          <div className="flex items-end gap-1 px-2 pt-2">
+            <button
+              type="button"
+              className="mb-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-line/70 hover:text-ink"
+              id="btn-attach"
+              title="Attach files"
+              aria-label="Attach files"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              +
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              id="file-input"
+              multiple
+              hidden
+              accept="image/*,video/*,.pdf,.doc,.docx,.txt,.md,.csv,.json,.yaml,.yml,.zip"
+              onChange={(e) => {
+                addPendingFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <div className="min-w-0 flex-1">
+              {chipLabel ? (
+                <div className="mb-1 inline-flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent">
+                  <span>{chipLabel}</span>
+                  <button
+                    type="button"
+                    aria-label="Clear command"
+                    onClick={() =>
+                      clearComposerChip({
+                        resetMode: composerChip.kind === "mode",
+                      })
+                    }
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : null}
+              <label className="sr-only" htmlFor="message-input">
+                Message
+              </label>
+              <textarea
+                ref={textareaRef}
+                id="message-input"
+                className="max-h-[200px] min-h-[44px] w-full resize-none bg-transparent px-1 py-2 text-[0.95rem] leading-relaxed outline-none placeholder:text-faint"
+                rows={1}
+                placeholder="Message Kageha…  / commands · @ files"
+                autoComplete="off"
+                value={draft}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  setCaret(e.target.selectionStart ?? e.target.value.length);
+                }}
+                onClick={syncCaret}
+                onKeyUp={syncCaret}
+                onSelect={syncCaret}
+                onPaste={(e) => {
+                  const files = e.clipboardData?.files;
+                  if (files?.length) {
+                    e.preventDefault();
+                    addPendingFiles(files);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (slashCtx && slashItems.length) {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setSlashIndex((i) =>
+                        Math.min(i + 1, slashItems.length - 1),
+                      );
+                      return;
+                    }
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setSlashIndex((i) => Math.max(0, i - 1));
+                      return;
+                    }
+                    if (e.key === "Enter" || e.key === "Tab") {
+                      e.preventDefault();
+                      const cmd = slashItems[slashIndex];
+                      if (cmd) pickSlash(cmd);
+                      return;
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      replaceRange(slashCtx.start, caret, "");
+                      return;
+                    }
+                  }
+                  if (atCtx && atHits.length) {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setAtIndex((i) => Math.min(i + 1, atHits.length - 1));
+                      return;
+                    }
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setAtIndex((i) => Math.max(0, i - 1));
+                      return;
+                    }
+                    if (e.key === "Enter" || e.key === "Tab") {
+                      e.preventDefault();
+                      const hit = atHits[atIndex];
+                      if (hit) pickAt(hit);
+                      return;
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      replaceRange(atCtx.start, caret, "");
+                      return;
+                    }
+                  }
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void sendMessage();
+                  }
+                }}
+              />
+            </div>
+            <div className="mb-1 flex shrink-0 items-center gap-1">
+              {sending ? (
+                <>
+                  <button
+                    type="submit"
+                    className="rounded-md px-2.5 py-1.5 text-sm text-muted hover:bg-line/70"
+                    id="btn-queue"
+                    title="Queue while sending"
+                  >
+                    Queue
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-white"
+                    id="btn-stop"
+                    onClick={() => {
+                      void stopGeneration();
+                    }}
+                  >
+                    Stop
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="submit"
+                  className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-95"
+                  id="btn-send"
+                >
+                  Send
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1 border-t border-line/80 px-2 py-1.5">
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  type="button"
+                  className="rounded-md px-2 py-1 text-xs font-medium text-muted hover:bg-line/70 hover:text-ink"
+                >
+                  {modeLabel}
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  className="z-50 min-w-40 rounded-lg border border-line bg-surface p-1 shadow-lg"
+                  sideOffset={4}
+                >
+                  {MODES.map((mode) => (
+                    <DropdownMenu.Item
+                      key={mode}
+                      className={cn(
+                        "cursor-pointer rounded-md px-2.5 py-1.5 text-sm outline-none data-[highlighted]:bg-accent-soft",
+                        agentMode === mode && "font-medium text-accent",
+                      )}
+                      onSelect={() => setAgentMode(mode)}
+                    >
+                      {mode[0].toUpperCase() + mode.slice(1)}
+                    </DropdownMenu.Item>
+                  ))}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  type="button"
+                  className="rounded-md px-2 py-1 text-xs font-medium text-muted hover:bg-line/70 hover:text-ink"
+                  id="btn-ask-mode"
+                  data-ask={permMode}
+                >
+                  {permLabel}
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  className="z-50 min-w-44 rounded-lg border border-line bg-surface p-1 shadow-lg"
+                  sideOffset={4}
+                >
+                  {(
+                    [
+                      ["ask", "Ask — confirm risky tools"],
+                      ["auto", "Auto — session auto-approve"],
+                      ["full", "Full — auto + sandbox network"],
+                    ] as const
+                  ).map(([mode, label]) => (
+                    <DropdownMenu.Item
+                      key={mode}
+                      className={cn(
+                        "cursor-pointer rounded-md px-2.5 py-1.5 text-sm outline-none data-[highlighted]:bg-accent-soft",
+                        permMode === mode && "font-medium text-accent",
+                      )}
+                      onSelect={() => void setPermissionsMode(mode)}
+                    >
+                      {label}
+                    </DropdownMenu.Item>
+                  ))}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+
+            <input
+              ref={modelInputRef}
+              type="text"
+              id="model-input"
+              className="ml-auto min-w-0 max-w-[10rem] truncate border-0 bg-transparent px-1 py-1 text-right text-xs text-muted outline-none placeholder:text-faint"
+              placeholder="Model"
+              title="Optional model override"
+              autoComplete="off"
+              value={modelOverride}
+              onChange={(e) => setModelOverride(e.target.value)}
+              list="model-suggestions"
+            />
+            <datalist id="model-suggestions">
+              {models.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
           </div>
         </div>
       </div>

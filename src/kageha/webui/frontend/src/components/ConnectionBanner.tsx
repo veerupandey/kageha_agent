@@ -25,15 +25,15 @@ export function ConnectionBanner() {
 
   return (
     <div
-      className="connection-banner"
+      className="flex items-center gap-3 border-b border-warn/30 bg-warn-soft px-4 py-2 text-sm text-warn"
       role="status"
       aria-live="polite"
       data-offline={offline ? "1" : "0"}
     >
-      <span className="connection-banner-text">{message}</span>
+      <span className="min-w-0 flex-1">{message}</span>
       <button
         type="button"
-        className="btn ghost compact"
+        className="shrink-0 font-medium underline-offset-2 hover:underline"
         onClick={onRetry}
         title="Retry"
       >

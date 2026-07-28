@@ -136,6 +136,10 @@ export async function runTurn(
         onToolCard: (data) => {
           const card = normalizeToolCard(data, "tool_card");
           if (!card) return;
+          if (card.artifactRefs?.length) {
+            // Canvas only tracks user deliverables (filters noise internally).
+            get().upsertCanvasPaths(card.artifactRefs);
+          }
           set((s) => {
             const run = s.runs[sessionId];
             if (!run) return s;
@@ -156,6 +160,7 @@ export async function runTurn(
         onComputerFrame: (data) => {
           const frame = normalizeComputerFrame(data, sessionId);
           if (!frame) return;
+          // Computer captures stay in the live frames strip — not Canvas.
           set((s) => {
             const run = s.runs[sessionId];
             if (!run) return s;

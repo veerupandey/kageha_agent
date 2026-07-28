@@ -2,29 +2,44 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { ChatMessage, ComputerFrame, ToolCard } from "../api/types";
+import { friendlyActivityLabel } from "../lib/activityUi";
+import {
+  artifactFileUrl,
+  canvasKindForPath,
+  fileBasename,
+  isChatMediaArtifact,
+  isPreviewableKind,
+  kindLabel,
+  showcaseSortKey,
+} from "../lib/artifactMedia";
+import { cn } from "../lib/cn";
+import {
+  extractArtifactPaths,
+  rewriteMarkdownMediaHtml,
+} from "../lib/markdownMedia";
 import { useAppStore } from "../store";
+import { TerminalActivity } from "./TerminalActivity";
 
 marked.setOptions({ gfm: true, breaks: true });
 
 const MD_CACHE_MAX = 200;
 const mdCache = new Map<string, string>();
 
-const STARTER_CHIPS: { label: string; value: string }[] = [
-  { label: "Explain this codebase", value: "Explain this codebase" },
-  { label: "/plan a feature", value: "/plan " },
-  { label: "/browser status", value: "/browser status" },
-];
-
-function cacheKey(id: string, text: string): string {
-  return `${id}\0${text.length}\0${text.slice(0, 64)}\0${text.slice(-64)}`;
+function cacheKey(id: string, text: string, sessionId: string): string {
+  return `${sessionId}\0${id}\0${text.length}\0${text.slice(0, 64)}\0${text.slice(-64)}`;
 }
 
-function renderMarkdownCached(id: string, text: string): string {
-  const key = cacheKey(id, text);
+function renderMarkdownCached(
+  id: string,
+  text: string,
+  sessionId: string | null,
+): string {
+  const sid = sessionId || "";
+  const key = cacheKey(id, text, sid);
   const hit = mdCache.get(key);
   if (hit != null) return hit;
   const raw = marked.parse(text || "", { async: false }) as string;
-  const html = DOMPurify.sanitize(raw);
+  const html = rewriteMarkdownMediaHtml(DOMPurify.sanitize(raw), sessionId);
   mdCache.set(key, html);
   if (mdCache.size > MD_CACHE_MAX) {
     const first = mdCache.keys().next().value;
@@ -33,7 +48,6 @@ function renderMarkdownCached(id: string, text: string): string {
   return html;
 }
 
-/** Escape HTML for safe plain-text streaming display. */
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -42,7 +56,6 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Light streaming markdown: paragraphs + line breaks, no full parse. */
 function lightMarkdown(text: string): string {
   const escaped = escapeHtml(text || "");
   return escaped
@@ -51,43 +64,36 @@ function lightMarkdown(text: string): string {
     .join("");
 }
 
-const ToolCards = memo(function ToolCards({ cards }: { cards: ToolCard[] }) {
-  if (!cards.length) return null;
+/** Ephemeral tool pulse — current tools only; gone when the turn finishes. */
+const LiveToolPulse = memo(function LiveToolPulse({
+  cards,
+  streaming,
+}: {
+  cards: ToolCard[];
+  streaming: boolean;
+}) {
+  if (!streaming || !cards.length) return null;
+
+  const running = cards.filter(
+    (c) => !c.status || c.status === "running" || c.status === "pending",
+  );
+  const source = running.length ? running : cards.slice(-2);
+  const names: string[] = [];
+  for (const card of source) {
+    const name = String(card.name || "").trim();
+    if (!name || names.includes(name)) continue;
+    names.push(name);
+    if (names.length >= 3) break;
+  }
+  if (!names.length) return null;
+
   return (
-    <div className="stream-tool-cards">
-      {cards.map((card) => (
-        <details
-          key={card.id}
-          className="tool-card"
-          data-status={card.status || "running"}
-          open={card.status === "running"}
-        >
-          <summary className="tool-card-summary">
-            <span className="tool-card-status" />
-            <span className="tool-card-name">{card.name}</span>
-            <span className="tool-card-meta">
-              {card.durationMs != null ? `${card.durationMs}ms` : card.status || ""}
-            </span>
-          </summary>
-          <div className="tool-card-body">
-            {card.argsPreview ? (
-              <pre className="tool-card-args">{card.argsPreview}</pre>
-            ) : null}
-            {card.resultPreview ? (
-              <pre className="tool-card-result">{card.resultPreview}</pre>
-            ) : null}
-            {card.artifactRefs && card.artifactRefs.length > 0 ? (
-              <div className="tool-card-arts">
-                {card.artifactRefs.map((ref) => (
-                  <span key={ref} className="tool-card-art">
-                    {ref}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        </details>
-      ))}
+    <div
+      className="mb-2 flex items-center gap-2 font-mono text-sm text-faint"
+      aria-live="polite"
+    >
+      <span className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
+      <span className="min-w-0 truncate text-muted">{names.join(" · ")}</span>
     </div>
   );
 });
@@ -97,24 +103,132 @@ const ComputerFrames = memo(function ComputerFrames({
 }: {
   frames: ComputerFrame[];
 }) {
+  const openCanvasItem = useAppStore((s) => s.openCanvasItem);
   if (!frames.length) return null;
   return (
-    <div className="computer-frame-strip">
-      {frames.map((frame, i) => (
-        <a
-          key={`${frame.url}-${i}`}
-          className="computer-frame-thumb"
-          href={frame.url}
-          target="_blank"
-          rel="noreferrer"
-          title={frame.caption || frame.action || frame.app || "frame"}
-        >
-          <img src={frame.url} alt={frame.caption || "computer frame"} />
-          {frame.caption ? (
-            <span className="computer-frame-caption">{frame.caption}</span>
-          ) : null}
-        </a>
-      ))}
+    <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
+      {frames.map((frame, i) => {
+        const path = String(frame.path || "").trim();
+        return (
+          <button
+            key={`${frame.url}-${i}`}
+            type="button"
+            className="block w-36 shrink-0 overflow-hidden rounded-md border border-line bg-surface text-left"
+            title={frame.caption || frame.action || frame.app || "Open in canvas"}
+            onClick={() => {
+              if (path) openCanvasItem(path, { expand: true });
+              else window.open(frame.url, "_blank", "noopener,noreferrer");
+            }}
+          >
+            <img
+              src={frame.url}
+              alt={frame.caption || "computer frame"}
+              className="h-24 w-full object-cover"
+            />
+            {frame.caption ? (
+              <span className="block truncate px-1.5 py-1 text-[0.7rem] text-muted">
+                {frame.caption}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+});
+
+function ArtifactThumb({
+  path,
+  url,
+  kind,
+}: {
+  path: string;
+  url?: string;
+  kind: ReturnType<typeof canvasKindForPath>;
+}) {
+  const [failed, setFailed] = useState(false);
+  const name = fileBasename(path);
+  const showImage = kind === "image" && url && !failed;
+
+  if (showImage) {
+    return (
+      <img
+        src={url}
+        alt={name}
+        className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+
+  const glyph =
+    kind === "video"
+      ? "▶"
+      : kind === "pdf"
+        ? "PDF"
+        : kind === "presentation"
+          ? "PPT"
+          : "◇";
+
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-b from-canvas to-line/40 px-3">
+      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface text-[0.7rem] font-semibold tracking-wide text-accent shadow-sm ring-1 ring-line">
+        {glyph}
+      </span>
+      <span className="line-clamp-2 text-center text-[0.72rem] font-medium leading-snug text-ink">
+        {name}
+      </span>
+      <span className="text-[0.62rem] text-faint">{kindLabel(kind)}</span>
+    </div>
+  );
+}
+
+/** Inline media strip — deliverables only (no scripts / computer noise). */
+const MessageArtifacts = memo(function MessageArtifacts({
+  paths,
+}: {
+  paths: string[];
+}) {
+  const sessionId = useAppStore((s) => s.sessionId);
+  const openCanvasItem = useAppStore((s) => s.openCanvasItem);
+  const refs = useMemo(
+    () =>
+      [...paths]
+        .filter(isChatMediaArtifact)
+        .sort((a, b) => {
+          const [ra, pa] = showcaseSortKey(a);
+          const [rb, pb] = showcaseSortKey(b);
+          return ra - rb || pa.localeCompare(pb);
+        })
+        .slice(0, 8),
+    [paths],
+  );
+
+  if (!refs.length) return null;
+
+  return (
+    <div className="mb-3 flex gap-2.5 overflow-x-auto pb-1">
+      {refs.map((path) => {
+        const kind = canvasKindForPath(path);
+        const url = artifactFileUrl(sessionId, path);
+        const previewable = isPreviewableKind(kind);
+        return (
+          <button
+            key={path}
+            type="button"
+            className="group relative h-32 w-44 shrink-0 overflow-hidden rounded-xl border border-line bg-surface text-left shadow-[0_1px_2px_rgba(28,27,25,0.04)] transition hover:border-accent/35 hover:shadow-md"
+            onClick={() => openCanvasItem(path, { expand: previewable })}
+            title={path}
+          >
+            <ArtifactThumb path={path} url={url} kind={kind} />
+            {kind === "image" ? (
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink/55 to-transparent px-2.5 pb-2 pt-8 text-[0.68rem] font-medium text-white opacity-0 transition group-hover:opacity-100">
+                {fileBasename(path)}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
     </div>
   );
 });
@@ -190,37 +304,73 @@ const MessageRow = memo(function MessageRow({
   const streaming = Boolean(m.streaming);
   const throttledText = useThrottledStreamText(m.text || "", streaming);
   const [copied, setCopied] = useState(false);
-  const [traceOpen, setTraceOpen] = useState(false);
-  const showToolCards = useAppStore((s) => s.prefs.showToolCards);
+  const sessionId = useAppStore((s) => s.sessionId);
+  const upsertCanvasPaths = useAppStore((s) => s.upsertCanvasPaths);
+  const openCanvasItem = useAppStore((s) => s.openCanvasItem);
+
+  const artifactPaths = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    const push = (raw: string) => {
+      const path = String(raw || "").replace(/\\/g, "/").replace(/^\/+/, "");
+      if (!path || seen.has(path)) return;
+      seen.add(path);
+      out.push(path);
+    };
+    for (const card of m.toolCards || []) {
+      for (const ref of card.artifactRefs || []) push(ref);
+    }
+    if (!streaming && m.role === "assistant") {
+      for (const path of extractArtifactPaths(throttledText)) push(path);
+    }
+    return out.filter(isChatMediaArtifact);
+  }, [m.toolCards, m.role, throttledText, streaming]);
+
+  useEffect(() => {
+    if (!artifactPaths.length || streaming) return;
+    upsertCanvasPaths(artifactPaths);
+  }, [artifactPaths, streaming, upsertCanvasPaths]);
 
   const bodyHtml = useMemo(() => {
     if (!throttledText) return "";
-    if (streaming) return lightMarkdown(throttledText);
-    return renderMarkdownCached(m.id, throttledText);
-  }, [m.id, throttledText, streaming]);
+    if (streaming) {
+      return rewriteMarkdownMediaHtml(lightMarkdown(throttledText), sessionId);
+    }
+    return renderMarkdownCached(m.id, throttledText, sessionId);
+  }, [m.id, throttledText, streaming, sessionId]);
 
-  const activityLabel =
-    m.statusLabel ||
-    (streaming ? "Working…" : "") ||
-    (m.steps && m.steps.length ? m.steps[m.steps.length - 1]?.label : "");
-  const activityDetail = m.statusDetail || "";
   const stepList = m.steps || [];
+  const isUser = m.role === "user";
+  const showActivity =
+    !isUser && (streaming || stepList.length > 0);
 
   return (
     <article
-      className={`message msg-bubble message-${m.role}${streaming ? " is-streaming" : ""}`}
+      className={cn(
+        "group relative mx-auto w-full max-w-3xl px-4 py-4 md:px-6",
+        isUser ? "bg-transparent" : "bg-transparent",
+      )}
     >
-      <header className="message-head">
-        <span className="message-role">{m.role}</span>
+      <div className="mb-1.5 flex items-center gap-2 text-xs">
+        <span
+          className={cn(
+            "font-semibold tracking-wide",
+            isUser ? "text-muted" : "text-accent",
+          )}
+        >
+          {isUser ? "You" : "Kageha"}
+        </span>
         {!streaming && m.statusLabel ? (
-          <span className="message-status">{m.statusLabel}</span>
+          <span className="text-faint">
+            {friendlyActivityLabel(m.statusLabel) || m.statusLabel}
+          </span>
         ) : null}
         {!streaming && (m.text || showRetry) ? (
-          <div className="message-actions">
+          <div className="ml-auto flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             {m.text ? (
               <button
                 type="button"
-                className="btn ghost compact message-action"
+                className="rounded px-1.5 py-0.5 text-faint hover:bg-line/70 hover:text-ink"
                 onClick={() => {
                   void copyText(m.text).then(() => {
                     setCopied(true);
@@ -234,7 +384,7 @@ const MessageRow = memo(function MessageRow({
             {showRetry ? (
               <button
                 type="button"
-                className="btn ghost compact message-action"
+                className="rounded px-1.5 py-0.5 text-faint hover:bg-line/70 hover:text-ink"
                 onClick={onRetry}
               >
                 Retry
@@ -242,74 +392,49 @@ const MessageRow = memo(function MessageRow({
             ) : null}
           </div>
         ) : null}
-      </header>
+      </div>
 
-      {/* Live intermediate activity — pulse + optional detail subtitle */}
-      {streaming && activityLabel ? (
-        <div className="stream-activity" aria-live="polite">
-          <span className="stream-activity-spinner" aria-hidden="true" />
-          <div className="stream-activity-text">
-            <span className="stream-activity-label">{activityLabel}</span>
-            {activityDetail ? (
-              <span className="stream-activity-detail">{activityDetail}</span>
-            ) : null}
-          </div>
-        </div>
+      {streaming && m.toolCards && m.toolCards.length > 0 ? (
+        <LiveToolPulse cards={m.toolCards} streaming={streaming} />
+      ) : null}
+      {showActivity ? (
+        <TerminalActivity
+          steps={stepList}
+          liveLabel={m.statusLabel || m.statusDetail}
+          streaming={streaming}
+        />
       ) : null}
 
-      {stepList.length > 0 ? (
-        <details
-          className="stream-trace"
-          open={streaming || traceOpen}
-          onToggle={(e) => setTraceOpen((e.target as HTMLDetailsElement).open)}
-        >
-          <summary className="stream-trace-summary">
-            {streaming
-              ? `Activity · ${stepList.length} step${stepList.length === 1 ? "" : "s"}`
-              : `Trace · ${stepList.length} step${stepList.length === 1 ? "" : "s"}`}
-          </summary>
-          <ol className="stream-trace-list">
-            {stepList.map((step, i) => {
-              const current = streaming && i === stepList.length - 1;
-              const details = step.detail || [];
-              return (
-                <li
-                  key={`${m.id}-step-${i}-${step.label}`}
-                  className={
-                    current
-                      ? "stream-trace-item is-current"
-                      : "stream-trace-item"
-                  }
-                >
-                  <span className="stream-trace-title">{step.label}</span>
-                  {details.length > 0 ? (
-                    <ul className="stream-trace-detail">
-                      {details.map((line, j) => (
-                        <li key={`${m.id}-step-${i}-d-${j}`}>{line}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ol>
-        </details>
-      ) : null}
-
-      {showToolCards && m.toolCards && m.toolCards.length > 0 ? (
-        <ToolCards cards={m.toolCards} />
+      {artifactPaths.length > 0 ? (
+        <MessageArtifacts paths={artifactPaths} />
       ) : null}
       {m.computerFrames && m.computerFrames.length > 0 ? (
         <ComputerFrames frames={m.computerFrames} />
       ) : null}
       {bodyHtml ? (
         <div
-          className={`message-body markdown${streaming ? " is-stream-body" : ""}`}
+          className={cn(
+            "markdown",
+            isUser &&
+              "rounded-xl bg-surface px-3.5 py-2.5 shadow-[0_0_0_1px_var(--color-line)]",
+          )}
           dangerouslySetInnerHTML={{ __html: bodyHtml }}
+          onClick={(e) => {
+            const target = e.target as HTMLElement | null;
+            if (!target || target.tagName !== "IMG") return;
+            const src = (target as HTMLImageElement).currentSrc || target.getAttribute("src") || "";
+            const marker = "/files/";
+            const idx = src.indexOf(marker);
+            if (idx < 0) return;
+            const path = decodeURIComponent(src.slice(idx + marker.length));
+            if (!path) return;
+            e.preventDefault();
+            openCanvasItem(path, { expand: true });
+          }}
         />
       ) : streaming ? (
-        <div className="message-body muted stream-placeholder">
-          <span className="stream-cursor" aria-hidden="true" />
+        <div className="text-sm text-muted">
+          <span className="inline-block h-4 w-1 animate-pulse bg-accent/70" />
         </div>
       ) : null}
     </article>
@@ -318,47 +443,30 @@ const MessageRow = memo(function MessageRow({
 
 function MessageSkeletons() {
   return (
-    <div className="messages message-skeletons" aria-busy="true" aria-label="Loading messages">
+    <div
+      className="mx-auto w-full max-w-3xl space-y-6 px-4 py-8 md:px-6"
+      aria-busy="true"
+      aria-label="Loading messages"
+    >
       {[0, 1, 2].map((i) => (
-        <div key={i} className="message-skeleton" data-role={i % 2 === 0 ? "user" : "assistant"}>
-          <div className="message-skeleton-head" />
-          <div className="message-skeleton-line" />
-          <div className="message-skeleton-line short" />
+        <div key={i} className="animate-pulse space-y-2">
+          <div className="h-3 w-16 rounded bg-line" />
+          <div className="h-4 w-full rounded bg-line/80" />
+          <div className="h-4 w-2/3 rounded bg-line/60" />
         </div>
       ))}
     </div>
   );
 }
 
-function HeroEmpty() {
-  const setDraft = useAppStore((s) => s.setDraft);
-
+function EmptyState() {
   return (
-    <div className="hero" id="hero">
-      <p className="hero-kicker">Workspace</p>
-      <h1 className="brand" id="brand">
-        Kageha
-      </h1>
-      <p className="lede">
-        Quiet power for durable turns — memory, parallel tasks, and work that lasts.
+    <div className="flex h-full min-h-[16rem] flex-col items-center justify-center px-6 text-center">
+      <p className="text-lg font-medium text-ink">Message Kageha…</p>
+      <p className="mt-2 max-w-sm text-sm text-muted">
+        Ask a question, start a task, or type{" "}
+        <span className="font-mono text-ink">/</span> for commands.
       </p>
-      <div className="hero-starters" role="group" aria-label="Starter prompts">
-        {STARTER_CHIPS.map((chip) => (
-          <button
-            key={chip.label}
-            type="button"
-            className="hero-starter-chip"
-            onClick={() => {
-              setDraft(chip.value);
-              requestAnimationFrame(() => {
-                document.getElementById("message-input")?.focus();
-              });
-            }}
-          >
-            {chip.label}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
@@ -430,12 +538,12 @@ export function MessageList({ messages }: { messages: ChatMessage[] }) {
   }
 
   if (!messages.length) {
-    return <HeroEmpty />;
+    return <EmptyState />;
   }
 
   return (
     <>
-      <div className="messages" id="messages">
+      <div className="pb-4 pt-2" id="messages">
         {messages.map((m, i) => (
           <MessageRow
             key={m.id}
@@ -452,7 +560,7 @@ export function MessageList({ messages }: { messages: ChatMessage[] }) {
       {showJump ? (
         <button
           type="button"
-          className="jump-to-latest"
+          className="sticky bottom-3 left-1/2 z-10 mx-auto -translate-x-1/2 rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium shadow-md"
           onClick={jumpToLatest}
         >
           Jump to latest

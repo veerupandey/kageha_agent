@@ -66,7 +66,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   {
     id: "permissions",
     label: "/permissions",
-    description: "Show ask/auto tool approval mode",
+    description: "Show ask/auto/full tool approval mode",
     kind: "prefs",
   },
   {
@@ -82,6 +82,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     kind: "prefs",
   },
   {
+    id: "permissions-full",
+    label: "/permissions full",
+    description: "Auto-approve + sandbox network",
+    kind: "prefs",
+  },
+  {
     id: "attach",
     label: "/attach",
     description: "Attach files from disk (or drop / paste in composer)",
@@ -91,6 +97,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     id: "files",
     label: "/files",
     description: "Same as /attach — pick files for this message",
+    kind: "prefs",
+  },
+  {
+    id: "artifacts",
+    label: "/artifacts",
+    description: "Open canvas for images, video, PDFs, and files",
     kind: "prefs",
   },
   {
@@ -225,7 +237,6 @@ const LEAN_UI_EXCLUDED_IDS = new Set([
   "best-of-n",
   "review",
   "memory",
-  "artifacts",
   "spec",
   "workbench",
 ]);

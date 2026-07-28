@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useAppStore } from "../store";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { useMemo, useState } from "react";
 import type { SessionSummary } from "../api/types";
+import { cn } from "../lib/cn";
+import { useAppStore } from "../store";
 import { filterSessionsForRail } from "../store/sessions";
 
 function shortId(id: string): string {
@@ -20,38 +22,12 @@ function SessionRow({
   const archiveSession = useAppStore((s) => s.archiveSession);
   const deleteSession = useAppStore((s) => s.deleteSession);
   const showToast = useAppStore((s) => s.showToast);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
-  const rowRef = useRef<HTMLLIElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   const title =
     (session.title && String(session.title).trim()) ||
     shortId(session.session_id);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDoc = (e: MouseEvent) => {
-      if (
-        !menuRef.current?.contains(e.target as Node) &&
-        !rowRef.current?.contains(e.target as Node)
-      ) {
-        setMenuOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [menuOpen]);
-
   const run = async (action: () => Promise<void>, okToast?: string) => {
-    setMenuOpen(false);
     try {
       await action();
       if (okToast) showToast(okToast);
@@ -61,12 +37,8 @@ function SessionRow({
   };
 
   const onDelete = () => {
-    setMenuOpen(false);
-    const label = title;
     if (
-      !window.confirm(
-        `Delete session “${label}”? This cannot be undone.`,
-      )
+      !window.confirm(`Delete session “${title}”? This cannot be undone.`)
     ) {
       return;
     }
@@ -77,120 +49,79 @@ function SessionRow({
   };
 
   return (
-    <li
-      ref={rowRef}
-      className={`session-row${session.pinned ? " is-pinned" : ""}${session.archived ? " is-archived" : ""}`}
-    >
+    <li className="group relative">
       <button
         type="button"
-        className={`session-item${active ? " active" : ""}`}
+        className={cn(
+          "flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors",
+          active ? "bg-accent-soft text-ink" : "hover:bg-line/60",
+          session.archived && "opacity-70",
+        )}
         onClick={onOpen}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          setMenuPos({ x: e.clientX, y: e.clientY });
-          setMenuOpen(true);
-        }}
       >
-        <span className="session-item-title">
+        <span className="truncate text-[0.85rem] font-medium">
           {session.pinned ? (
-            <span className="session-pin-mark" aria-hidden="true">
+            <span className="mr-1 text-accent" aria-hidden="true">
               ✦
             </span>
           ) : null}
           {title}
-          {session.archived ? (
-            <span className="session-archived-badge">archived</span>
-          ) : null}
         </span>
-        <span className="mono session-item-id">{shortId(session.session_id)}</span>
+        <span className="font-mono text-[0.7rem] text-faint">
+          {shortId(session.session_id)}
+          {session.archived ? " · archived" : ""}
+        </span>
       </button>
-      <div className="session-row-actions" role="group" aria-label="Session actions">
-        <button
-          type="button"
-          className="btn ghost compact session-action"
-          title={session.pinned ? "Unpin" : "Pin"}
-          aria-label={session.pinned ? "Unpin session" : "Pin session"}
-          onClick={(e) => {
-            e.stopPropagation();
-            void run(
-              () => pinSession(session.session_id, !session.pinned),
-              session.pinned ? "Unpinned" : "Pinned",
-            );
-          }}
-        >
-          {session.pinned ? "Unpin" : "Pin"}
-        </button>
-        <button
-          type="button"
-          className="btn ghost compact session-action"
-          title={session.archived ? "Unarchive" : "Archive"}
-          aria-label={session.archived ? "Unarchive session" : "Archive session"}
-          onClick={(e) => {
-            e.stopPropagation();
-            void run(
-              () => archiveSession(session.session_id, !session.archived),
-              session.archived ? "Unarchived" : "Archived",
-            );
-          }}
-        >
-          {session.archived ? "Restore" : "Archive"}
-        </button>
-        <button
-          type="button"
-          className="btn ghost compact session-action session-action-danger"
-          title="Delete"
-          aria-label="Delete session"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-        >
-          Delete
-        </button>
-      </div>
-      {menuOpen ? (
-        <div
-          ref={menuRef}
-          className="session-context-menu"
-          role="menu"
-          style={{ left: menuPos.x, top: menuPos.y }}
-        >
+
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
           <button
             type="button"
-            role="menuitem"
-            className="session-context-item"
-            onClick={() =>
-              void run(
-                () => pinSession(session.session_id, !session.pinned),
-                session.pinned ? "Unpinned" : "Pinned",
-              )
-            }
+            className="absolute right-1 top-1.5 hidden h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-surface group-hover:inline-flex data-[state=open]:inline-flex"
+            aria-label="Session actions"
+            onClick={(e) => e.stopPropagation()}
           >
-            {session.pinned ? "Unpin" : "Pin"}
+            ···
           </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="session-context-item"
-            onClick={() =>
-              void run(
-                () => archiveSession(session.session_id, !session.archived),
-                session.archived ? "Unarchived" : "Archived",
-              )
-            }
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            className="z-50 min-w-36 rounded-lg border border-line bg-surface p-1 shadow-lg"
+            sideOffset={4}
+            align="end"
           >
-            {session.archived ? "Unarchive" : "Archive"}
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="session-context-item session-action-danger"
-            onClick={onDelete}
-          >
-            Delete…
-          </button>
-        </div>
-      ) : null}
+            <DropdownMenu.Item
+              className="cursor-pointer rounded-md px-2.5 py-1.5 text-sm outline-none data-[highlighted]:bg-accent-soft"
+              onSelect={() =>
+                void run(
+                  () => pinSession(session.session_id, !session.pinned),
+                  session.pinned ? "Unpinned" : "Pinned",
+                )
+              }
+            >
+              {session.pinned ? "Unpin" : "Pin"}
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              className="cursor-pointer rounded-md px-2.5 py-1.5 text-sm outline-none data-[highlighted]:bg-accent-soft"
+              onSelect={() =>
+                void run(
+                  () =>
+                    archiveSession(session.session_id, !session.archived),
+                  session.archived ? "Unarchived" : "Archived",
+                )
+              }
+            >
+              {session.archived ? "Unarchive" : "Archive"}
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              className="cursor-pointer rounded-md px-2.5 py-1.5 text-sm text-danger outline-none data-[highlighted]:bg-danger-soft"
+              onSelect={onDelete}
+            >
+              Delete…
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
     </li>
   );
 }
@@ -219,37 +150,40 @@ export function SessionsRail({ open = false, onClose }: SessionsRailProps) {
 
   return (
     <aside
-      className={`sessions${open ? " open" : ""}`}
+      className={cn(
+        "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-line bg-canvas transition-transform md:static md:z-0 md:translate-x-0",
+        open ? "translate-x-0" : "-translate-x-full md:translate-x-0",
+      )}
       id="sessions-panel"
     >
-      <header className="sessions-head">
-        <p className="eyebrow">Sessions</p>
-        <div className="sessions-head-actions">
-          <button
-            type="button"
-            className="btn ghost"
-            id="btn-new-session"
-            title="New chat (in place)"
-            onClick={() => {
-              newChat()
-                .then(() => onClose?.())
-                .catch((err) => alert(err.message || err));
-            }}
-          >
-            New
-          </button>
-        </div>
+      <header className="flex h-12 items-center justify-between gap-2 border-b border-line px-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-faint">
+          Sessions
+        </p>
+        <button
+          type="button"
+          className="rounded-md px-2.5 py-1 text-sm font-medium text-accent hover:bg-accent-soft"
+          id="btn-new-session"
+          title="New chat"
+          onClick={() => {
+            newChat()
+              .then(() => onClose?.())
+              .catch((err) => alert(err.message || err));
+          }}
+        >
+          New
+        </button>
       </header>
 
-      <div className="sessions-search">
+      <div className="px-3 py-2">
         <label className="sr-only" htmlFor="sessions-search-input">
           Search sessions
         </label>
         <input
           id="sessions-search-input"
           type="search"
-          className="sessions-search-input"
-          placeholder="Search title or id…"
+          className="w-full rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm outline-none placeholder:text-faint focus:border-accent/40"
+          placeholder="Search…"
           autoComplete="off"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -257,21 +191,21 @@ export function SessionsRail({ open = false, onClose }: SessionsRailProps) {
       </div>
 
       {sessions.length === 0 ? (
-        <div className="sessions-empty" id="sessions-empty">
-          <p className="sessions-empty-title">No sessions yet</p>
-          <p className="sessions-empty-hint">Start a new chat to begin.</p>
+        <div className="px-4 py-8 text-sm text-muted">
+          <p className="font-medium text-ink">No sessions yet</p>
+          <p className="mt-1">Start a new chat to begin.</p>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="sessions-empty" id="sessions-empty">
-          <p className="sessions-empty-title">No matches</p>
-          <p className="sessions-empty-hint">
+        <div className="px-4 py-8 text-sm text-muted">
+          <p className="font-medium text-ink">No matches</p>
+          <p className="mt-1">
             {showArchived
               ? "Try another title or id."
               : "Try another title, or show archived."}
           </p>
         </div>
       ) : (
-        <ul className="session-list" id="session-list">
+        <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-2">
           {filtered.map((session) => (
             <SessionRow
               key={session.session_id}
@@ -287,10 +221,11 @@ export function SessionsRail({ open = false, onClose }: SessionsRailProps) {
         </ul>
       )}
 
-      <footer className="sessions-foot">
-        <label className="sessions-archived-toggle">
+      <footer className="border-t border-line px-3 py-2">
+        <label className="flex cursor-pointer items-center gap-2 text-xs text-muted">
           <input
             type="checkbox"
+            className="accent-accent"
             checked={showArchived}
             onChange={(e) => setShowArchived(e.target.checked)}
           />

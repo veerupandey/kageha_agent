@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { cn } from "../lib/cn";
 import { useAppStore } from "../store";
 
 function detailText(detail: string | string[] | undefined): string {
@@ -30,30 +31,42 @@ export function ApprovalBanner() {
 
   const detail = detailText(pending.detail);
 
+  const btn =
+    "rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40";
+
   return (
     <div
-      className="approval-banner"
+      className="border-t border-warn/25 bg-warn-soft px-4 py-3 md:px-5"
       id="approval-banner"
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="approval-banner-title"
       aria-describedby={detail ? "approval-detail" : undefined}
     >
-      <div className="approval-banner-body">
-        <p className="approval-title" id="approval-banner-title">
+      <div className="mx-auto max-w-3xl">
+        <p
+          className="text-sm font-semibold text-ink"
+          id="approval-banner-title"
+        >
           {title}
         </p>
         {detail ? (
-          <p className="approval-detail" id="approval-detail">
+          <p
+            className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap font-mono text-xs text-muted"
+            id="approval-detail"
+          >
             {detail}
           </p>
         ) : null}
-        <label className="approval-suggest-label" htmlFor="approval-suggest">
+        <label
+          className="mt-2 block text-xs text-muted"
+          htmlFor="approval-suggest"
+        >
           Suggest (optional)
         </label>
         <input
           id="approval-suggest"
-          className="approval-suggest-input"
+          className="mt-1 w-full rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-accent/40"
           type="text"
           value={suggestion}
           placeholder={
@@ -69,50 +82,74 @@ export function ApprovalBanner() {
             }
           }}
         />
-      </div>
-      <div className="approval-actions">
-        {isPlan ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {isPlan ? (
+            <>
+              <button
+                ref={approveRef}
+                type="button"
+                className={cn(btn, "bg-accent text-white")}
+                id="btn-approval-approve"
+                onClick={() => void resolveApproval(true, "", "once")}
+              >
+                Build
+              </button>
+              <button
+                type="button"
+                className={cn(btn, "bg-surface text-ink hover:bg-line/70")}
+                id="btn-approval-view-plan"
+                onClick={() => void resolveApproval(true, "", "once")}
+              >
+                Approve plan
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                ref={approveRef}
+                type="button"
+                className={cn(btn, "bg-accent text-white")}
+                id="btn-approval-approve"
+                onClick={() => void resolveApproval(true, "", "once")}
+              >
+                Once
+              </button>
+              <button
+                type="button"
+                className={cn(btn, "bg-surface text-ink hover:bg-line/70")}
+                id="btn-approval-session"
+                onClick={() => void resolveApproval(true, "", "session")}
+              >
+                Session
+              </button>
+              <button
+                type="button"
+                className={cn(btn, "bg-surface text-ink hover:bg-line/70")}
+                id="btn-approval-full"
+                onClick={() => void resolveApproval(true, "", "full")}
+              >
+                Full
+              </button>
+            </>
+          )}
           <button
             type="button"
-            className="btn ghost"
-            id="btn-approval-view-plan"
-            onClick={() => void resolveApproval(true)}
+            className={cn(btn, "bg-surface text-ink hover:bg-line/70")}
+            id="btn-approval-suggest"
+            disabled={!suggestion.trim()}
+            onClick={() => void resolveApproval(false, suggestion.trim())}
           >
-            Approve plan
+            Suggest
           </button>
-        ) : null}
-        <button
-          type="button"
-          className="btn ghost"
-          id="btn-approval-suggest"
-          disabled={!suggestion.trim()}
-          onClick={() => {
-            void resolveApproval(false, suggestion.trim());
-          }}
-        >
-          Suggest
-        </button>
-        <button
-          type="button"
-          className="btn ghost"
-          id="btn-approval-deny"
-          onClick={() => {
-            void resolveApproval(false);
-          }}
-        >
-          Deny
-        </button>
-        <button
-          ref={approveRef}
-          type="button"
-          className="btn primary"
-          id="btn-approval-approve"
-          onClick={() => {
-            void resolveApproval(true);
-          }}
-        >
-          {isPlan ? "Build" : "Approve"}
-        </button>
+          <button
+            type="button"
+            className={cn(btn, "text-danger hover:bg-danger-soft")}
+            id="btn-approval-deny"
+            onClick={() => void resolveApproval(false)}
+          >
+            Deny
+          </button>
+        </div>
       </div>
     </div>
   );

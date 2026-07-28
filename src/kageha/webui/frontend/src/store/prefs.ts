@@ -1,4 +1,4 @@
-import type { AgentMode, Density, UserPrefs } from "../api/types";
+import type { AgentMode, Density, ThemeMode, UserPrefs } from "../api/types";
 
 export const PREFS_KEY = "kageha.prefs";
 /** Legacy ask-mode flag — migrated into prefs.defaultAskMode. */
@@ -10,6 +10,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   defaultAgentMode: "normal",
   reduceMotion: false,
   showToolCards: true,
+  theme: "light",
 };
 
 const AGENT_MODES: AgentMode[] = ["normal", "plan", "goal"];
@@ -20,6 +21,10 @@ function isDensity(v: unknown): v is Density {
 
 function isAgentMode(v: unknown): v is AgentMode {
   return typeof v === "string" && AGENT_MODES.includes(v as AgentMode);
+}
+
+function isTheme(v: unknown): v is ThemeMode {
+  return v === "light" || v === "dark";
 }
 
 function readLegacyAskMode(): boolean | null {
@@ -53,6 +58,7 @@ export function loadPrefs(): UserPrefs {
       if (typeof parsed.showToolCards === "boolean") {
         base.showToolCards = parsed.showToolCards;
       }
+      if (isTheme(parsed.theme)) base.theme = parsed.theme;
     } else {
       const legacy = readLegacyAskMode();
       if (legacy != null) base.defaultAskMode = legacy;
@@ -74,17 +80,19 @@ export function savePrefs(prefs: UserPrefs): void {
   }
 }
 
-/** Apply density / reduce-motion attributes on the shell. */
+/** Apply density / reduce-motion / theme attributes on the shell. */
 export function applyPrefsToDocument(prefs: UserPrefs): void {
   if (typeof document === "undefined") return;
   const root = document.getElementById("app") || document.documentElement;
   root.setAttribute("data-density", prefs.density);
+  root.setAttribute("data-theme", prefs.theme);
   if (prefs.reduceMotion) {
     root.setAttribute("data-reduce-motion", "true");
   } else {
     root.removeAttribute("data-reduce-motion");
   }
   document.documentElement.setAttribute("data-density", prefs.density);
+  document.documentElement.setAttribute("data-theme", prefs.theme);
   if (prefs.reduceMotion) {
     document.documentElement.setAttribute("data-reduce-motion", "true");
   } else {
@@ -110,5 +118,6 @@ export function mergePrefs(
   if (typeof patch.showToolCards === "boolean") {
     next.showToolCards = patch.showToolCards;
   }
+  if (isTheme(patch.theme)) next.theme = patch.theme;
   return next;
 }

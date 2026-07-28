@@ -5,9 +5,8 @@ import { DropOverlay } from "./components/DropOverlay";
 import { SessionsRail } from "./components/SessionsRail";
 import { Stage } from "./components/Stage";
 import { Toasts } from "./components/Toasts";
+import { cn } from "./lib/cn";
 import { useAppStore } from "./store";
-import "./styles/legacy.css";
-import "./styles/react.css";
 
 export default function App() {
   const boot = useAppStore((s) => s.boot);
@@ -116,23 +115,26 @@ export default function App() {
 
   return (
     <>
-      <div className="atmosphere" aria-hidden="true" />
       <ConnectionBanner />
-      <div className="shell" id="app">
+      <div
+        className="flex h-full min-h-0 bg-canvas text-ink"
+        id="app"
+      >
         <SessionsRail
           open={sessionsOpen}
           onClose={() => setSessionsOpen(false)}
         />
-        <Stage
-          onToggleSessions={() => setSessionsOpen((v) => !v)}
-        />
+        <Stage onToggleSessions={() => setSessionsOpen((v) => !v)} />
       </div>
 
       <div
-        className="backdrop"
+        className={cn(
+          "fixed inset-0 z-40 bg-ink/25 md:hidden",
+          sessionsOpen ? "block" : "hidden",
+        )}
         id="backdrop"
-        hidden={!sessionsOpen}
         onClick={closeAllOverlays}
+        aria-hidden={!sessionsOpen}
       />
 
       <DropOverlay visible={dropping} />

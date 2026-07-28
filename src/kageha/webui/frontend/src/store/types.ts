@@ -13,6 +13,7 @@ import type {
   UserPrefs,
   WebUiCapabilities,
 } from "../api/types";
+import type { CanvasItem } from "../lib/artifactMedia";
 
 export type { UserPrefs };
 
@@ -27,6 +28,8 @@ export interface AppState {
   statusLabel: string;
   agentMode: AgentMode;
   autoApprove: boolean;
+  /** ask | session | full — mirrors CLI /permissions */
+  permissionScope: "ask" | "session" | "full";
   sending: boolean;
   draft: string;
   error: string | null;
@@ -48,6 +51,12 @@ export interface AppState {
   sessionsError: string | null;
   prefs: UserPrefs;
 
+  /** Artifact canvas (images / video / pdf / office files). */
+  canvasOpen: boolean;
+  canvasExpanded: boolean;
+  canvasItems: CanvasItem[];
+  canvasSelectedPath: string | null;
+
   setDraft: (value: string) => void;
   setConnectionOnline: (online: boolean) => void;
   clearError: () => void;
@@ -55,6 +64,7 @@ export interface AppState {
   retryLastTurn: () => Promise<void>;
   setAgentMode: (mode: AgentMode) => void;
   setAskMode: (ask: boolean) => void;
+  setPermissionsMode: (mode: "ask" | "auto" | "full") => Promise<void>;
   setPrefs: (patch: Partial<UserPrefs>) => void;
   setModelOverride: (model: string) => void;
   setComposerChip: (kind: ComposerChip["kind"], value: string | null) => void;
@@ -87,7 +97,18 @@ export interface AppState {
 
   sendMessage: (textOverride?: string) => Promise<void>;
   stopGeneration: () => Promise<void>;
-  resolveApproval: (approved: boolean, feedback?: string) => Promise<void>;
+  resolveApproval: (
+    approved: boolean,
+    feedback?: string,
+    scope?: "once" | "session" | "full",
+  ) => Promise<void>;
+
+  setCanvasOpen: (open: boolean) => void;
+  setCanvasExpanded: (expanded: boolean) => void;
+  selectCanvasItem: (path: string | null) => void;
+  openCanvasItem: (path: string, opts?: { expand?: boolean }) => void;
+  refreshArtifacts: () => Promise<void>;
+  upsertCanvasPaths: (paths: string[]) => void;
 
   /** Local transcript note (browser/computer slash results, system notices). */
   appendLocalMessage: (

@@ -15,6 +15,10 @@ class PlanStep:
     id: str
     description: str
     tools: list[str] = field(default_factory=list)
+    depends_on: list[str] = field(default_factory=list)
+    parallel_group: str = ""
+    estimated_steps: int = 0
+    estimated_usd: float = 0.0
 
 
 @dataclass
@@ -117,6 +121,10 @@ async def make_plan(
                     for name in (s.get("tools") or [])
                     if str(name) in allowed_tools
                 ],
+                depends_on=[str(d) for d in (s.get("depends_on") or [])],
+                parallel_group=str(s.get("parallel_group") or ""),
+                estimated_steps=int(s.get("estimated_steps") or 0),
+                estimated_usd=float(s.get("estimated_usd") or 0.0),
             )
             for i, s in enumerate(data.get("steps") or [])
         ]

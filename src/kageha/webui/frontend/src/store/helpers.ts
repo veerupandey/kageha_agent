@@ -328,7 +328,8 @@ export function isMetaOnlySlash(text: string): boolean {
       id === "ask" ||
       id === "auto" ||
       id === "model" ||
-      id === "permissions"
+      id === "permissions" ||
+      id === "artifacts"
     ) {
       return false;
     }

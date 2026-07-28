@@ -6,12 +6,17 @@ export type CanvasKind =
   | "pdf"
   | "markdown"
   | "text"
+  | "presentation"
+  | "document"
+  | "spreadsheet"
   | "download";
 
 export interface CanvasItem {
+  path: string;
   url: string;
   kind: CanvasKind;
   caption: string;
+  size?: number;
   text?: string;
 }
 
@@ -45,15 +50,9 @@ const TEXT_EXT = new Set([
   ".py",
   ".sh",
 ]);
-const OFFICE_EXT = new Set([
-  ".ppt",
-  ".pptx",
-  ".doc",
-  ".docx",
-  ".xls",
-  ".xlsx",
-  ".zip",
-]);
+const PRESENTATION_EXT = new Set([".ppt", ".pptx", ".key"]);
+const DOCUMENT_EXT = new Set([".doc", ".docx", ".rtf", ".odt"]);
+const SPREADSHEET_EXT = new Set([".xls", ".xlsx", ".csv"]); // csv also text
 
 export function fileExt(path: string): string {
   const base = path.split(/[?#]/)[0] || path;
@@ -69,27 +68,173 @@ export function fileBasename(path: string): string {
 
 export function canvasKindForPath(path: string, kindHint?: string): CanvasKind {
   const ext = fileExt(path);
-  if (IMAGE_EXT.has(ext) || kindHint === "image") return "image";
-  if (VIDEO_EXT.has(ext) || kindHint === "video") return "video";
-  if (ext === ".pdf" || kindHint === "pdf") return "pdf";
-  if (MARKDOWN_EXT.has(ext) || kindHint === "markdown") return "markdown";
-  if (TEXT_EXT.has(ext) || kindHint === "text") return "text";
-  if (OFFICE_EXT.has(ext) || kindHint === "presentation" || kindHint === "document") {
-    return "download";
+  const hint = (kindHint || "").toLowerCase();
+  if (IMAGE_EXT.has(ext) || hint === "image") return "image";
+  if (VIDEO_EXT.has(ext) || hint === "video") return "video";
+  if (ext === ".pdf" || hint === "pdf") return "pdf";
+  if (MARKDOWN_EXT.has(ext) || hint === "markdown") return "markdown";
+  if (PRESENTATION_EXT.has(ext) || hint === "presentation") return "presentation";
+  if (DOCUMENT_EXT.has(ext) || hint === "document") return "document";
+  if (SPREADSHEET_EXT.has(ext) || hint === "spreadsheet") {
+    // Prefer editable text preview for CSV.
+    if (ext === ".csv") return "text";
+    return "spreadsheet";
   }
+  if (TEXT_EXT.has(ext) || hint === "text") return "text";
   return "download";
 }
 
 export function isPreviewableKind(kind: CanvasKind): boolean {
-  return kind === "image" || kind === "video" || kind === "pdf" || kind === "markdown" || kind === "text";
+  return (
+    kind === "image" ||
+    kind === "video" ||
+    kind === "pdf" ||
+    kind === "markdown" ||
+    kind === "text"
+  );
 }
 
+export function kindLabel(kind: CanvasKind): string {
+  switch (kind) {
+    case "image":
+      return "Image";
+    case "video":
+      return "Video";
+    case "pdf":
+      return "PDF";
+    case "markdown":
+      return "Markdown";
+    case "text":
+      return "Text";
+    case "presentation":
+      return "Slides";
+    case "document":
+      return "Document";
+    case "spreadsheet":
+      return "Spreadsheet";
+    default:
+      return "File";
+  }
+}
+
+/** Agent / computer noise that should not appear as user deliverables. */
+export function isArtifactNoise(path: string): boolean {
+  const p = String(path || "").replace(/\\/g, "/");
+  if (!p) return true;
+  const name = fileBasename(p);
+  if (!name || name === ".DS_Store") return true;
+  if (/(?:^|\/)artifacts\/computer(?:\/|$)/i.test(p)) return true;
+  if (/(?:^|\/)(?:__pycache__|\.git|node_modules|\.venv)(?:\/|$)/i.test(p)) {
+    return true;
+  }
+  if (/^(?:SKILL|AGENTS|CLAUDE|TODO|todo)\.md$/i.test(name)) return true;
+  if (
+    /^(?:screen|state|thumb|screenshot|screen_thumb)(?:[_-]|\.)/i.test(name) &&
+    IMAGE_EXT.has(fileExt(p))
+  ) {
+    // Bare capture names outside a deliverable folder are almost always noise.
+    if (!/^(artifacts|outputs|slides|carousel|diagrams|research)\//i.test(p)) {
+      return true;
+    }
+    if (/\/(?:computer|thumbs|screenshots?)\//i.test(p)) return true;
+  }
+  return false;
+}
+
+/**
+ * User-facing deliverables for Canvas / chat strip.
+ * Keeps media + docs; drops scripts, skills, and computer captures.
+ */
+export function isShowcaseArtifact(path: string): boolean {
+  const p = String(path || "").replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!p || isArtifactNoise(p)) return false;
+  const kind = canvasKindForPath(p);
+  if (
+    kind === "image" ||
+    kind === "video" ||
+    kind === "pdf" ||
+    kind === "presentation" ||
+    kind === "document" ||
+    kind === "spreadsheet"
+  ) {
+    return true;
+  }
+  // Markdown only when it lives in a deliverable folder and isn't a skill file.
+  if (
+    kind === "markdown" &&
+    /^(artifacts|outputs|slides|research|carousel|diagrams)\//i.test(p)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Chat strip: media-first (images/video/pdf/slides). */
+export function isChatMediaArtifact(path: string): boolean {
+  if (!isShowcaseArtifact(path)) return false;
+  const kind = canvasKindForPath(path);
+  return (
+    kind === "image" ||
+    kind === "video" ||
+    kind === "pdf" ||
+    kind === "presentation"
+  );
+}
+
+export function showcaseSortKey(path: string): [number, string] {
+  const kind = canvasKindForPath(path);
+  const rank =
+    kind === "image"
+      ? 0
+      : kind === "video"
+        ? 1
+        : kind === "pdf" || kind === "presentation"
+          ? 2
+          : kind === "document" || kind === "spreadsheet"
+            ? 3
+            : 4;
+  return [rank, path.toLowerCase()];
+}
+
+/** Build a session file URL with per-segment encoding (matches server). */
 export function artifactFileUrl(
   sessionId: string | null | undefined,
   path: string,
   existingUrl?: string,
 ): string | undefined {
-  if (existingUrl) return existingUrl;
+  if (existingUrl?.startsWith("/api/") || existingUrl?.startsWith("http")) {
+    return existingUrl;
+  }
   if (!sessionId || !path) return undefined;
-  return `/api/sessions/${encodeURIComponent(sessionId)}/files/${encodeURIComponent(path)}`;
+  const rel = path.replace(/\\/g, "/").replace(/^\/+/, "");
+  const encoded = rel
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  return `/api/sessions/${encodeURIComponent(sessionId)}/files/${encoded}`;
+}
+
+export function formatBytes(n?: number): string {
+  if (n == null || !Number.isFinite(n) || n < 0) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function toCanvasItem(
+  sessionId: string | null | undefined,
+  path: string,
+  opts?: { kindHint?: string; url?: string; size?: number; name?: string },
+): CanvasItem | null {
+  const url = artifactFileUrl(sessionId, path, opts?.url);
+  if (!url) return null;
+  const kind = canvasKindForPath(path, opts?.kindHint);
+  return {
+    path,
+    url,
+    kind,
+    caption: opts?.name || fileBasename(path),
+    size: opts?.size,
+  };
 }

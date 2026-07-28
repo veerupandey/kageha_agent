@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { cn } from "../lib/cn";
 import { useAppStore } from "../store";
 import { ApprovalBanner } from "./ApprovalBanner";
+import { ArtifactCanvas } from "./ArtifactCanvas";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
 
@@ -8,7 +10,17 @@ interface StageProps {
   onToggleSessions?: () => void;
 }
 
-/** The deliberately small core surface: one conversation and one session. */
+function statusDotClass(status: string): string {
+  if (status === "running" || status === "streaming") return "bg-accent";
+  if (status === "error") return "bg-danger";
+  if (status === "cancelled") return "bg-faint";
+  if (status === "waiting_approval" || status === "awaiting_plan_approval") {
+    return "bg-warn";
+  }
+  return "bg-line-strong";
+}
+
+/** One conversation column: title, transcript, approvals, composer. */
 export function Stage({ onToggleSessions }: StageProps) {
   const messages = useAppStore((s) => s.messages);
   const runStatus = useAppStore((s) => s.runStatus);
@@ -19,6 +31,12 @@ export function Stage({ onToggleSessions }: StageProps) {
   const clearError = useAppStore((s) => s.clearError);
   const renameSession = useAppStore((s) => s.renameSession);
   const showToast = useAppStore((s) => s.showToast);
+  const canvasOpen = useAppStore((s) => s.canvasOpen);
+  const setCanvasOpen = useAppStore((s) => s.setCanvasOpen);
+  const refreshArtifacts = useAppStore((s) => s.refreshArtifacts);
+  const canvasItems = useAppStore((s) => s.canvasItems);
+  const theme = useAppStore((s) => s.prefs.theme);
+  const setPrefs = useAppStore((s) => s.setPrefs);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -32,7 +50,7 @@ export function Stage({ onToggleSessions }: StageProps) {
 
   const title =
     (sessionTitle && sessionTitle.trim()) ||
-    (sessionId ? sessionId.slice(0, 8) : "new session");
+    (sessionId ? sessionId.slice(0, 8) : "New chat");
 
   const commitTitle = async () => {
     const next = titleDraft.trim();
@@ -46,67 +64,120 @@ export function Stage({ onToggleSessions }: StageProps) {
   };
 
   return (
-    <main className="stage" id="stage">
-      <header className="stage-bar stage-bar-chrome">
-        <div className="stage-meta">
+    <main className="flex min-h-0 min-w-0 flex-1 flex-col" id="stage">
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-line px-3 md:px-5">
+        <button
+          type="button"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-line/70 md:hidden"
+          aria-label="Open sessions"
+          title="Sessions"
+          onClick={() => onToggleSessions?.()}
+        >
+          ☰
+        </button>
+        <span
+          className={cn(
+            "h-2 w-2 shrink-0 rounded-full",
+            statusDotClass(runStatus),
+          )}
+          id="run-status-dot"
+          data-status={runStatus}
+          aria-hidden="true"
+        />
+        <span
+          id="run-status-label"
+          className="truncate text-sm text-muted"
+        >
+          {statusLabel || "Ready"}
+        </span>
+        <span className="text-faint" aria-hidden="true">
+          ·
+        </span>
+        {editingTitle ? (
+          <input
+            ref={titleInputRef}
+            type="text"
+            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-sm"
+            aria-label="Session title"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={() => void commitTitle()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void commitTitle();
+              if (e.key === "Escape") setEditingTitle(false);
+            }}
+          />
+        ) : (
           <button
             type="button"
-            className="btn ghost icon mobile-only sessions-menu-btn"
-            aria-label="Open sessions"
-            title="Sessions"
-            onClick={() => onToggleSessions?.()}
+            className="min-w-0 flex-1 truncate text-left text-sm font-medium text-ink disabled:opacity-50"
+            disabled={!sessionId}
+            onClick={() => {
+              setTitleDraft(sessionTitle || "");
+              setEditingTitle(true);
+            }}
           >
-            ☰
+            {title}
           </button>
-          <span className="status-dot" id="run-status-dot" data-status={runStatus} />
-          <span id="run-status-label">{statusLabel}</span>
-          <span className="meta-sep" aria-hidden="true">·</span>
-          {editingTitle ? (
-            <input
-              ref={titleInputRef}
-              type="text"
-              className="session-title-input"
-              aria-label="Session title"
-              value={titleDraft}
-              onChange={(e) => setTitleDraft(e.target.value)}
-              onBlur={() => void commitTitle()}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void commitTitle();
-                if (e.key === "Escape") setEditingTitle(false);
-              }}
-            />
-          ) : (
-            <button
-              type="button"
-              className="session-title-btn"
-              disabled={!sessionId}
-              onClick={() => {
-                setTitleDraft(sessionTitle || "");
-                setEditingTitle(true);
-              }}
-            >
-              {title}
-            </button>
+        )}
+        <button
+          type="button"
+          className="shrink-0 rounded-md px-2.5 py-1 text-xs font-medium text-muted hover:bg-line/70 hover:text-ink"
+          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          onClick={() =>
+            setPrefs({ theme: theme === "dark" ? "light" : "dark" })
+          }
+        >
+          {theme === "dark" ? "Light" : "Dark"}
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "shrink-0 rounded-md px-2.5 py-1 text-xs font-medium",
+            canvasOpen
+              ? "bg-accent-soft text-accent"
+              : "text-muted hover:bg-line/70 hover:text-ink",
           )}
-        </div>
+          title="Toggle artifact canvas"
+          disabled={!sessionId}
+          onClick={() => {
+            const next = !canvasOpen;
+            setCanvasOpen(next);
+            if (next) void refreshArtifacts();
+          }}
+        >
+          Canvas{canvasItems.length ? ` · ${canvasItems.length}` : ""}
+        </button>
       </header>
 
-      <div className="stage-split" id="stage-split">
-        <div className="stage-chat" id="stage-chat">
-          <section className="conversation" id="conversation" aria-live="polite">
+      <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" id="stage-chat">
+          <section
+            className="min-h-0 flex-1 overflow-y-auto"
+            id="conversation"
+            aria-live="polite"
+          >
             <MessageList messages={messages} />
           </section>
           <ApprovalBanner />
           {error ? (
-            <p className="stage-error" role="alert">
-              <span className="stage-error-text">{error}</span>
-              <button type="button" className="btn ghost compact" onClick={clearError}>
+            <p
+              className="flex items-start gap-3 border-t border-danger/20 bg-danger-soft px-4 py-2 text-sm text-danger"
+              role="alert"
+            >
+              <span className="min-w-0 flex-1">{error}</span>
+              <button
+                type="button"
+                className="shrink-0 text-danger underline-offset-2 hover:underline"
+                onClick={clearError}
+              >
                 Dismiss
               </button>
             </p>
           ) : null}
           <Composer />
         </div>
+        <ArtifactCanvas />
       </div>
     </main>
   );

@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Command } from "cmdk";
+import { useEffect, useMemo } from "react";
 import type { SlashCommand } from "../api/types";
 import { filterSlashByCapabilities } from "../api/slashCatalog";
-import { applySlashCommand, filterSlashCommands, slashCommandTitle } from "../lib/slash";
-import { useFocusTrap } from "../lib/focusTrap";
+import {
+  applySlashCommand,
+  filterSlashCommands,
+  slashCommandTitle,
+} from "../lib/slash";
 import { useAppStore } from "../store";
 
 export interface PaletteAction {
@@ -26,10 +30,6 @@ export function CommandPalette({
   onAttach,
   onFocusModel,
 }: CommandPaletteProps) {
-  const [query, setQuery] = useState("");
-  const [index, setIndex] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
   const slashCatalog = useAppStore((s) => s.slashCatalog);
   const capabilities = useAppStore((s) => s.capabilities);
   const newChat = useAppStore((s) => s.newChat);
@@ -56,65 +56,20 @@ export function CommandPalette({
     [newChat, showToast],
   );
 
-  const slashItems = useMemo(() => {
-    const q = query.replace(/^\//, "").trim().toLowerCase();
-    return filterSlashCommands(slashCommands, q);
-  }, [query, slashCommands]);
-
-  const filteredActions = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return actions;
-    return actions.filter(
-      (a) =>
-        a.label.toLowerCase().includes(q) ||
-        a.description.toLowerCase().includes(q) ||
-        a.id.includes(q),
-    );
-  }, [actions, query]);
-
-  type Row =
-    | { type: "slash"; cmd: SlashCommand }
-    | { type: "action"; action: PaletteAction };
-
-  const rows: Row[] = useMemo(
-    () => [
-      ...slashItems.map((cmd) => ({ type: "slash" as const, cmd })),
-      ...filteredActions.map((action) => ({ type: "action" as const, action })),
-    ],
-    [slashItems, filteredActions],
-  );
-
   useEffect(() => {
-    if (open) {
-      setQuery("");
-      setIndex(0);
-      requestAnimationFrame(() => inputRef.current?.focus());
-      document.body.classList.add("command-palette-open");
-      document.getElementById("app")?.setAttribute("inert", "");
-    } else {
-      document.body.classList.remove("command-palette-open");
-      document.getElementById("app")?.removeAttribute("inert");
-    }
+    if (!open) return;
+    document.body.classList.add("command-palette-open");
+    document.getElementById("app")?.setAttribute("inert", "");
     return () => {
       document.body.classList.remove("command-palette-open");
       document.getElementById("app")?.removeAttribute("inert");
     };
   }, [open]);
 
-  useFocusTrap(open, panelRef, { initialFocusRef: inputRef });
-
-  useEffect(() => {
-    setIndex(0);
-  }, [query]);
-
-  const runRow = (row: Row) => {
-    if (row.type === "slash") {
-      const result = applySlashCommand(row.cmd);
-      if (result === "attach") onAttach?.();
-      if (result === "focus-model") onFocusModel?.();
-    } else {
-      row.action.run();
-    }
+  const runSlash = (cmd: SlashCommand) => {
+    const result = applySlashCommand(cmd);
+    if (result === "attach") onAttach?.();
+    if (result === "focus-model") onFocusModel?.();
     onClose();
   };
 
@@ -122,113 +77,69 @@ export function CommandPalette({
 
   return (
     <div
-      className="command-palette"
+      className="fixed inset-0 z-[60] flex items-start justify-center bg-ink/30 px-4 pt-[12vh]"
       id="command-palette"
       role="dialog"
       aria-modal="true"
       aria-label="Command palette"
     >
-      <div
-        className="command-palette-backdrop"
-        id="command-palette-backdrop"
+      <button
+        type="button"
+        className="absolute inset-0 cursor-default"
+        aria-label="Close command palette"
         onClick={onClose}
       />
-      <div className="command-palette-panel" ref={panelRef}>
-        <input
-          ref={inputRef}
-          type="search"
+      <Command
+        className="relative z-10 w-full max-w-xl overflow-hidden rounded-xl border border-line bg-surface shadow-2xl"
+        label="Command palette"
+        loop
+      >
+        <Command.Input
           id="command-palette-input"
-          className="command-palette-input"
-          placeholder="Commands, actions, files…"
-          autoComplete="off"
-          aria-label="Filter commands"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Commands and actions…"
+          autoFocus
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               e.preventDefault();
               onClose();
-              return;
-            }
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setIndex((i) => Math.min(i + 1, Math.max(0, rows.length - 1)));
-              return;
-            }
-            if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setIndex((i) => Math.max(0, i - 1));
-              return;
-            }
-            if (e.key === "Enter") {
-              e.preventDefault();
-              const row = rows[index];
-              if (row) runRow(row);
             }
           }}
         />
-        <div
-          id="command-palette-results"
-          className="command-palette-results"
-          role="listbox"
-          aria-label="Palette results"
-        >
-          {!rows.length ? (
-            <p className="command-palette-empty">No matches</p>
-          ) : (
-            <>
-              {slashItems.length ? (
-                <div className="command-palette-group">
-                  {slashItems.map((cmd, i) => {
-                    const active = index === i;
-                    return (
-                      <button
-                        key={cmd.id}
-                        type="button"
-                        role="option"
-                        aria-selected={active}
-                        className={`command-palette-item${active ? " is-active" : ""}`}
-                        onMouseEnter={() => setIndex(i)}
-                        onClick={() => runRow({ type: "slash", cmd })}
-                      >
-                        <span className="cmd-label">
-                          {slashCommandTitle(cmd)}
-                        </span>
-                        <span className="cmd-kind">{cmd.label}</span>
-                        <span className="cmd-desc">{cmd.description}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
-              {filteredActions.length ? (
-                <div className="command-palette-group">
-                  {filteredActions.map((action, i) => {
-                    const rowIndex = slashItems.length + i;
-                    const active = index === rowIndex;
-                    return (
-                      <button
-                        key={action.id}
-                        type="button"
-                        role="option"
-                        aria-selected={active}
-                        className={`command-palette-item${active ? " is-active" : ""}`}
-                        onMouseEnter={() => setIndex(rowIndex)}
-                        onClick={() => runRow({ type: "action", action })}
-                      >
-                        <span className="cmd-label">{action.label}</span>
-                        <span className="cmd-kind">action</span>
-                        <span className="cmd-desc">{action.description}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </>
-          )}
-        </div>
-        <p className="command-palette-hint">↑↓ navigate · Enter run · Esc close</p>
-      </div>
+        <Command.List id="command-palette-results">
+          <Command.Empty>No matches</Command.Empty>
+          <Command.Group heading="Commands">
+            {filterSlashCommands(slashCommands, "").map((cmd) => (
+              <Command.Item
+                key={cmd.id}
+                value={`${slashCommandTitle(cmd)} ${cmd.label} ${cmd.description}`}
+                onSelect={() => runSlash(cmd)}
+              >
+                <span className="font-medium">{slashCommandTitle(cmd)}</span>
+                <span className="text-xs text-faint">{cmd.label}</span>
+                <span className="text-xs text-muted">{cmd.description}</span>
+              </Command.Item>
+            ))}
+          </Command.Group>
+          <Command.Group heading="Actions">
+            {actions.map((action) => (
+              <Command.Item
+                key={action.id}
+                value={`${action.label} ${action.description}`}
+                onSelect={() => {
+                  action.run();
+                  onClose();
+                }}
+              >
+                <span className="font-medium">{action.label}</span>
+                <span className="text-xs text-muted">{action.description}</span>
+              </Command.Item>
+            ))}
+          </Command.Group>
+        </Command.List>
+        <p className="border-t border-line px-3 py-2 text-[0.7rem] text-faint">
+          ↑↓ navigate · Enter run · Esc close
+        </p>
+      </Command>
     </div>
   );
 }
