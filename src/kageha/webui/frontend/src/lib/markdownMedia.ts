@@ -27,6 +27,14 @@ export function extractArtifactPaths(text: string): string[] {
       out.push(path);
     }
   }
+  // Inline `artifacts/…` backticks (common in assistant replies)
+  for (const m of src.matchAll(/`((?:artifacts|outputs|slides|research|carousel|diagrams)\/[^`]+)`/g)) {
+    const path = normalizeRelPath(m[1] || "");
+    if (path && !seen.has(path)) {
+      seen.add(path);
+      out.push(path);
+    }
+  }
   return out;
 }
 
@@ -59,7 +67,7 @@ export function rewriteMarkdownMediaHtml(
   sessionId: string | null | undefined,
 ): string {
   if (!sessionId || !html) return html;
-  return html.replace(
+  let out = html.replace(
     /\b(src|href)=["']([^"']+)["']/gi,
     (full, attr: string, src: string) => {
       if (
@@ -79,4 +87,16 @@ export function rewriteMarkdownMediaHtml(
       return `${attr}="${url}"`;
     },
   );
+  // Turn bare `artifacts/…` code spans into openable links.
+  out = out.replace(
+    /<code>((?:artifacts|outputs|slides|research|carousel|diagrams)\/[^<]+)<\/code>/gi,
+    (_full, raw: string) => {
+      const path = normalizeRelPath(raw);
+      if (!path) return `<code>${raw}</code>`;
+      const url = artifactFileUrl(sessionId, path);
+      if (!url) return `<code>${raw}</code>`;
+      return `<a href="${url}" class="artifact-path" data-artifact="${path}"><code>${raw}</code></a>`;
+    },
+  );
+  return out;
 }

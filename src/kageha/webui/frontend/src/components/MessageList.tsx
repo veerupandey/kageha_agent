@@ -4,6 +4,7 @@ import DOMPurify from "dompurify";
 import type { ChatMessage, ComputerFrame, ToolCard } from "../api/types";
 import { friendlyActivityLabel } from "../lib/activityUi";
 import {
+  artifactDownloadUrl,
   artifactFileUrl,
   canvasKindForPath,
   fileBasename,
@@ -190,7 +191,11 @@ function ArtifactThumb({
         ? "PDF"
         : kind === "presentation"
           ? "PPT"
-          : "◇";
+          : kind === "markdown"
+            ? "MD"
+            : kind === "document"
+              ? "DOC"
+              : "◇";
 
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-b from-canvas to-line/40 px-3">
@@ -234,21 +239,40 @@ const MessageArtifacts = memo(function MessageArtifacts({
         const kind = canvasKindForPath(path);
         const url = artifactFileUrl(sessionId, path);
         const previewable = isPreviewableKind(kind);
+        const dl = artifactDownloadUrl(sessionId, path);
         return (
-          <button
+          <div
             key={path}
-            type="button"
-            className="group relative h-32 w-44 shrink-0 overflow-hidden rounded-xl border border-line bg-surface text-left shadow-[0_1px_2px_rgba(28,27,25,0.04)] transition hover:border-accent/35 hover:shadow-md"
-            onClick={() => openCanvasItem(path, { expand: previewable })}
+            role="button"
+            tabIndex={0}
+            className="group relative h-32 w-44 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-line bg-surface text-left shadow-[0_1px_2px_rgba(28,27,25,0.04)] transition hover:border-accent/35 hover:shadow-md"
             title={path}
+            onClick={() => openCanvasItem(path, { expand: previewable })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                openCanvasItem(path, { expand: previewable });
+              }
+            }}
           >
             <ArtifactThumb path={path} url={url} kind={kind} />
             {kind === "image" ? (
-              <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink/55 to-transparent px-2.5 pb-2 pt-8 text-[0.68rem] font-medium text-white opacity-0 transition group-hover:opacity-100">
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-ink/55 to-transparent px-2.5 pb-2 pt-8 text-[0.68rem] font-medium text-white opacity-0 transition group-hover:opacity-100">
                 {fileBasename(path)}
               </span>
             ) : null}
-          </button>
+            {dl ? (
+              <a
+                href={dl}
+                download={fileBasename(path)}
+                className="absolute right-1.5 top-1.5 z-10 rounded-md bg-surface/95 px-1.5 py-0.5 text-[0.65rem] font-medium text-ink opacity-0 shadow-sm ring-1 ring-line transition group-hover:opacity-100"
+                title="Download"
+                onClick={(e) => e.stopPropagation()}
+              >
+                Save
+              </a>
+            ) : null}
+          </div>
         );
       })}
     </div>
@@ -443,12 +467,29 @@ const MessageRow = memo(function MessageRow({
           dangerouslySetInnerHTML={{ __html: bodyHtml }}
           onClick={(e) => {
             const target = e.target as HTMLElement | null;
-            if (!target || target.tagName !== "IMG") return;
-            const src = (target as HTMLImageElement).currentSrc || target.getAttribute("src") || "";
+            if (!target) return;
+            const link = target.closest("a.artifact-path") as HTMLAnchorElement | null;
+            if (link) {
+              const path = link.getAttribute("data-artifact") || "";
+              if (path) {
+                e.preventDefault();
+                openCanvasItem(path, {
+                  expand: isPreviewableKind(canvasKindForPath(path)),
+                });
+              }
+              return;
+            }
+            if (target.tagName !== "IMG") return;
+            const src =
+              (target as HTMLImageElement).currentSrc ||
+              target.getAttribute("src") ||
+              "";
             const marker = "/files/";
             const idx = src.indexOf(marker);
             if (idx < 0) return;
-            const path = decodeURIComponent(src.slice(idx + marker.length));
+            const path = decodeURIComponent(
+              src.slice(idx + marker.length).split("?")[0] || "",
+            );
             if (!path) return;
             e.preventDefault();
             openCanvasItem(path, { expand: true });

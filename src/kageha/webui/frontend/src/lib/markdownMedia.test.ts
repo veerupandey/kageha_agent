@@ -21,4 +21,25 @@ describe("markdownMedia", () => {
       '/api/sessions/e3ad0a53425b/files/artifacts/nano_banana_edit.png',
     );
   });
+
+  it("turns artifact code spans into canvas links", () => {
+    const html = "<p>See <code>artifacts/market_research.md</code></p>";
+    const out = rewriteMarkdownMediaHtml(html, "e3ad0a53425b");
+    expect(out).toContain('class="artifact-path"');
+    expect(out).toContain('data-artifact="artifacts/market_research.md"');
+    expect(out).toContain(
+      "/api/sessions/e3ad0a53425b/files/artifacts/market_research.md",
+    );
+  });
+
+  it("extracts backtick artifact paths", () => {
+    expect(
+      extractArtifactPaths(
+        "Research at `artifacts/market_research.md` and `artifacts/nano_banana_edit.png`",
+      ),
+    ).toEqual([
+      "artifacts/market_research.md",
+      "artifacts/nano_banana_edit.png",
+    ]);
+  });
 });

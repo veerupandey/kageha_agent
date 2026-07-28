@@ -199,6 +199,15 @@
   text-underline-offset: 2px;
 }
 
+.markdown a.artifact-path {
+  text-decoration: none;
+}
+
+.markdown a.artifact-path code {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
 .markdown img {
   display: block;
   max-width: min(100%, 28rem);

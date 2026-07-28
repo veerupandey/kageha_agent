@@ -1810,7 +1810,15 @@ class WebUIApp:
 
         m_file = re.fullmatch(r"/api/sessions/([^/]+)/files/(.+)", path)
         if method == "GET" and m_file:
-            return self._serve_session_file(m_file.group(1), m_file.group(2))
+            force_download = self._q(query, "download").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+            return self._serve_session_file(
+                m_file.group(1), m_file.group(2), download=force_download
+            )
 
         if method == "POST" and path == "/api/chat/cancel":
             payload = self._json_body(body)
@@ -3177,7 +3185,7 @@ class WebUIApp:
         raise KeyError("file not found")
 
     def _serve_session_file(
-        self, session_id: str, relpath: str
+        self, session_id: str, relpath: str, *, download: bool = False
     ) -> tuple[int, bytes, str, dict[str, str]]:
         target = self._resolve_session_file(session_id, relpath)
         data = target.read_bytes()
@@ -3185,7 +3193,9 @@ class WebUIApp:
         ext = target.suffix.lower()
         extra: dict[str, str] = {}
         filename = target.name
-        if ext in _PDF_EXTS:
+        if download:
+            extra["Content-Disposition"] = f'attachment; filename="{filename}"'
+        elif ext in _PDF_EXTS:
             extra["Content-Disposition"] = f'inline; filename="{filename}"'
         elif ext in (_OFFICE_EXTS | _ARCHIVE_EXTS):
             extra["Content-Disposition"] = f'attachment; filename="{filename}"'

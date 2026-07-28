@@ -37,7 +37,7 @@ describe("artifactMedia", () => {
     expect(isShowcaseArtifact("gen_carousel_bright.py")).toBe(false);
     expect(isShowcaseArtifact("SKILL.md")).toBe(false);
     expect(isShowcaseArtifact("artifacts/notes.md")).toBe(true);
-    expect(isChatMediaArtifact("artifacts/notes.md")).toBe(false);
+    expect(isChatMediaArtifact("artifacts/notes.md")).toBe(true);
   });
 
   it("classifies and showcases audio deliverables", () => {
@@ -46,6 +46,12 @@ describe("artifactMedia", () => {
     expect(isChatMediaArtifact("artifacts/ad_read.mp3")).toBe(true);
     expect(isPreviewableKind("audio")).toBe(true);
     expect(kindLabel("audio")).toBe("Audio");
+  });
+
+  it("includes markdown deliverables in chat/canvas strip", () => {
+    expect(isChatMediaArtifact("artifacts/market_research.md")).toBe(true);
+    expect(isShowcaseArtifact("artifacts/market_research.md")).toBe(true);
+    expect(isChatMediaArtifact("SKILL.md")).toBe(false);
   });
 
   it("basenames paths", () => {

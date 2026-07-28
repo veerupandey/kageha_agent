@@ -176,7 +176,10 @@ export function isShowcaseArtifact(path: string): boolean {
   return false;
 }
 
-/** Chat strip: media-first (images/video/pdf/slides). */
+/**
+ * Chat strip + canvas from transcript mentions.
+ * Includes markdown/docs deliverables (e.g. artifacts/market_research.md).
+ */
 export function isChatMediaArtifact(path: string): boolean {
   if (!isShowcaseArtifact(path)) return false;
   const kind = canvasKindForPath(path);
@@ -185,7 +188,10 @@ export function isChatMediaArtifact(path: string): boolean {
     kind === "video" ||
     kind === "audio" ||
     kind === "pdf" ||
-    kind === "presentation"
+    kind === "presentation" ||
+    kind === "markdown" ||
+    kind === "document" ||
+    kind === "spreadsheet"
   );
 }
 
@@ -198,10 +204,20 @@ export function showcaseSortKey(path: string): [number, string] {
         ? 1
         : kind === "pdf" || kind === "presentation"
           ? 2
-          : kind === "document" || kind === "spreadsheet"
+          : kind === "markdown" || kind === "document" || kind === "spreadsheet"
             ? 3
             : 4;
   return [rank, path.toLowerCase()];
+}
+
+/** Same-origin download URL (forces save-as via Content-Disposition when possible). */
+export function artifactDownloadUrl(
+  sessionId: string | null | undefined,
+  path: string,
+): string | undefined {
+  const url = artifactFileUrl(sessionId, path);
+  if (!url) return undefined;
+  return url.includes("?") ? `${url}&download=1` : `${url}?download=1`;
 }
 
 /** Build a session file URL with per-segment encoding (matches server). */

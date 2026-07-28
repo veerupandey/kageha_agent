@@ -2,6 +2,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useEffect, useMemo, useState } from "react";
 import type { CanvasItem, CanvasKind } from "../lib/artifactMedia";
 import {
+  artifactDownloadUrl,
   formatBytes,
   isPreviewableKind,
   kindLabel,
@@ -149,7 +150,11 @@ function PreviewBody({
           Open
         </a>
         <a
-          href={item.url}
+          href={
+            item.url.includes("?")
+              ? `${item.url}&download=1`
+              : `${item.url}?download=1`
+          }
           download={item.caption}
           className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink"
         >
@@ -326,8 +331,8 @@ export function ArtifactCanvas() {
                   text={text}
                   textLoading={loading}
                 />
-                {isPreviewableKind(selected.kind) ? (
-                  <div className="mt-3 flex gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {isPreviewableKind(selected.kind) ? (
                     <button
                       type="button"
                       className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white"
@@ -335,16 +340,26 @@ export function ArtifactCanvas() {
                     >
                       Expand
                     </button>
-                    <a
-                      href={selected.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-line/50"
-                    >
-                      Open tab
-                    </a>
-                  </div>
-                ) : null}
+                  ) : null}
+                  <a
+                    href={selected.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-line/50"
+                  >
+                    Open
+                  </a>
+                  <a
+                    href={
+                      artifactDownloadUrl(sessionId, selected.path) ||
+                      selected.url
+                    }
+                    download={selected.caption}
+                    className="rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-line/50"
+                  >
+                    Download
+                  </a>
+                </div>
               </div>
             ) : null}
           </div>
