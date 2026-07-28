@@ -381,7 +381,10 @@ export async function runTurn(
     }));
     // Ensure chrome status clears off Working… after success.
     if (sessionId === get().sessionId) {
+      const autoTitle =
+        typeof done.title === "string" ? done.title.trim() : "";
       set({
+        ...(autoTitle ? { sessionTitle: autoTitle } : {}),
         runStatus: awaitingBuild ? "waiting_approval" : status === "cancelled" ? "cancelled" : "success",
         statusLabel:
           status === "cancelled"

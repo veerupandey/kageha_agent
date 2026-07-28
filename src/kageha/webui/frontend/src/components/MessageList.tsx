@@ -148,12 +148,16 @@ function ArtifactThumb({
   kind: ReturnType<typeof canvasKindForPath>;
 }) {
   const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [url]);
   const name = fileBasename(path);
   const showImage = kind === "image" && url && !failed;
 
   if (showImage) {
     return (
       <img
+        key={url}
         src={url}
         alt={name}
         className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"

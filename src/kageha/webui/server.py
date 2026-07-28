@@ -446,13 +446,6 @@ def _clip(text: str, *, limit: int = 140) -> str:
     return value[: max(1, limit - 1)].rstrip() + "…"
 
 
-def _clip_title(text: str, *, limit: int = 60) -> str:
-    value = re.sub(r"\s+", " ", str(text or "")).strip()
-    if len(value) <= limit:
-        return value
-    return value[: max(1, limit - 1)].rstrip() + "…"
-
-
 _ACTIVE_TURN_STATUSES = {
     "running",
     "accepted",
@@ -511,7 +504,36 @@ def _artifact_file_kind(path: Path) -> str:
     return "file"
 
 
-def _session_file_mimetype(path: Path) -> str:
+def _sniff_image_mimetype(data: bytes) -> str | None:
+    """Detect image MIME from magic bytes (Gemini often writes JPEG as .png)."""
+    if len(data) >= 3 and data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if len(data) >= 8 and data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if len(data) >= 6 and data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if len(data) >= 12 and data[4:8] == b"ftyp":
+        # HEIC/HEIF — browsers rarely preview, but label correctly.
+        brand = data[8:12]
+        if brand in {b"heic", b"heix", b"mif1", b"msf1", b"heim", b"heis"}:
+            return "image/heic"
+    return None
+
+
+def _session_file_mimetype(path: Path, data: bytes | None = None) -> str:
+    # Prefer sniffed type for common mislabeled media (e.g. .png that is JPEG).
+    sample = data
+    if sample is None:
+        try:
+            with path.open("rb") as fh:
+                sample = fh.read(32)
+        except OSError:
+            sample = b""
+    sniffed = _sniff_image_mimetype(sample or b"")
+    if sniffed:
+        return sniffed
     ctype, _ = mimetypes.guess_type(str(path))
     if ctype:
         return ctype
@@ -543,8 +565,29 @@ def _session_file_mimetype(path: Path) -> str:
         ),
         ".xls": "application/vnd.ms-excel",
         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".md": "text/markdown; charset=utf-8",
+        ".txt": "text/plain; charset=utf-8",
+        ".json": "application/json",
+        ".html": "text/html; charset=utf-8",
+        ".css": "text/css; charset=utf-8",
+        ".js": "text/javascript; charset=utf-8",
+        ".svg": "image/svg+xml",
         ".zip": "application/zip",
     }.get(ext, "application/octet-stream")
+
+
+def _artifact_paths_from_result(result: dict[str, Any]) -> list[str]:
+    paths: list[str] = []
+    for item in result.get("artifacts") or []:
+        if isinstance(item, dict):
+            path = str(item.get("path") or "").strip()
+        elif isinstance(item, str):
+            path = item.strip()
+        else:
+            continue
+        if path:
+            paths.append(path)
+    return paths
 
 
 def _plan_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1678,6 +1721,15 @@ class WebUIApp:
                     state["turn_id"] = tid
             pending = state.get("pending_approval")
             meta = self._load_session_meta(session_id)
+            # Backfill Cursor-style titles for older weak labels (e.g. "hey").
+            try:
+                from kageha.session_title import is_weak_title
+
+                if is_weak_title(str(meta.get("title") or "")):
+                    self._maybe_set_session_title(session_id, "")
+                    meta = self._load_session_meta(session_id)
+            except Exception:  # noqa: BLE001
+                pass
             return _json_bytes(
                 {
                     "thread_id": thread_id,
@@ -1772,7 +1824,13 @@ class WebUIApp:
             if not str(meta.get("thread_id") or "").strip():
                 meta["thread_id"] = f"web-{session_id}"
             if has_title:
-                meta["title"] = str(payload.get("title") or "")
+                from kageha.session_title import apply_session_title
+
+                meta, _ = apply_session_title(
+                    meta,
+                    candidate=str(payload.get("title") or ""),
+                    force_user=True,
+                )
             if has_pinned:
                 meta["pinned"] = bool(payload.get("pinned"))
             if has_archived:
@@ -1915,7 +1973,12 @@ class WebUIApp:
             result = self.rpc("thread/turn", params)
             run_id = str(result.get("run_id") or "").strip()
             if run_id:
-                self._maybe_set_session_title(run_id, user_title_source)
+                self._maybe_set_session_title(
+                    run_id,
+                    user_title_source,
+                    assistant_message=str(result.get("message") or ""),
+                    artifact_paths=_artifact_paths_from_result(result),
+                )
             return _json_bytes(
                 self._chat_result_payload(
                     params["thread_id"],
@@ -2399,7 +2462,7 @@ class WebUIApp:
         sources = result.get("sources") or []
         if not isinstance(sources, list):
             sources = []
-        return {
+        payload = {
             "thread_id": thread_id,
             "session_id": result.get("run_id"),
             "run_id": result.get("run_id"),
@@ -2412,6 +2475,12 @@ class WebUIApp:
             "quick": quick,
             "sources": sources[:20],
         }
+        run_id = str(result.get("run_id") or "").strip()
+        if run_id:
+            title = self._stored_session_title(run_id)
+            if title is not None:
+                payload["title"] = title
+        return payload
 
     def _allow_computer_frame_emit(self) -> bool:
         """Throttle live computer_frame fan-out (journal still stores milestones)."""
@@ -2726,7 +2795,12 @@ class WebUIApp:
             user_title_source = str(
                 payload.get("message") or payload.get("task") or ""
             ).strip()
-            self._maybe_set_session_title(run_id, user_title_source)
+            self._maybe_set_session_title(
+                run_id,
+                user_title_source,
+                assistant_message=message,
+                artifact_paths=_artifact_paths_from_result(result),
+            )
 
         done = self._chat_result_payload(
             thread_id,
@@ -2802,19 +2876,47 @@ class WebUIApp:
             return True
         return False
 
-    def _maybe_set_session_title(self, session_id: str, message: str) -> None:
+    def _maybe_set_session_title(
+        self,
+        session_id: str,
+        message: str,
+        *,
+        assistant_message: str = "",
+        artifact_paths: list[str] | None = None,
+    ) -> str | None:
+        """Set or upgrade an auto title (never overwrites a manual rename)."""
         if not session_id or not _SAFE_SESSION_ID.fullmatch(session_id):
-            return
+            return None
+        from kageha.session_title import apply_session_title, pick_best_title
+
+        paths = list(artifact_paths or [])
+        # Peek at on-disk deliverables for weak chats that already produced files.
+        try:
+            root = self._session_workspace(session_id).root
+            arts = root / "artifacts"
+            if arts.is_dir():
+                for path in arts.rglob("*"):
+                    if path.is_file():
+                        try:
+                            paths.append(path.relative_to(root).as_posix())
+                        except ValueError:
+                            continue
+        except Exception:  # noqa: BLE001
+            pass
+
+        candidate = pick_best_title(
+            user_message=message,
+            assistant_message=assistant_message,
+            artifact_paths=paths,
+        )
         meta = self._load_session_meta(session_id)
-        if str(meta.get("title") or "").strip():
-            return
-        clipped = _clip_title(message)
-        if not clipped:
-            return
         meta["session_id"] = session_id
         meta.setdefault("thread_id", f"web-{session_id}")
-        meta["title"] = clipped
-        self._save_session_meta(session_id, meta)
+        meta, changed = apply_session_title(meta, candidate=candidate)
+        if changed:
+            self._save_session_meta(session_id, meta)
+        title = str(meta.get("title") or "").strip()
+        return title or None
 
     def _session_todo_board_payload(
         self, session_id: str
@@ -3189,7 +3291,7 @@ class WebUIApp:
     ) -> tuple[int, bytes, str, dict[str, str]]:
         target = self._resolve_session_file(session_id, relpath)
         data = target.read_bytes()
-        ctype = _session_file_mimetype(target)
+        ctype = _session_file_mimetype(target, data)
         ext = target.suffix.lower()
         extra: dict[str, str] = {}
         filename = target.name

@@ -886,6 +886,80 @@ def test_session_title_auto_and_patch(webui_app: WebUIApp, monkeypatch: pytest.M
     assert row["title"] == "Renamed chat"
 
 
+def test_session_title_upgrades_from_weak_greeting(
+    webui_app: WebUIApp, monkeypatch: pytest.MonkeyPatch
+):
+    from kageha.config import sessions_dir
+
+    def fake_rpc(method: str, params: dict | None = None):
+        if method == "thread/start":
+            return {}
+        if method == "thread/turn":
+            msg = str((params or {}).get("message") or (params or {}).get("task") or "")
+            arts = []
+            reply = "done"
+            if "research" in msg.lower() or msg == "P":
+                arts = [{"path": "artifacts/market_research.md"}]
+                reply = "Finished market research for the KAGEHA Classic Ceremonial ad."
+            return {
+                "run_id": "titlehey01",
+                "status": "success",
+                "message": reply,
+                "artifacts": arts,
+                "turn_id": "t1",
+            }
+        if method == "runtime/list":
+            return [{"session_id": "titlehey01", "objective": "hey"}]
+        if method == "runtime/inspect":
+            return {"session": {"status": "success"}, "turns": [], "uncertain_tools": []}
+        raise AssertionError(f"unexpected rpc {method}")
+
+    monkeypatch.setattr(webui_app, "rpc", fake_rpc)
+
+    status, created = _call(
+        webui_app,
+        "POST",
+        "/api/sessions",
+        body={"session_id": "titlehey01"},
+    )
+    assert status == 200
+
+    status, _ = _call(
+        webui_app,
+        "POST",
+        "/api/chat",
+        body={
+            "thread_id": created["thread_id"],
+            "session_id": "titlehey01",
+            "message": "hey",
+        },
+    )
+    assert status == 200
+    meta = json.loads((sessions_dir() / "titlehey01" / "session.json").read_text())
+    assert meta["title"] == "hey"
+    assert meta.get("title_source") == "auto"
+
+    # Drop a deliverable so a weak follow-up can still upgrade the title.
+    art = sessions_dir() / "titlehey01" / "artifacts"
+    art.mkdir(parents=True, exist_ok=True)
+    (art / "market_research.md").write_text("# research\n", encoding="utf-8")
+
+    status, chat = _call(
+        webui_app,
+        "POST",
+        "/api/chat",
+        body={
+            "thread_id": created["thread_id"],
+            "session_id": "titlehey01",
+            "message": "P",
+        },
+    )
+    assert status == 200
+    assert chat.get("title") == "Market Research"
+    meta2 = json.loads((sessions_dir() / "titlehey01" / "session.json").read_text())
+    assert meta2["title"] == "Market Research"
+
+
 def test_session_pin_archive_and_delete(webui_app: WebUIApp, monkeypatch: pytest.MonkeyPatch):
     from kageha.config import sessions_dir
 

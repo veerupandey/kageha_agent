@@ -781,6 +781,7 @@ def sessions_cmd(
     """List recent session workspaces (for --resume / chat -r)."""
 
     from kageha.runtime import RuntimeStore
+    from kageha.session_title import load_workspace_title
 
     store = RuntimeStore()
     try:
@@ -791,10 +792,13 @@ def sessions_cmd(
         typer.echo("(no sessions)")
         raise typer.Exit()
     for row in rows:
+        sid = str(row["id"])
+        title = load_workspace_title(sid)
+        label = title or str(row["objective"])[:100]
         typer.echo(
-            f"{row['id']}  {row['updated_at']:.3f}  "
+            f"{sid}  {row['updated_at']:.3f}  "
             f"[{row['turn_status'] or row['status']}]  "
-            f"{str(row['objective'])[:100]}"
+            f"{label}"
         )
 @app.command("server")
 def server_cmd(

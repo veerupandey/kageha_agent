@@ -427,10 +427,18 @@ export const useAppStore = create<AppState>((set, get) => {
         const data = await api<{ sessions?: SessionSummary[] }>(
           "/api/sessions?limit=40",
         );
+        const sessions = sortSessionsPinnedFirst(data.sessions || []);
+        const sid = get().sessionId;
+        const active = sid
+          ? sessions.find((s) => s.session_id === sid)
+          : undefined;
         set({
-          sessions: sortSessionsPinnedFirst(data.sessions || []),
+          sessions,
           sessionsError: null,
           bootError: null,
+          ...(active && active.title != null
+            ? { sessionTitle: String(active.title || "") || null }
+            : {}),
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

@@ -150,23 +150,29 @@ def _apply_permissions(arg: str, *, auto_approve: bool) -> tuple[bool, str]:
 def list_sessions(limit: int = 20) -> list[dict[str, str]]:
     """List journal-backed sessions."""
     from kageha.runtime import RuntimeStore
+    from kageha.session_title import load_workspace_title
 
     store = RuntimeStore()
     try:
         rows = store.list_sessions(limit)
     finally:
         store.close()
-    return [
-        {
-            "run_id": str(row["id"]),
-            "task": str(row["objective"])[:120] or "(no objective)",
-            "status": str(row["turn_status"] or row["status"]),
-            "mtime": datetime.fromtimestamp(
-                float(row["updated_at"]), tz=timezone.utc
-            ).strftime("%Y-%m-%d %H:%M UTC"),
-        }
-        for row in rows
-    ]
+    out: list[dict[str, str]] = []
+    for row in rows:
+        sid = str(row["id"])
+        title = load_workspace_title(sid)
+        task = title or str(row["objective"])[:120] or "(no objective)"
+        out.append(
+            {
+                "run_id": sid,
+                "task": task,
+                "status": str(row["turn_status"] or row["status"]),
+                "mtime": datetime.fromtimestamp(
+                    float(row["updated_at"]), tz=timezone.utc
+                ).strftime("%Y-%m-%d %H:%M UTC"),
+            }
+        )
+    return out
 
 
 def _append_chat_log(ws: SessionWorkspace, role: str, text: str) -> None:
@@ -178,6 +184,35 @@ def _append_chat_log(ws: SessionWorkspace, role: str, text: str) -> None:
     }
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(rec) + "\n")
+
+
+def _maybe_rename_session(
+    ws: SessionWorkspace,
+    *,
+    user_text: str = "",
+    assistant_text: str = "",
+) -> None:
+    """Cursor-style auto-title for terminal sessions (shared with WebUI)."""
+    from kageha.session_title import apply_session_title, pick_best_title
+
+    paths: list[str] = []
+    try:
+        artifacts = ws.root / "artifacts"
+        if artifacts.is_dir():
+            for p in artifacts.rglob("*"):
+                if p.is_file():
+                    paths.append(p.relative_to(ws.root).as_posix())
+    except OSError:
+        pass
+    candidate = pick_best_title(
+        user_message=user_text,
+        assistant_message=assistant_text,
+        artifact_paths=paths,
+    )
+    meta = ws.load_session_meta()
+    meta, changed = apply_session_title(meta, candidate=candidate)
+    if changed:
+        ws.save_session_meta(meta)
 
 
 async def run_chat_repl(
@@ -598,6 +633,7 @@ async def run_chat_repl(
                 _append_chat_log(workspace, "user", line)
                 reply = "Okay — stopped. Send a new task whenever you're ready."
                 _append_chat_log(workspace, "assistant", reply)
+                _maybe_rename_session(workspace, user_text=line, assistant_text=reply)
             else:
                 reply = "Okay — nothing in progress."
             if memory_settings.enabled:
@@ -628,6 +664,7 @@ async def run_chat_repl(
             )
             if workspace:
                 _append_chat_log(workspace, "assistant", reply)
+                _maybe_rename_session(workspace, user_text=line, assistant_text=reply)
             if memory_settings.enabled:
                 memory.capture_turn(
                     TurnMemoryInput(
@@ -673,6 +710,7 @@ async def run_chat_repl(
             else:
                 reply = answer_status(workspace)
             _append_chat_log(workspace, "assistant", reply)
+            _maybe_rename_session(workspace, user_text=line, assistant_text=reply)
             if memory_settings.enabled:
                 memory.capture_turn(
                     TurnMemoryInput(
@@ -953,6 +991,9 @@ async def run_chat_repl(
                 max_files=3,
             )
             _append_chat_log(workspace, "assistant", chat_text)
+            _maybe_rename_session(
+                workspace, user_text=line, assistant_text=chat_text
+            )
             # Prefer streamed tokens → one final panel; else classic print.
             if stream_reply.text().strip():
                 stream_reply.finalize(chat_text)

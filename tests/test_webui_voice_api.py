@@ -56,6 +56,17 @@ def test_artifact_kind_and_mimetype_for_audio(tmp_path: Path):
     assert ".mp3" in webui_server._AUDIO_EXTS
 
 
+def test_session_file_mimetype_sniffs_jpeg_disguised_as_png(tmp_path: Path):
+    """Gemini / nano_banana often writes JPEG bytes into a .png path."""
+    fake = tmp_path / "nano_banana_edit.png"
+    # Minimal JPEG SOI + APP0-ish header bytes are enough for the sniffer.
+    fake.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 28)
+    assert _session_file_mimetype(fake) == "image/jpeg"
+    real_png = tmp_path / "chart.png"
+    real_png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 24)
+    assert _session_file_mimetype(real_png) == "image/png"
+
+
 def test_session_tts_returns_wav(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     app = WebUIApp.__new__(WebUIApp)
     app._loop = object()  # only required for attribute access; patched below

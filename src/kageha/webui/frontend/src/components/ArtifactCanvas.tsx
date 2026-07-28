@@ -18,6 +18,29 @@ function KindBadge({ kind }: { kind: CanvasKind }) {
   );
 }
 
+function ThumbImage({ item }: { item: CanvasItem }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [item.url]);
+  if (failed) {
+    return (
+      <div className="flex h-12 items-center justify-center bg-canvas text-[0.6rem] font-semibold uppercase tracking-wide text-accent">
+        Img
+      </div>
+    );
+  }
+  return (
+    <img
+      key={item.url}
+      src={item.url}
+      alt=""
+      className="h-12 w-full object-cover"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 function ImagePreview({
   item,
   large,
@@ -26,6 +49,9 @@ function ImagePreview({
   large?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [item.url]);
   if (failed) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-line bg-canvas px-4 py-10 text-center">
@@ -44,6 +70,7 @@ function ImagePreview({
   }
   return (
     <img
+      key={item.url}
       src={item.url}
       alt={item.caption}
       className={cn(
@@ -291,15 +318,7 @@ export function ArtifactCanvas() {
                       )}
                     >
                       {item.kind === "image" ? (
-                        <img
-                          src={item.url}
-                          alt=""
-                          className="h-12 w-full object-cover"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).style.display =
-                              "none";
-                          }}
-                        />
+                        <ThumbImage item={item} />
                       ) : item.kind === "audio" ? (
                         <div className="flex h-12 items-center justify-center bg-canvas text-sm text-accent">
                           ♪
