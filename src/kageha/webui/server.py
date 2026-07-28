@@ -11,7 +11,9 @@ import argparse
 import asyncio
 import json
 import mimetypes
+import os
 import re
+import tempfile
 import threading
 import time
 import uuid
@@ -36,13 +38,14 @@ MEMORY_SCOPES = [item.value for item in MemoryScope]
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 _SAFE_SESSION_ID = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-_VIDEO_EXTS = {".mp4", ".webm"}
+_VIDEO_EXTS = {".mp4", ".webm", ".mov", ".m4v"}
+_AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".ogg", ".aac", ".flac"}
 _MARKDOWN_EXTS = {".md", ".markdown"}
 _TEXT_DOC_EXTS = {".txt", ".text"}
 _PDF_EXTS = {".pdf"}
 _OFFICE_EXTS = {".ppt", ".pptx", ".doc", ".docx", ".xls", ".xlsx"}
 _ARCHIVE_EXTS = {".zip"}
-_MEDIA_EXTS = _IMAGE_EXTS | _VIDEO_EXTS
+_MEDIA_EXTS = _IMAGE_EXTS | _VIDEO_EXTS | _AUDIO_EXTS
 _DESIGN_ARTIFACT_NAMES = frozenset(
     {"plan.md", "requirements.md", "skill_gaps.md", "explore_notes.md"}
 )
@@ -99,7 +102,7 @@ _DELIVERABLE_NAME_RE = re.compile(
     r"(?:^|[\s`\"'(])((?:artifacts|outputs|diagrams|research|slides|carousel)/"
     r"[A-Za-z0-9._\-/]+\.[A-Za-z0-9]+|"
     r"[A-Za-z0-9][A-Za-z0-9._-]*\.(?:pptx?|pdf|docx?|xlsx?|zip|png|jpe?g|webp|gif|"
-    r"mp4|webm|html?))"
+    r"mp4|webm|mov|wav|mp3|m4a|ogg|html?))"
     r"(?:$|[\s`\"'),.\]])",
     re.I | re.M,
 )
@@ -489,6 +492,8 @@ def _artifact_file_kind(path: Path) -> str:
         return "image"
     if ext in _VIDEO_EXTS:
         return "video"
+    if ext in _AUDIO_EXTS:
+        return "audio"
     if ext in _MARKDOWN_EXTS:
         return "markdown"
     if ext in _TEXT_DOC_EXTS:
@@ -519,6 +524,14 @@ def _session_file_mimetype(path: Path) -> str:
         ".gif": "image/gif",
         ".mp4": "video/mp4",
         ".webm": "video/webm",
+        ".mov": "video/quicktime",
+        ".m4v": "video/x-m4v",
+        ".wav": "audio/wav",
+        ".mp3": "audio/mpeg",
+        ".m4a": "audio/mp4",
+        ".ogg": "audio/ogg",
+        ".aac": "audio/aac",
+        ".flac": "audio/flac",
         ".pdf": "application/pdf",
         ".ppt": "application/vnd.ms-powerpoint",
         ".pptx": (
@@ -1786,6 +1799,14 @@ class WebUIApp:
         m_upload = re.fullmatch(r"/api/sessions/([^/]+)/upload", path)
         if method == "POST" and m_upload:
             return self._upload_session_file(m_upload.group(1), body, headers)
+
+        m_stt = re.fullmatch(r"/api/sessions/([^/]+)/stt", path)
+        if method == "POST" and m_stt:
+            return self._session_stt(m_stt.group(1), body, headers)
+
+        m_tts = re.fullmatch(r"/api/sessions/([^/]+)/tts", path)
+        if method == "POST" and m_tts:
+            return self._session_tts(m_tts.group(1), body)
 
         m_file = re.fullmatch(r"/api/sessions/([^/]+)/files/(.+)", path)
         if method == "GET" and m_file:
@@ -3214,9 +3235,105 @@ class WebUIApp:
                     if ext in _IMAGE_EXTS
                     else "video"
                     if ext in _VIDEO_EXTS
+                    else "audio"
+                    if ext in _AUDIO_EXTS
                     else "file"
                 ),
             }
+        )
+
+    def _session_stt(
+        self, session_id: str, body: bytes, headers: dict[str, str]
+    ) -> tuple[int, bytes, str]:
+        """Transcribe an uploaded mic recording (multipart audio)."""
+        from kageha.models.stt import transcribe_audio
+
+        if len(body) > _MAX_UPLOAD_BYTES:
+            raise ValueError(f"audio exceeds {_MAX_UPLOAD_BYTES} bytes")
+        # Ensure session workspace exists.
+        self._session_workspace(session_id)
+        ctype = ""
+        for key, val in headers.items():
+            if key.lower() == "content-type":
+                ctype = val
+                break
+        if "multipart/form-data" not in (ctype or "").lower():
+            raise ValueError("expected multipart/form-data with audio file")
+        fields, files = _parse_multipart(body, ctype)
+        if not files:
+            raise ValueError("no audio file in upload")
+        uploaded = files[0]
+        raw_name = str(uploaded.get("filename") or "voice.webm")
+        suffix = Path(_safe_filename(raw_name)).suffix.lower() or ".webm"
+        if suffix not in {
+            ".webm",
+            ".wav",
+            ".mp3",
+            ".m4a",
+            ".ogg",
+            ".mpeg",
+            ".mp4",
+        }:
+            suffix = ".webm"
+        fd, tmp_name = tempfile.mkstemp(prefix="kageha-stt-", suffix=suffix)
+        os.close(fd)
+        tmp = Path(tmp_name)
+        try:
+            tmp.write_bytes(uploaded["data"])
+            future = asyncio.run_coroutine_threadsafe(
+                transcribe_audio(tmp, language=str(fields.get("language") or "")),
+                self._loop,
+            )
+            try:
+                text = future.result(timeout=120)
+            except Exception as exc:  # noqa: BLE001
+                raise ValueError(f"transcription failed: {exc}") from exc
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+        return _json_bytes(
+            {
+                "session_id": session_id,
+                "text": str(text or "").strip(),
+            }
+        )
+
+    def _session_tts(
+        self, session_id: str, body: bytes
+    ) -> tuple[int, bytes, str, dict[str, str]]:
+        """Synthesize WAV for spoken assistant replies / previews."""
+        from kageha.chat.voice_io import synthesize_reply_wav
+
+        # Touch session workspace (validates id).
+        self._session_workspace(session_id)
+        payload = self._json_body(body)
+        text = str(payload.get("text") or "").strip()
+        if not text:
+            raise ValueError("text is required")
+        fd, tmp_name = tempfile.mkstemp(prefix="kageha-tts-", suffix=".wav")
+        os.close(fd)
+        tmp = Path(tmp_name)
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                synthesize_reply_wav(text, tmp), self._loop
+            )
+            try:
+                future.result(timeout=120)
+            except Exception as exc:  # noqa: BLE001
+                raise ValueError(f"TTS failed: {exc}") from exc
+            data = tmp.read_bytes()
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+        return (
+            200,
+            data,
+            "audio/wav",
+            {"Content-Disposition": 'inline; filename="reply.wav"'},
         )
 
     def _load_messages(self, session_id: str) -> list[dict[str, str]]:

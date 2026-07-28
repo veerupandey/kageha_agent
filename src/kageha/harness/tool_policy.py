@@ -82,6 +82,7 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
         {
             "nano_banana_generate",
             "nano_banana_edit",
+            "gemini_tts",
             "fal_generate_image",
             "fal_edit_image",
             "fal_image_to_video",

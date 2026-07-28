@@ -75,6 +75,7 @@ Commands:
   /model [list|reset|<id>]
   /browser …     /computer …     /research …
   /permissions [ask|auto|full]   ask · session auto · full (auto+network)
+  /voice         Mic input (empty Enter records). Set KAGEHA_VOICE_REPLY=1 for spoken replies
   /memory …
   /verbose  /quiet  /quit
 

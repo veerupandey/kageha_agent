@@ -3,6 +3,7 @@
 export type CanvasKind =
   | "image"
   | "video"
+  | "audio"
   | "pdf"
   | "markdown"
   | "text"
@@ -30,6 +31,7 @@ const IMAGE_EXT = new Set([
   ".svg",
 ]);
 const VIDEO_EXT = new Set([".mp4", ".webm", ".mov", ".m4v"]);
+const AUDIO_EXT = new Set([".wav", ".mp3", ".m4a", ".ogg", ".aac", ".flac"]);
 const MARKDOWN_EXT = new Set([".md", ".markdown"]);
 const TEXT_EXT = new Set([
   ".txt",
@@ -71,6 +73,7 @@ export function canvasKindForPath(path: string, kindHint?: string): CanvasKind {
   const hint = (kindHint || "").toLowerCase();
   if (IMAGE_EXT.has(ext) || hint === "image") return "image";
   if (VIDEO_EXT.has(ext) || hint === "video") return "video";
+  if (AUDIO_EXT.has(ext) || hint === "audio") return "audio";
   if (ext === ".pdf" || hint === "pdf") return "pdf";
   if (MARKDOWN_EXT.has(ext) || hint === "markdown") return "markdown";
   if (PRESENTATION_EXT.has(ext) || hint === "presentation") return "presentation";
@@ -88,6 +91,7 @@ export function isPreviewableKind(kind: CanvasKind): boolean {
   return (
     kind === "image" ||
     kind === "video" ||
+    kind === "audio" ||
     kind === "pdf" ||
     kind === "markdown" ||
     kind === "text"
@@ -100,6 +104,8 @@ export function kindLabel(kind: CanvasKind): string {
       return "Image";
     case "video":
       return "Video";
+    case "audio":
+      return "Audio";
     case "pdf":
       return "PDF";
     case "markdown":
@@ -152,6 +158,7 @@ export function isShowcaseArtifact(path: string): boolean {
   if (
     kind === "image" ||
     kind === "video" ||
+    kind === "audio" ||
     kind === "pdf" ||
     kind === "presentation" ||
     kind === "document" ||
@@ -176,6 +183,7 @@ export function isChatMediaArtifact(path: string): boolean {
   return (
     kind === "image" ||
     kind === "video" ||
+    kind === "audio" ||
     kind === "pdf" ||
     kind === "presentation"
   );
@@ -186,7 +194,7 @@ export function showcaseSortKey(path: string): [number, string] {
   const rank =
     kind === "image"
       ? 0
-      : kind === "video"
+      : kind === "video" || kind === "audio"
         ? 1
         : kind === "pdf" || kind === "presentation"
           ? 2

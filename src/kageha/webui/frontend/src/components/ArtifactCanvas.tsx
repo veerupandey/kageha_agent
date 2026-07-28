@@ -80,6 +80,14 @@ function PreviewBody({
       />
     );
   }
+  if (item.kind === "audio") {
+    return (
+      <div className="rounded-lg border border-line bg-canvas px-4 py-6">
+        <p className="mb-3 text-sm font-medium text-ink">{item.caption}</p>
+        <audio src={item.url} controls className="w-full" />
+      </div>
+    );
+  }
   if (item.kind === "pdf") {
     return (
       <iframe
@@ -287,6 +295,10 @@ export function ArtifactCanvas() {
                               "none";
                           }}
                         />
+                      ) : item.kind === "audio" ? (
+                        <div className="flex h-12 items-center justify-center bg-canvas text-sm text-accent">
+                          ♪
+                        </div>
                       ) : (
                         <div className="flex h-12 items-center justify-center bg-canvas text-[0.6rem] font-semibold uppercase tracking-wide text-accent">
                           {kindLabel(item.kind).slice(0, 4)}

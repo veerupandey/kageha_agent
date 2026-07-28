@@ -6,6 +6,7 @@ import type {
   RunStatus,
   SessionRun,
 } from "../api/types";
+import { speakText } from "../lib/voiceClient";
 import { appendActivityStep, asDetailLines } from "./activity";
 import {
   normalizeComputerFrame,
@@ -393,6 +394,21 @@ export async function runTurn(
     }
     if (sessionId !== get().sessionId) {
       get().showToast(`Task finished · ${sessionId.slice(0, 8)}`);
+    }
+    if (
+      get().prefs.voiceReply &&
+      sessionId === get().sessionId &&
+      status !== "cancelled" &&
+      status !== "error" &&
+      !awaitingBuild &&
+      !awaitingClarify &&
+      finalText.trim()
+    ) {
+      void speakText(sessionId, finalText).catch((err) => {
+        get().showToast(
+          `Speak: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
     }
     await get().refreshSessions();
     if (sessionId === get().sessionId) {

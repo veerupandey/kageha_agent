@@ -27,6 +27,8 @@ CORE_PACK_IMPORTS: list[tuple[str, str]] = [
     ("research", "kageha.harness.tools.research:register_research_tools"),
     # First-class Gemini image gen — always loaded; tools self-gate on GEMINI_API_KEY.
     ("nano_banana", "kageha.harness.tools.nano_banana:register_nano_banana_tools"),
+    # First-class Gemini TTS — always loaded; tools self-gate on GEMINI_API_KEY.
+    ("voice", "kageha.harness.tools.voice:register_voice_tools"),
 ]
 
 # Optional native packs (explicit opt-in via KAGEHA_TOOL_PACKS / tools.yaml).

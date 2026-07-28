@@ -40,6 +40,14 @@ describe("artifactMedia", () => {
     expect(isChatMediaArtifact("artifacts/notes.md")).toBe(false);
   });
 
+  it("classifies and showcases audio deliverables", () => {
+    expect(canvasKindForPath("artifacts/voiceover.wav")).toBe("audio");
+    expect(isShowcaseArtifact("artifacts/voiceover.wav")).toBe(true);
+    expect(isChatMediaArtifact("artifacts/ad_read.mp3")).toBe(true);
+    expect(isPreviewableKind("audio")).toBe(true);
+    expect(kindLabel("audio")).toBe("Audio");
+  });
+
   it("basenames paths", () => {
     expect(fileBasename("artifacts/kageha_ca_screenshot.png")).toBe(
       "kageha_ca_screenshot.png",

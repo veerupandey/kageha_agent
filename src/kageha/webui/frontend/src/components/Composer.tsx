@@ -16,6 +16,11 @@ import {
   getSlashContext,
   slashCommandTitle,
 } from "../lib/slash";
+import {
+  startMicRecording,
+  stopSpokenReply,
+  transcribeBlob,
+} from "../lib/voiceClient";
 import { useAppStore } from "../store";
 
 const MODES: AgentMode[] = ["normal", "plan", "goal"];
@@ -61,15 +66,22 @@ export function Composer() {
   const slashCatalog = useAppStore((s) => s.slashCatalog);
   const capabilities = useAppStore((s) => s.capabilities);
   const models = useAppStore((s) => s.models);
+  const sessionId = useAppStore((s) => s.sessionId);
+  const voiceReply = useAppStore((s) => s.prefs.voiceReply);
+  const setPrefs = useAppStore((s) => s.setPrefs);
+  const showToast = useAppStore((s) => s.showToast);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
+  const micStopRef = useRef<null | (() => Promise<Blob>)>(null);
   const [caret, setCaret] = useState(0);
   const [slashIndex, setSlashIndex] = useState(0);
   const [atIndex, setAtIndex] = useState(0);
   const [atHits, setAtHits] = useState<FileHit[]>([]);
   const [atLoading, setAtLoading] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
 
   const queueItems = queue || [];
 
@@ -355,13 +367,74 @@ export function Composer() {
             >
               +
             </button>
+            <button
+              type="button"
+              className={cn(
+                "mb-1 inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2 text-xs font-medium",
+                recording
+                  ? "bg-danger/15 text-danger"
+                  : "text-muted hover:bg-line/70 hover:text-ink",
+              )}
+              id="btn-mic"
+              title={
+                recording
+                  ? "Stop recording"
+                  : "Click to record, click again to send"
+              }
+              aria-label={recording ? "Stop recording" : "Voice input"}
+              aria-pressed={recording}
+              disabled={!sessionId || sending || transcribing}
+              onClick={() => {
+                void (async () => {
+                  if (!sessionId) return;
+                  if (recording && micStopRef.current) {
+                    setRecording(false);
+                    setTranscribing(true);
+                    try {
+                      const blob = await micStopRef.current();
+                      micStopRef.current = null;
+                      const text = await transcribeBlob(sessionId, blob);
+                      if (text) {
+                        const next = draft.trim()
+                          ? `${draft.trim()} ${text}`
+                          : text;
+                        setDraft(next);
+                        await sendMessage(next);
+                      } else {
+                        showToast("No speech detected");
+                      }
+                    } catch (err) {
+                      showToast(
+                        `Mic: ${err instanceof Error ? err.message : err}`,
+                      );
+                    } finally {
+                      setTranscribing(false);
+                    }
+                    return;
+                  }
+                  try {
+                    stopSpokenReply();
+                    const rec = await startMicRecording();
+                    micStopRef.current = rec.stop;
+                    setRecording(true);
+                    showToast("Listening… click mic again to send");
+                  } catch (err) {
+                    showToast(
+                      `Mic: ${err instanceof Error ? err.message : err}`,
+                    );
+                  }
+                })();
+              }}
+            >
+              {transcribing ? "…" : recording ? "■" : "Mic"}
+            </button>
             <input
               ref={fileInputRef}
               type="file"
               id="file-input"
               multiple
               hidden
-              accept="image/*,video/*,.pdf,.doc,.docx,.txt,.md,.csv,.json,.yaml,.yml,.zip"
+              accept="image/*,video/*,.pdf,.doc,.docx,.txt,.md,.csv,.json,.yaml,.yml,.zip,audio/*"
               onChange={(e) => {
                 addPendingFiles(e.target.files);
                 e.target.value = "";
@@ -529,6 +602,25 @@ export function Composer() {
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
+
+            <button
+              type="button"
+              className={cn(
+                "rounded-md px-2 py-1 text-xs font-medium",
+                voiceReply
+                  ? "bg-accent-soft text-accent"
+                  : "text-muted hover:bg-line/70 hover:text-ink",
+              )}
+              title="Speak assistant replies aloud (Gemini TTS)"
+              aria-pressed={voiceReply}
+              onClick={() => {
+                const next = !voiceReply;
+                setPrefs({ voiceReply: next });
+                if (!next) stopSpokenReply();
+              }}
+            >
+              Speak
+            </button>
 
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>

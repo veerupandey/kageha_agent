@@ -9,8 +9,8 @@ export const DEFAULT_PREFS: UserPrefs = {
   defaultAskMode: false,
   defaultAgentMode: "normal",
   reduceMotion: false,
-  showToolCards: true,
   theme: "light",
+  voiceReply: false,
 };
 
 const AGENT_MODES: AgentMode[] = ["normal", "plan", "goal"];
@@ -55,10 +55,10 @@ export function loadPrefs(): UserPrefs {
       if (typeof parsed.reduceMotion === "boolean") {
         base.reduceMotion = parsed.reduceMotion;
       }
-      if (typeof parsed.showToolCards === "boolean") {
-        base.showToolCards = parsed.showToolCards;
-      }
       if (isTheme(parsed.theme)) base.theme = parsed.theme;
+      if (typeof parsed.voiceReply === "boolean") {
+        base.voiceReply = parsed.voiceReply;
+      }
     } else {
       const legacy = readLegacyAskMode();
       if (legacy != null) base.defaultAskMode = legacy;
@@ -115,9 +115,9 @@ export function mergePrefs(
   if (typeof patch.reduceMotion === "boolean") {
     next.reduceMotion = patch.reduceMotion;
   }
-  if (typeof patch.showToolCards === "boolean") {
-    next.showToolCards = patch.showToolCards;
-  }
   if (isTheme(patch.theme)) next.theme = patch.theme;
+  if (typeof patch.voiceReply === "boolean") {
+    next.voiceReply = patch.voiceReply;
+  }
   return next;
 }

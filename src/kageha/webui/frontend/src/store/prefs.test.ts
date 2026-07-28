@@ -42,8 +42,8 @@ describe("prefs load/save", () => {
       defaultAskMode: true,
       defaultAgentMode: "plan",
       reduceMotion: true,
-      showToolCards: false,
       theme: "dark",
+      voiceReply: true,
     };
     savePrefs(prefs);
     expect(store.get(PREFS_KEY)).toBeTruthy();

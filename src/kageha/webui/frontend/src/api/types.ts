@@ -119,8 +119,9 @@ export interface UserPrefs {
   defaultAskMode: boolean;
   defaultAgentMode: AgentMode;
   reduceMotion: boolean;
-  showToolCards: boolean;
   theme: ThemeMode;
+  /** Auto-speak assistant replies via Gemini TTS. */
+  voiceReply: boolean;
 }
 
 export interface ArtifactEntry {

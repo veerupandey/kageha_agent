@@ -161,6 +161,28 @@ function ArtifactThumb({
     );
   }
 
+  if (kind === "audio" && url) {
+    return (
+      <div className="flex h-full w-full flex-col justify-between bg-gradient-to-b from-canvas to-line/40 px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface text-xs font-semibold text-accent shadow-sm ring-1 ring-line">
+            ♪
+          </span>
+          <span className="line-clamp-2 text-[0.72rem] font-medium leading-snug text-ink">
+            {name}
+          </span>
+        </div>
+        <audio
+          src={url}
+          controls
+          preload="metadata"
+          className="w-full"
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+    );
+  }
+
   const glyph =
     kind === "video"
       ? "▶"
