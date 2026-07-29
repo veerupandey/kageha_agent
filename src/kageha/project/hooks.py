@@ -1,7 +1,12 @@
 """Lifecycle hooks (.kageha/hooks.json + ~/.kageha/hooks.json).
 
-Events: preToolUse, postToolUse, beforeShell, afterFileEdit, stop,
-preCompact, subagentStart, subagentStop.
+Events:
+  Tool:    preToolUse, postToolUse, beforeShell
+  File:    afterFileEdit, preFileWrite, postFileWrite, postFileCreate, postFileDelete
+  Git:     preCommit, postCommit
+  Session: sessionStart, sessionEnd, planApproved, specStageComplete
+  Health:  agentStuck, budgetWarning, contextOverflow
+  System:  stop, preCompact, subagentStart, subagentStop
 
 Actions: command (shell), http (webhook), or deny (block with message).
 Hooks add gates; they never remove hard HITL risk classes.
@@ -22,10 +27,29 @@ from kageha.project.brain import resolve_project_root
 
 HOOK_EVENTS = frozenset(
     {
+        # Tool lifecycle
         "preToolUse",
         "postToolUse",
         "beforeShell",
+        # File lifecycle
         "afterFileEdit",
+        "preFileWrite",
+        "postFileWrite",
+        "postFileCreate",
+        "postFileDelete",
+        # Git lifecycle
+        "preCommit",
+        "postCommit",
+        # Session lifecycle
+        "sessionStart",
+        "sessionEnd",
+        "planApproved",
+        "specStageComplete",
+        # Agent health
+        "agentStuck",
+        "budgetWarning",
+        "contextOverflow",
+        # Existing
         "stop",
         "preCompact",
         "subagentStart",
@@ -40,6 +64,19 @@ _EVENT_ALIASES = {
     "BeforeShell": "beforeShell",
     "BeforeShellExecution": "beforeShell",
     "AfterFileEdit": "afterFileEdit",
+    "PreFileWrite": "preFileWrite",
+    "PostFileWrite": "postFileWrite",
+    "PostFileCreate": "postFileCreate",
+    "PostFileDelete": "postFileDelete",
+    "PreCommit": "preCommit",
+    "PostCommit": "postCommit",
+    "SessionStart": "sessionStart",
+    "SessionEnd": "sessionEnd",
+    "PlanApproved": "planApproved",
+    "SpecStageComplete": "specStageComplete",
+    "AgentStuck": "agentStuck",
+    "BudgetWarning": "budgetWarning",
+    "ContextOverflow": "contextOverflow",
     "Stop": "stop",
     "PreCompact": "preCompact",
     "SubagentStart": "subagentStart",
