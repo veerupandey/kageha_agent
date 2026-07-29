@@ -2390,8 +2390,12 @@ class WebUIApp:
             message = f"{message}\n\n{block}" if message else block
         if not message:
             raise ValueError("message is required (or attach files)")
-        thread_id = str(payload.get("thread_id") or "web-default")
         run_id = str(payload.get("session_id") or payload.get("run_id") or "")
+        thread_id = str(
+            payload.get("thread_id")
+            or (self._load_thread_binding(run_id) if run_id else "")
+            or (f"web-{run_id}" if run_id else "web-default")
+        )
         if run_id:
             self.server.threads.setdefault(thread_id, {})
             self.server.threads[thread_id]["run_id"] = run_id
@@ -2622,12 +2626,18 @@ class WebUIApp:
                     )
                 handled, message = future_slash.result(timeout=180)
                 if handled:
+                    sid_hint = str(payload.get("session_id") or payload.get("run_id") or "")
+                    tid_fallback = (
+                        payload.get("thread_id")
+                        or (self._load_thread_binding(sid_hint) if sid_hint else "")
+                        or (f"web-{sid_hint}" if sid_hint else "web-default")
+                    )
                     emit("status", {"phase": "done", "label": "Done"})
                     emit("message", {"text": message, "partial": False})
                     emit(
                         "done",
                         {
-                            "thread_id": str(payload.get("thread_id") or "web-default"),
+                            "thread_id": str(tid_fallback),
                             "session_id": payload.get("session_id"),
                             "run_id": payload.get("session_id"),
                             "status": "ok",
@@ -2640,9 +2650,14 @@ class WebUIApp:
                     )
                     return
             # Capture leftover turn_id before _prepare_chat clears it.
-            _tid_hint = str(payload.get("thread_id") or "web-default")
+            sid_hint = str(payload.get("session_id") or payload.get("run_id") or "")
+            _tid_hint = str(
+                payload.get("thread_id")
+                or (self._load_thread_binding(sid_hint) if sid_hint else "")
+                or (f"web-{sid_hint}" if sid_hint else "web-default")
+            )
             previous_turn_id = str(
-                (self.server.threads.get(_tid_hint) or {}).get("turn_id") or ""
+                (self._thread_state(_tid_hint)).get("turn_id") or ""
             ).strip()
             params, attachments, loop_mode = self._prepare_chat(payload)
         except ValueError as exc:

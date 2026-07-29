@@ -125,9 +125,11 @@ export async function runTurn(
               statusLabel: label,
               status: "running" as RunStatus,
             };
-            return syncFromRun(next, {
+            const sync = s.sessionId === sessionId ? syncFromRun(next) : {};
+            return {
+              ...sync,
               runs: { ...s.runs, [sessionId]: next },
-            });
+            };
           });
         },
         onDelta: (assembled) =>
@@ -152,10 +154,12 @@ export async function runTurn(
               else cards.push(card);
               return { ...m, toolCards: cards.slice(-24) };
             });
-            return syncFromRun(
-              { ...run, messages },
-              { runs: { ...s.runs, [sessionId]: { ...run, messages } } },
-            );
+            const next = { ...run, messages };
+            const sync = s.sessionId === sessionId ? syncFromRun(next) : {};
+            return {
+              ...sync,
+              runs: { ...s.runs, [sessionId]: next },
+            };
           });
         },
         onComputerFrame: (data) => {
@@ -170,10 +174,12 @@ export async function runTurn(
               const frames = [...(m.computerFrames || []), frame].slice(-12);
               return { ...m, computerFrames: frames };
             });
-            return syncFromRun(
-              { ...run, messages },
-              { runs: { ...s.runs, [sessionId]: { ...run, messages } } },
-            );
+            const next = { ...run, messages };
+            const sync = s.sessionId === sessionId ? syncFromRun(next) : {};
+            return {
+              ...sync,
+              runs: { ...s.runs, [sessionId]: next },
+            };
           });
         },
         onEvent: (data) => {
@@ -213,9 +219,11 @@ export async function runTurn(
                 statusLabel: label,
                 status: "running" as RunStatus,
               };
-              return syncFromRun(next, {
+              const sync = s.sessionId === sessionId ? syncFromRun(next) : {};
+              return {
+                ...sync,
                 runs: { ...s.runs, [sessionId]: next },
-              });
+              };
             });
           }
 
@@ -293,10 +301,12 @@ export async function runTurn(
                   else cards.push(card);
                   return { ...m, toolCards: cards.slice(-24) };
                 });
-                return syncFromRun(
-                  { ...run, messages },
-                  { runs: { ...s.runs, [sessionId]: { ...run, messages } } },
-                );
+                const next = { ...run, messages };
+                const sync = s.sessionId === sessionId ? syncFromRun(next) : {};
+                return {
+                  ...sync,
+                  runs: { ...s.runs, [sessionId]: next },
+                };
               });
             }
           }
@@ -320,10 +330,12 @@ export async function runTurn(
                   );
                   return { ...m, computerFrames: frames };
                 });
-                return syncFromRun(
-                  { ...run, messages },
-                  { runs: { ...s.runs, [sessionId]: { ...run, messages } } },
-                );
+                const next = { ...run, messages };
+                const sync = s.sessionId === sessionId ? syncFromRun(next) : {};
+                return {
+                  ...sync,
+                  runs: { ...s.runs, [sessionId]: next },
+                };
               });
             }
           }
