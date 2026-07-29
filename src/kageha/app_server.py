@@ -116,9 +116,11 @@ class AppServer:
                 return normalize_approval_result(False)
             finally:
                 self._approval_waiters.pop(aid, None)
-                state = self.threads.get(thread_id) or {}
-                if state.get("pending_approval", {}).get("approval_id") == aid:
-                    state.pop("pending_approval", None)
+                state = self.threads.get(thread_id)
+                if isinstance(state, dict):
+                    pending = state.get("pending_approval")
+                    if isinstance(pending, dict) and pending.get("approval_id") == aid:
+                        state.pop("pending_approval", None)
 
         return approver
 
@@ -150,6 +152,13 @@ class AppServer:
             self._runtime = AgentRuntime()
         return self._runtime
 
+    def _thread_dict(self, thread_id: str) -> dict[str, Any]:
+        st = self.threads.get(thread_id)
+        if not isinstance(st, dict):
+            st = {}
+            self.threads[thread_id] = st
+        return st
+
     async def handle(self, req: dict[str, Any]) -> dict[str, Any]:
         method = str(req.get("method") or "")
         params = req.get("params") or {}
@@ -168,7 +177,7 @@ class AppServer:
                     thread_id = str(params.get("thread_id") or "default")
                     session_id = str(
                         params.get("run_id")
-                        or self.threads.get(thread_id, {}).get("run_id")
+                        or self._thread_dict(thread_id).get("run_id")
                         or f"app-{thread_id}"
                     )
                     task = str(params.get("message") or params.get("task") or "")
@@ -242,7 +251,7 @@ class AppServer:
             agent_id = str(params.get("agent_id") or "main")
             channel_key = str(params.get("channel_key") or "")
             prior_run = str(
-                self.threads.get(thread_id, {}).get("run_id") or ""
+                self._thread_dict(thread_id).get("run_id") or ""
             )
             model_param = params.get("model") or params.get("model_override")
             task_text = str(task)

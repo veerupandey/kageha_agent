@@ -1364,6 +1364,23 @@ def test_sessions_active_filter_includes_turn_phase(webui_app: WebUIApp):
     assert row.get("turn_status") in {"running", "accepted", "active", ""} or row["active"]
 
 
+def test_non_dict_thread_state_prevents_attribute_error(webui_app: WebUIApp):
+    thread_id = "test-nondict-thread"
+    # Corrupt thread state with non-dict values (string, None, etc.)
+    webui_app.server.threads[thread_id] = "corrupted_string_state"  # type: ignore[assignment]
+    st = webui_app._thread_state(thread_id)
+    assert isinstance(st, dict)
+    assert st.get("turn_id") is None
+    status, payload = _call(
+        webui_app,
+        "GET",
+        f"/api/sessions/testnondict01/events",
+        query={"thread_id": [thread_id]},
+    )
+    assert status == 200
+    assert payload["thread_id"] == thread_id
+
+
 def test_review_result_includes_diff_fields():
     from kageha.project.review import ReviewResult
 

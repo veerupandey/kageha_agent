@@ -1447,7 +1447,12 @@ class WebUIApp:
             target=self._run_loop, name="kageha-webui-loop", daemon=True
         )
         self._loop_thread.start()
-        self._last_computer_frame_at = 0.0
+    def _thread_state(self, thread_id: str) -> dict[str, Any]:
+        st = self.server.threads.get(thread_id)
+        if not isinstance(st, dict):
+            st = {}
+            self.server.threads[thread_id] = st
+        return st
 
     def _default_project_root(self, payload: dict[str, Any] | None = None) -> str:
         if payload and payload.get("project_root"):
@@ -1800,12 +1805,10 @@ class WebUIApp:
                     "thread_id": thread_id,
                     "session_id": session_id,
                     "turn_id": turn_id
-                    or (self.server.threads.get(thread_id) or {}).get("turn_id")
+                    or self._thread_state(thread_id).get("turn_id")
                     or "",
                     "events": mapped,
-                    "pending_approval": (
-                        self.server.threads.get(thread_id) or {}
-                    ).get("pending_approval"),
+                    "pending_approval": self._thread_state(thread_id).get("pending_approval"),
                 }
             )
 
@@ -2679,7 +2682,7 @@ class WebUIApp:
         emitted_pending_aids: set[str] = set()
         try:
             while not future.done():
-                state = self.server.threads.get(thread_id) or {}
+                state = self._thread_state(thread_id)
                 if not turn_id:
                     candidate = str(state.get("turn_id") or "").strip()
                     # Wait for a *new* turn_id after this stream starts — never
@@ -2771,7 +2774,7 @@ class WebUIApp:
                 turn_id = result_turn
                 after_seq = 0
         elif not turn_id:
-            state = self.server.threads.get(thread_id) or {}
+            state = self._thread_state(thread_id)
             candidate = str(state.get("turn_id") or "").strip()
             if candidate and candidate != previous_turn_id:
                 turn_id = candidate

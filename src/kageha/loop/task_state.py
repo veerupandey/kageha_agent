@@ -192,9 +192,11 @@ class TaskState:
         self.turn_tool_result_start = len(self.tool_results)
         self.turn_fact_start = len(self.facts)
         self.turn_failure_start = len(self.failures)
-        self.objective = (objective or "").strip()[:2000]
-        self.goals = [dict(item) for item in goals]
-        self.set_stages_from_plan(plan_steps)
+        self.goals = [
+            dict(item) if isinstance(item, dict)
+            else {"id": f"g{idx}", "description": str(item), "passes": False, "evidence": ""}
+            for idx, item in enumerate(goals, start=1)
+        ]
         self.validation = ValidationSnapshot()
         self.deliverables = []
         self.artifact_manifest = {}
@@ -396,7 +398,9 @@ class TaskState:
         return False
 
     def goals_all_passed(self) -> bool:
-        return bool(self.goals) and all(g.get("passes") for g in self.goals)
+        return bool(self.goals) and all(
+            (g.get("passes") if isinstance(g, dict) else False) for g in self.goals
+        )
 
     def validated_ok(self) -> bool:
         if self.validation.status == "pass" and self.goals_all_passed():
@@ -439,10 +443,13 @@ class TaskState:
         lines.append("")
         lines.append("## Goals")
         for g in self.goals:
-            box = "x" if g.get("passes") else " "
-            lines.append(f"- [{box}] `{g.get('id')}` {g.get('description')}")
-            if g.get("evidence"):
-                lines.append(f"  evidence: {g['evidence'][:160]}")
+            if isinstance(g, dict):
+                box = "x" if g.get("passes") else " "
+                lines.append(f"- [{box}] `{g.get('id')}` {g.get('description')}")
+                if g.get("evidence"):
+                    lines.append(f"  evidence: {g['evidence'][:160]}")
+            else:
+                lines.append(f"- [ ] {g}")
         if self.constraints:
             lines.append("")
             lines.append("## Constraints")

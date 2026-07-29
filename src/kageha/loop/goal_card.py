@@ -88,5 +88,5 @@ class GoalCard:
     @classmethod
     def load(cls, path: Path) -> GoalCard:
         data = json.loads(path.read_text())
-        items = [GoalItem(**i) for i in data.get("items") or []]
+        items = [GoalItem(**i) for i in data.get("items") or [] if isinstance(i, dict)]
         return cls(task=data.get("task", ""), items=items)
