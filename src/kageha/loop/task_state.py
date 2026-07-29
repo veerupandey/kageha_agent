@@ -192,6 +192,7 @@ class TaskState:
         self.turn_tool_result_start = len(self.tool_results)
         self.turn_fact_start = len(self.facts)
         self.turn_failure_start = len(self.failures)
+        self.objective = (objective or "").strip()[:2000]
         self.goals = [
             dict(item) if isinstance(item, dict)
             else {"id": f"g{idx}", "description": str(item), "passes": False, "evidence": ""}
