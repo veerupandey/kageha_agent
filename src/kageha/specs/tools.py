@@ -22,11 +22,6 @@ def register_spec_tools(ctx: Any) -> Any:
             ".kageha/specs/<name>/ and progresses through stages: "
             "requirements → design → tasks → build."
         ),
-        parameters={
-            "name": {"type": "string", "description": "Short name for the feature (kebab-case)"},
-            "prompt": {"type": "string", "description": "Feature description / user intent"},
-        },
-        required=["name", "prompt"],
     )
     async def spec_new(name: str, prompt: str) -> str:
         from kageha.specs.pipeline import generate_requirements
@@ -55,15 +50,6 @@ def register_spec_tools(ctx: Any) -> Any:
             "Generate a technical design document from approved requirements. "
             "Requires the requirements stage to be approved first."
         ),
-        parameters={
-            "name": {"type": "string", "description": "Spec name"},
-            "codebase_context": {
-                "type": "string",
-                "description": "Optional: relevant existing code context to inform the design",
-                "default": "",
-            },
-        },
-        required=["name"],
     )
     async def spec_design(name: str, codebase_context: str = "") -> str:
         from kageha.specs.pipeline import generate_design
@@ -105,10 +91,6 @@ def register_spec_tools(ctx: Any) -> Any:
             "Generate a sequenced implementation task list from approved design. "
             "Tasks are dependency-aware and ready for parallel execution."
         ),
-        parameters={
-            "name": {"type": "string", "description": "Spec name"},
-        },
-        required=["name"],
     )
     async def spec_tasks(name: str) -> str:
         from kageha.specs.pipeline import generate_tasks
@@ -152,10 +134,6 @@ def register_spec_tools(ctx: Any) -> Any:
             "Execute the approved task list as parallel subagents via the task graph. "
             "Each task runs in an isolated worktree. Requires tasks stage to be approved."
         ),
-        parameters={
-            "name": {"type": "string", "description": "Spec name"},
-        },
-        required=["name"],
     )
     async def spec_build(name: str) -> str:
         from kageha.specs.models import load_spec_state, SpecStage, save_spec_state
@@ -201,7 +179,6 @@ def register_spec_tools(ctx: Any) -> Any:
         state.current_stage = SpecStage.BUILD
         save_spec_state(project_root, state)
 
-        # Return the task graph for spawn_task_graph
         return (
             f"Build started for spec '{name}' with {len(nodes)} tasks.\n"
             f"Verification plan generated at verification.md\n\n"
@@ -212,11 +189,6 @@ def register_spec_tools(ctx: Any) -> Any:
     @tool(
         name="spec_approve",
         description="Approve the current stage gate and advance to the next stage.",
-        parameters={
-            "name": {"type": "string", "description": "Spec name"},
-            "notes": {"type": "string", "description": "Optional approval notes", "default": ""},
-        },
-        required=["name"],
     )
     async def spec_approve(name: str, notes: str = "") -> str:
         from kageha.specs.pipeline import approve_gate
@@ -230,11 +202,6 @@ def register_spec_tools(ctx: Any) -> Any:
     @tool(
         name="spec_revise",
         description="Request revision of the current stage with feedback notes.",
-        parameters={
-            "name": {"type": "string", "description": "Spec name"},
-            "notes": {"type": "string", "description": "Revision feedback / what to change"},
-        },
-        required=["name", "notes"],
     )
     async def spec_revise(name: str, notes: str) -> str:
         from kageha.specs.pipeline import reject_gate
@@ -249,14 +216,6 @@ def register_spec_tools(ctx: Any) -> Any:
     @tool(
         name="spec_status",
         description="Show the current status of a spec or list all specs.",
-        parameters={
-            "name": {
-                "type": "string",
-                "description": "Spec name (omit to list all specs)",
-                "default": "",
-            },
-        },
-        required=[],
     )
     async def spec_status(name: str = "") -> str:
         from kageha.specs.pipeline import list_specs

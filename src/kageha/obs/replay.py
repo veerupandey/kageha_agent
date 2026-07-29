@@ -205,14 +205,24 @@ def load_timeline_from_events(events_path: Path) -> SessionTimeline | None:
                     continue
                 try:
                     raw = json.loads(line)
+                    # Support both formats: {timestamp, kind, step, data}
+                    # and the Kageha native: {ts, kind, step, ...rest as data}
+                    ts = raw.get("timestamp") or raw.get("ts") or 0
+                    kind = raw.get("kind", "unknown")
+                    step = raw.get("step", 0)
+                    # Everything except ts/kind/step goes into data
+                    data = raw.get("data") or {
+                        k: v for k, v in raw.items()
+                        if k not in ("ts", "timestamp", "kind", "step")
+                    }
                     event = ReplayEvent(
-                        timestamp=raw.get("timestamp", 0),
-                        kind=raw.get("kind", "unknown"),
-                        step=raw.get("step", 0),
-                        data=raw.get("data", {}),
+                        timestamp=float(ts),
+                        kind=kind,
+                        step=step,
+                        data=data if isinstance(data, dict) else {},
                     )
                     timeline.events.append(event)
-                except (json.JSONDecodeError, KeyError):
+                except (json.JSONDecodeError, KeyError, ValueError):
                     continue
     except OSError:
         return None
