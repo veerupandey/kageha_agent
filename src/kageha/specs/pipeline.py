@@ -11,7 +11,6 @@ from typing import Any
 from kageha.models.base import ChatMessage
 from kageha.models.router import ModelRouter
 from kageha.specs.models import (
-    GateStatus,
     SpecStage,
     SpecState,
     SpecTask,

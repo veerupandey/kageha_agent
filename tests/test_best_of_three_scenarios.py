@@ -149,7 +149,7 @@ def test_scenario_durable_job_subprocess(tmp_path: Path, monkeypatch):
     assert job.status == "queued"
     assert (jobs_dir() / f"{job.id}.json").is_file()
     # Simulate worker completion marker path
-    from kageha.project.async_jobs import JobRecord, _notify, save_job
+    from kageha.project.async_jobs import _notify, save_job
 
     job.status = "success"
     job.message = "done https://github.com/acme/repo/pull/9"

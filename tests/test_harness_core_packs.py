@@ -127,6 +127,7 @@ def test_core_pack_set_frozen():
             "subagent",
             "research",
             "nano_banana",
+            "voice",
         }
     )
     # Device control must never return as optional harness packs.

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { CanvasItem } from "../../lib/artifactMedia";
 import { useAppStore } from "../../store";
 import { LightboxPreview } from "./LightboxPreview";
@@ -10,8 +10,14 @@ interface ArtifactLightboxProps {
   onNavigate: (direction: "prev" | "next") => void;
 }
 
+const FOCUSABLE_SELECTOR =
+  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 export function ArtifactLightbox({ itemPath, onClose, onNavigate }: ArtifactLightboxProps) {
   const canvasItems = useAppStore((s) => s.canvasItems);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const item: CanvasItem | undefined = useMemo(
     () => canvasItems.find((i) => i.path === itemPath),
@@ -23,12 +29,37 @@ export function ArtifactLightbox({ itemPath, onClose, onNavigate }: ArtifactLigh
       if (e.key === "Escape") {
         e.preventDefault();
         onClose();
-      } else if (e.key === "ArrowLeft") {
+        return;
+      }
+      if (e.key === "ArrowLeft") {
         e.preventDefault();
         onNavigate("prev");
-      } else if (e.key === "ArrowRight") {
+        return;
+      }
+      if (e.key === "ArrowRight") {
         e.preventDefault();
         onNavigate("next");
+        return;
+      }
+      if (e.key !== "Tab") return;
+      // Focus trap: keep Tab/Shift+Tab cycling within the lightbox.
+      const container = containerRef.current;
+      if (!container) return;
+      const focusable = Array.from(
+        container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      ).filter((el) => !el.hasAttribute("disabled"));
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (active === first || !container.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (active === last || !container.contains(active)) {
+        e.preventDefault();
+        first.focus();
       }
     },
     [onClose, onNavigate],
@@ -36,11 +67,39 @@ export function ArtifactLightbox({ itemPath, onClose, onNavigate }: ArtifactLigh
 
   useEffect(() => {
     if (!itemPath) return;
+    previouslyFocused.current = document.activeElement as HTMLElement | null;
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    // Move focus into the dialog once it mounts.
+    const container = containerRef.current;
+    const first = container?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+    first?.focus();
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      previouslyFocused.current?.focus();
+    };
   }, [itemPath, handleKeyDown]);
 
   if (!itemPath || !item) return null;
+
+  const SWIPE_THRESHOLD_PX = 50;
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (t) touchStartRef.current = { x: t.clientX, y: t.clientY };
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    // Horizontal swipes only — ignore vertical scroll gestures.
+    if (Math.abs(dx) < SWIPE_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return;
+    onNavigate(dx < 0 ? "next" : "prev");
+  };
 
   return (
     <div
@@ -52,7 +111,12 @@ export function ArtifactLightbox({ itemPath, onClose, onNavigate }: ArtifactLigh
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="ka-lightbox">
+      <div
+        className="ka-lightbox"
+        ref={containerRef}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         {/* Close button */}
         <button
           type="button"

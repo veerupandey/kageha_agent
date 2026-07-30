@@ -163,7 +163,7 @@ class SessionTimeline:
             # Step separator
             if event.step != current_step:
                 current_step = event.step
-                lines.append(f"")
+                lines.append("")
                 lines.append(f"  ═══ Step {current_step} ═══")
 
             lines.append(event.render_compact(width))

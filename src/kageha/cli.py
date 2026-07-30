@@ -43,6 +43,7 @@ computer_app = typer.Typer(
     help="macOS computer-use (/computer in chat)",
     invoke_without_command=True,
 )
+eval_app = typer.Typer(help="Golden/adversarial evaluation harness")
 app.add_typer(models_app, name="models")
 models_app.add_typer(models_auth_app, name="auth")
 app.add_typer(skills_app, name="skills")
@@ -54,6 +55,7 @@ app.add_typer(jobs_app, name="jobs")
 app.add_typer(project_app, name="project")
 app.add_typer(browser_app, name="browser")
 app.add_typer(computer_app, name="computer")
+app.add_typer(eval_app, name="eval")
 
 
 @app.callback()
@@ -594,6 +596,123 @@ def memory_fetch(target: str = typer.Argument(..., help="memory or episode id"))
 
 
 # --- durable runtime ---
+
+
+@eval_app.command("run")
+def eval_run_cmd(
+    suite: str = typer.Option(
+        "golden", "--suite", help="Suite to run: golden|adversarial"
+    ),
+    repeat: int = typer.Option(
+        1, "--repeat", help="Repeat count (adversarial suite always uses 3 regardless)"
+    ),
+    path: Optional[str] = typer.Option(
+        None, "--path", help="Golden task JSON path (golden suite only)"
+    ),
+) -> None:
+    """Execute a golden or adversarial suite and store results."""
+    from kageha.runtime import RuntimeStore
+
+    store = RuntimeStore()
+    try:
+        if suite == "adversarial":
+            from kageha.eval.adversarial import run_adversarial_suite
+
+            summary = asyncio.run(run_adversarial_suite(store=store))
+            typer.echo(json.dumps(summary, indent=2, default=str))
+        elif suite == "golden":
+            from kageha.eval.harness import run_environment, run_suite, summary as golden_summary
+
+            if not path:
+                typer.echo("--path is required for --suite golden", err=True)
+                raise typer.Exit(code=1)
+            results = asyncio.run(run_suite(Path(path)))
+            summary_data = golden_summary(results)
+            environment = run_environment()
+            store.record_benchmark(
+                suite="golden",
+                configuration={"path": path, "repeat": repeat},
+                environment=environment,
+                metrics=summary_data,
+                status="ok" if summary_data["failed"] == 0 else "failed",
+            )
+            typer.echo(json.dumps(summary_data, indent=2, default=str))
+        else:
+            typer.echo(f"unknown suite: {suite} (expected golden|adversarial)", err=True)
+            raise typer.Exit(code=1)
+    finally:
+        store.close()
+
+
+@eval_app.command("compare")
+def eval_compare_cmd(
+    run_id_a: str = typer.Argument(..., help="First benchmark run id"),
+    run_id_b: str = typer.Argument(..., help="Second benchmark run id"),
+) -> None:
+    """Diff pass rates and false-success counts between two stored benchmark runs."""
+    from kageha.runtime import RuntimeStore
+
+    store = RuntimeStore()
+    try:
+        with store._lock:  # noqa: SLF001
+            row_a = store._conn.execute(  # noqa: SLF001
+                "SELECT * FROM benchmark_runs WHERE id=?", (run_id_a,)
+            ).fetchone()
+            row_b = store._conn.execute(  # noqa: SLF001
+                "SELECT * FROM benchmark_runs WHERE id=?", (run_id_b,)
+            ).fetchone()
+        if row_a is None or row_b is None:
+            typer.echo("one or both run ids were not found", err=True)
+            raise typer.Exit(code=1)
+        metrics_a = json.loads(row_a["metrics_json"])
+        metrics_b = json.loads(row_b["metrics_json"])
+        comparison = {
+            "run_a": run_id_a,
+            "run_b": run_id_b,
+            "metrics_a": metrics_a,
+            "metrics_b": metrics_b,
+            "false_success_delta": (
+                metrics_b.get("false_success_total", 0)
+                - metrics_a.get("false_success_total", 0)
+            ),
+        }
+        typer.echo(json.dumps(comparison, indent=2, default=str))
+    finally:
+        store.close()
+
+
+@eval_app.command("inspect")
+def eval_inspect_cmd(
+    run_id: str = typer.Argument(..., help="Benchmark run id to inspect"),
+) -> None:
+    """Print per-task reasons, evidence digests, and cost for a stored run."""
+    from kageha.runtime import RuntimeStore
+
+    store = RuntimeStore()
+    try:
+        with store._lock:  # noqa: SLF001
+            row = store._conn.execute(  # noqa: SLF001
+                "SELECT * FROM benchmark_runs WHERE id=?", (run_id,)
+            ).fetchone()
+        if row is None:
+            typer.echo(f"unknown benchmark run: {run_id}", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(
+            json.dumps(
+                {
+                    "id": row["id"],
+                    "suite": row["suite"],
+                    "configuration": json.loads(row["configuration_json"]),
+                    "environment": json.loads(row["environment_json"]),
+                    "metrics": json.loads(row["metrics_json"]),
+                    "status": row["status"],
+                },
+                indent=2,
+                default=str,
+            )
+        )
+    finally:
+        store.close()
 
 
 @runtime_app.command("status")

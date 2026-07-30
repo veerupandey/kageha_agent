@@ -26,6 +26,70 @@ class GoldenTask:
     expect_pptx_slides: dict[str, int] = field(default_factory=dict)
     max_usd: float = 0.5
     max_steps: int = 20
+    # Additive contract-aware fields (REL-040, Requirement 16.1) — optional,
+    # never change load_goldens()'s JSON shape for files that omit them.
+    contract_criteria: list[dict[str, Any]] = field(default_factory=list)
+    fixtures: dict[str, Any] = field(default_factory=dict)
+    forbidden_actions: list[str] = field(default_factory=list)
+    expected_terminal_state: str = "success"
+    max_time_s: float = 300.0
+    repeat: int = 1
+
+
+def run_environment() -> dict[str, Any]:
+    """Model identifier, harness config hash, dependency lock digest,
+    platform, and repository commit for one evaluation run (Requirement 16.2).
+    """
+    import hashlib
+    import json as _json
+    import platform as _platform
+    import subprocess
+
+    from kageha.config import project_root
+
+    model_id = ""
+    try:
+        from kageha.models.registry import ModelRegistry
+
+        reg = ModelRegistry.load()
+        model_id = str((reg.roles.get("default") or [""])[0])
+    except Exception:  # noqa: BLE001
+        model_id = ""
+
+    harness_config = {"harness": "eval.harness", "version": 1}
+    config_hash = hashlib.sha256(
+        _json.dumps(harness_config, sort_keys=True).encode()
+    ).hexdigest()[:16]
+
+    lock_digest = ""
+    for lock_name in ("uv.lock", "poetry.lock"):
+        lock_path = project_root() / lock_name
+        if lock_path.is_file():
+            lock_digest = hashlib.sha256(lock_path.read_bytes()).hexdigest()[:16]
+            break
+
+    commit = ""
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=str(project_root()),
+            timeout=5,
+            check=False,
+        )
+        if proc.returncode == 0:
+            commit = proc.stdout.strip()
+    except Exception:  # noqa: BLE001
+        commit = ""
+
+    return {
+        "model_id": model_id,
+        "harness_config_hash": config_hash,
+        "dependency_lock_digest": lock_digest,
+        "platform": _platform.platform(),
+        "commit": commit,
+    }
 
 
 @dataclass

@@ -34,7 +34,7 @@ def store(tmp_path: Path) -> RuntimeStore:
 
 def test_runtime_store_uses_wal_and_all_canonical_tables(store: RuntimeStore):
     status = store.status()
-    assert status["schema_version"] == 1
+    assert status["schema_version"] == 2
     assert status["wal"] is True
     assert status["counts"] == {
         "sessions": 0,

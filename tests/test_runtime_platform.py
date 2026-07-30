@@ -686,7 +686,7 @@ def test_runtime_schema_rebuilds_divergent_versions(tmp_path: Path):
     conn.close()
     rebuilt = RuntimeStore(path)
     try:
-        assert rebuilt.status()["schema_version"] == 1
+        assert rebuilt.status()["schema_version"] == 2
         cols = {
             row[1]
             for row in rebuilt._conn.execute("PRAGMA table_info(sessions)")  # noqa: SLF001

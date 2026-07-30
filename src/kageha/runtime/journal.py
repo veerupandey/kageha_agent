@@ -363,3 +363,59 @@ class ToolJournal:
             payload=payload,
             idempotency_key=f"tool-complete:{attempt_id}",
         )
+        self._emit_command_evidence(
+            attempt_id=attempt_id,
+            tool_name=completed.tool_name,
+            args=args,
+            status=status,
+            result=result,
+        )
+
+    def _emit_command_evidence(
+        self,
+        *,
+        attempt_id: str,
+        tool_name: str,
+        args: dict[str, Any],
+        status: str,
+        result: str,
+    ) -> None:
+        """Emit one EvidenceRecord per completed command-shaped tool call
+        (REL-021.2) — command, workspace-relative cwd, exit status, bounded
+        digest of stdout/stderr. Best-effort: never raises into the caller.
+        """
+        name = str(tool_name or "")
+        if name not in {"bash", "shell", "run_command", "exec"}:
+            return
+        try:
+            import hashlib
+
+            from kageha.verification.evidence import EvidenceCertainty, EvidenceRecord, EvidenceSource
+
+            command = str(args.get("command") or args.get("cmd") or "")
+            cwd = str(args.get("cwd") or args.get("workdir") or "")
+            bounded = str(result or "")[:4000]
+            digest = hashlib.sha256(bounded.encode("utf-8", errors="replace")).hexdigest()
+            certainty = (
+                EvidenceCertainty.VERIFIED
+                if status == "ok"
+                else EvidenceCertainty.UNVERIFIABLE
+            )
+            record = EvidenceRecord.new(
+                session_id=self.session_id,
+                turn_id=self.turn_id,
+                criterion_id="",
+                source=EvidenceSource.COMMAND_OUTPUT,
+                source_ref=command[:500],
+                digest=digest,
+                certainty=certainty,
+                producer="command_tool",
+                tool_attempt_id=attempt_id,
+                metadata={"cwd": cwd, "status": status},
+            )
+            from kageha.verification.evidence import EvidenceLedger
+
+            EvidenceLedger(self.store).append(record)
+        except Exception:  # noqa: BLE001
+            # Evidence emission must never break tool execution.
+            pass

@@ -20,7 +20,29 @@ number and Requirements clause. Unit tests from the design's Testing
 Strategy section are included as sub-tasks. Test-related sub-tasks are
 marked optional with `*` and are not implemented by the coding agent.
 
-## Tasks
+## Status (2026-07-30)
+
+Implementation subtasks are checked off below. Read these caveats before treating the
+checklist as a completion certificate:
+
+- **Property/unit test subtasks (`Write property test …`, `Write unit test …`) are NOT
+  implemented.** The spec marks them optional (`*`) and instructs the coding agent not to
+  implement them. Verification was done instead via direct integration smoke tests and the
+  existing pytest suite (959 passing). The named Hypothesis properties (Property 1–39) do
+  not exist as code.
+- **REL-043 (release gates, task 27) is NOT satisfied.** The full 90-run adversarial gate
+  was not executed, and both qualification commands currently exit non-zero due to 6
+  pre-existing test failures unrelated to this milestone. See
+  [`docs/ARCHITECTURE.md`](../../../docs/ARCHITECTURE.md) → "Release gate status".
+- **Two design deviations**, both documented in `docs/ARCHITECTURE.md` → Known limitations:
+  mid-loop verification approximates milestone scoping (no `PlanStage` → `SuccessCriterion`
+  mapping exists in the codebase), and `verify_with_defects` still runs alongside the
+  `VerificationEngine` rather than being fully retired by it.
+- **What is genuinely live and verified end-to-end against a real model:** contract
+  compilation at turn intake, semantic completion by the planner, evidence persistence
+  (artifact digests + model judgment), mid-loop and final verification, and the additive
+  DB migration.
+
 
 - [ ] 1. Fail-closed ApprovalGate wiring (REL-001)
   - [x] 1.1 Make `LoopController` fail closed by default
@@ -86,13 +108,13 @@ marked optional with `*` and are not implemented by the coding agent.
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 5. TaskContract model and element types (REL-010)
-  - [ ] 5.1 Create `kageha/contract/models.py` with all TaskContract element types
+  - [x] 5.1 Create `kageha/contract/models.py` with all TaskContract element types
     - Implement `ConstraintSource`, `ContractStatus`, `Constraint`, `RequirementKind`, `Requirement`, `Deliverable`, `VerifierKind`, `VerifierSpec`, `SuccessCriterion`, `PermissionEnvelope`, `ResourceBudget`, and `TaskContract` exactly as specified in the design, with `schema_version=1` and `compiler_source` field
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
-  - [ ] 5.2 Implement per-field ResourceBudget resolution
+  - [x] 5.2 Implement per-field ResourceBudget resolution
     - Implement the `min(default, requested)` per-field resolution rule for `max_steps`, `max_usd`, `max_time_s`, defaulting to `config.max_steps()`/`config.max_usd()` when no request value is supplied
     - _Requirements: 5.4, 5.5_
-  - [ ] 5.3 Create `kageha/contract/convert.py` compatibility bridge
+  - [x] 5.3 Create `kageha/contract/convert.py` compatibility bridge
     - Implement `to_goal_card(contract)` mapping each `SuccessCriterion` to one `GoalItem` (`id`, `description`, `passes=False`), preserving `GoalCard.all_passed()`/`progress()`/`to_markdown()` behavior
     - Implement `to_task_state_deliverables(contract)` and `to_task_state_constraints(contract)`
     - _Requirements: 1.3, 5.6_
@@ -110,17 +132,17 @@ marked optional with `*` and are not implemented by the coding agent.
     - **Validates: Requirements 5.4, 5.5**
 
 - [ ] 6. Deterministic contract extraction (REL-011)
-  - [ ] 6.1 Implement `Deterministic_Extractor` in `kageha/contract/extractor.py`
+  - [x] 6.1 Implement `Deterministic_Extractor` in `kageha/contract/extractor.py`
     - Extend the existing regex families from `runtime/validators.compile_requirements()` (slide/page counts, citations, browser outcome) with filename, dimensions, test-command, and explicit-prohibition patterns
     - Return typed `Requirement` entries with the correct `RequirementKind`
     - _Requirements: 6.1_
-  - [ ] 6.2 Implement contradiction detection
+  - [x] 6.2 Implement contradiction detection
     - When two explicit `Requirement` entries share a `kind` but have conflicting `value`s, mark both `status=UNRESOLVED` with mutual `contradicts` references instead of dropping or preferring one
     - _Requirements: 6.3_
-  - [ ] 6.3 Enforce continuous unresolved enforcement
+  - [x] 6.3 Enforce continuous unresolved enforcement
     - Ensure the Contract_Compiler and downstream steps check `status == UNRESOLVED` and never auto-resolve a contradictory pair without an explicit user-clarification event that the extractor recognizes as resolving that specific pair
     - _Requirements: 6.4_
-  - [ ] 6.4 Convert `compile_requirements()` into a thin compatibility adapter
+  - [x] 6.4 Convert `compile_requirements()` into a thin compatibility adapter
     - Rewrite `runtime/validators.compile_requirements()` to call `Deterministic_Extractor.extract()` and project the result into the existing flat dict shape (`{"slides": int, "citations": bool, ...}`)
     - _Requirements: 6.2_
   - [ ] 6.5 Write property test for deterministic extraction coverage
@@ -134,18 +156,18 @@ marked optional with `*` and are not implemented by the coding agent.
     - **Validates: Requirements 6.3, 6.4**
 
 - [ ] 7. Semantic contract completion (REL-012)
-  - [ ] 7.1 Implement `Semantic_Completion_Service` in `kageha/contract/semantic.py`
+  - [x] 7.1 Implement `Semantic_Completion_Service` in `kageha/contract/semantic.py`
     - Send the deterministic draft contract to the planner model using structured output via `ModelRouter.chat(role="planning")`, matching the `loop/planner.make_plan` pattern
     - _Requirements: 7.1_
-  - [ ] 7.2 Implement additive merge and rejection rules
+  - [x] 7.2 Implement additive merge and rejection rules
     - Merge additive `SuccessCriterion`/`Constraint` entries with `source=SEMANTIC`
     - Reject (drop only) any single entry that deletes or weakens an `EXPLICIT`- or `DETERMINISTIC`-sourced entry
     - Validate each new entry's id, dependency ids, `VerifierSpec.kind` availability, and budget values before acceptance; drop only the individually invalid entry, not the whole response
     - _Requirements: 7.2, 7.3, 7.4, 7.6_
-  - [ ] 7.3 Implement fallback on planner failure or invalid schema
+  - [x] 7.3 Implement fallback on planner failure or invalid schema
     - Catch planner call exceptions and schema validation errors; return the deterministic draft unchanged with `compiler_source="deterministic_fallback"` without blocking the turn
     - _Requirements: 7.5_
-  - [ ] 7.4 Skip planner call for trivial/lookup turns
+  - [x] 7.4 Skip planner call for trivial/lookup turns
     - Reuse `loop/verifier.is_lookup_status_text` plus a trivial-conversation check to skip the `Semantic_Completion_Service` call for trivial chat, simple lookup, or status requests
     - _Requirements: 7.7_
   - [ ] 7.5 Write property test for additive/selective semantic merge
@@ -156,7 +178,7 @@ marked optional with `*` and are not implemented by the coding agent.
     - **Validates: Requirements 7.5**
 
 - [ ] 8. Contract_Compiler orchestration and trivial-turn classification (REL-010, REL-012)
-  - [ ] 8.1 Implement `ContractCompiler` in `kageha/contract/compiler.py`
+  - [x] 8.1 Implement `ContractCompiler` in `kageha/contract/compiler.py`
     - Implement `compile(objective, session_id, turn_id, default_budget)` orchestrating classification, deterministic extraction, draft assembly, semantic completion, and budget resolution as specified in the design
     - Return `None` for trivial/lookup turns so the caller keeps building `GoalCard.from_task()` directly
     - _Requirements: 1.2, 1.8, 7.7_
@@ -168,21 +190,21 @@ marked optional with `*` and are not implemented by the coding agent.
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 10. Persist and expose TaskContracts (REL-013)
-  - [ ] 10.1 Add additive `task_contracts` table and migration to `RuntimeStore`
+  - [x] 10.1 Add additive `task_contracts` table and migration to `RuntimeStore`
     - In `kageha/runtime/store.py`, bump `SCHEMA_VERSION` from 1 to 2 and add a dedicated `version == 1` migration branch that runs `CREATE TABLE IF NOT EXISTS task_contracts (...)` and `PRAGMA user_version=2` without touching existing tables
     - Ensure the pre-existing "rebuild when version diverges" branch continues to fire only for `version == 0`
     - _Requirements: 8.1, 8.4, 1.9_
-  - [ ] 10.2 Implement `put_task_contract` / `get_task_contract`
+  - [x] 10.2 Implement `put_task_contract` / `get_task_contract`
     - Add `RuntimeStore.put_task_contract(contract)` and `RuntimeStore.get_task_contract(session_id, turn_id)` keyed by session ID and turn ID, serializing/deserializing the `TaskContract` as JSON
     - Treat a missing contract row as "no contract" rather than an error
     - _Requirements: 8.1, 1.5_
-  - [ ] 10.3 Include contract summaries in accepted/planned events
+  - [x] 10.3 Include contract summaries in accepted/planned events
     - When a TaskContract is accepted or planned, include the contract version and criterion summaries in the corresponding accepted/planned event payload (additive fields only)
     - _Requirements: 8.2_
-  - [ ] 10.4 Restore TaskContract on replay/resume
+  - [x] 10.4 Restore TaskContract on replay/resume
     - Ensure session replay/resume paths call `get_task_contract` to restore the TaskContract associated with each turn
     - _Requirements: 8.3_
-  - [ ] 10.5 Compile a contract for a contract-less session's next executable turn
+  - [x] 10.5 Compile a contract for a contract-less session's next executable turn
     - In the turn-intake path, when a session's most recent turn has no persisted TaskContract and the next turn is executable, compile a TaskContract before execution proceeds
     - _Requirements: 1.7_
   - [ ] 10.6 Write property test for TaskContract persistence round-trip
@@ -208,17 +230,17 @@ marked optional with `*` and are not implemented by the coding agent.
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 12. The Evidence_Ledger (REL-020)
-  - [ ] 12.1 Create `EvidenceRecord`, `EvidenceSource`, `EvidenceCertainty` types
+  - [x] 12.1 Create `EvidenceRecord`, `EvidenceSource`, `EvidenceCertainty` types
     - Implement in `kageha/verification/evidence.py` exactly as specified in the design (id, session_id, turn_id, criterion_id, tool_attempt_id, artifact_path, source, source_ref, timestamp, digest, certainty, producer, metadata, probe)
     - _Requirements: 9.2_
-  - [ ] 12.2 Add additive `evidence_records` table to `RuntimeStore`
+  - [x] 12.2 Add additive `evidence_records` table to `RuntimeStore`
     - Extend the same `version == 1 → 2` migration branch from task 10.1 to also create `evidence_records` and its `evidence_records_criterion` index
     - Add `RuntimeStore.append_evidence(record)` and `RuntimeStore.evidence_for_turn(session_id, turn_id)`, with no `UPDATE`/`DELETE` path exposed (immutability by construction)
     - _Requirements: 9.1_
-  - [ ] 12.3 Implement `EvidenceLedger`
+  - [x] 12.3 Implement `EvidenceLedger`
     - Implement `EvidenceLedger.append()` (runs every string field through `kageha.obs.events.redact()` before INSERT, rejects duplicate ids rather than overwriting), `for_criterion()`, and `for_turn()`
     - _Requirements: 9.1, 9.4_
-  - [ ] 12.4 Implement staleness handling
+  - [x] 12.4 Implement staleness handling
     - In verification-context evidence lookups, treat any `EvidenceRecord` whose `turn_id` differs from the turn currently being verified as `certainty=STALE` context unless a fresh record in the current turn references it via `metadata={"reconfirms": old_id}`
     - _Requirements: 9.3_
   - [ ] 12.5 Write property test for evidence ledger round-trip and immutability
@@ -232,10 +254,10 @@ marked optional with `*` and are not implemented by the coding agent.
     - **Validates: Requirements 9.4**
 
 - [ ] 13. Convert runtime observations into evidence (REL-021)
-  - [ ] 13.1 Add `to_evidence()` to artifact validators
+  - [x] 13.1 Add `to_evidence()` to artifact validators
     - In `kageha/runtime/validators.py`, add `to_evidence(check)` to `FileValidator`, `PDFValidator`, `PowerPointValidator`, etc., capturing a sha256 digest and existing structural fields (page/slide counts, dimensions)
     - _Requirements: 10.1_
-  - [ ] 13.2 Add evidence hook to `ToolJournal.after()`
+  - [x] 13.2 Add evidence hook to `ToolJournal.after()`
     - Emit one `EvidenceRecord` per completed command-shaped tool call, carrying the command, workspace-relative cwd, exit status, and a bounded digest of stdout/stderr
     - _Requirements: 10.2_
   - [ ] 13.3 Require post-action probes for browser/computer mutation evidence
@@ -255,10 +277,10 @@ marked optional with `*` and are not implemented by the coding agent.
     - **Validates: Requirements 10.5, 10.6**
 
 - [ ] 14. Preserve compatibility evidence (REL-022)
-  - [ ] 14.1 Implement `render_evidence_text()` projection
+  - [x] 14.1 Implement `render_evidence_text()` projection
     - Add a pure `render_evidence_text(records: list[EvidenceRecord]) -> str` function; derive `RunResult.verification_evidence` and `TaskState` tool-result notes from `EvidenceLedger.for_turn()` exclusively via this function
     - _Requirements: 11.1, 11.2_
-  - [ ] 14.2 Add additive `evidence` array to event payloads
+  - [x] 14.2 Add additive `evidence` array to event payloads
     - Add an additive `evidence` array (`[{"criterion_id", "source", "certainty", "digest"}, ...]`) to relevant runtime events alongside existing string fields
     - _Requirements: 11.3_
   - [ ] 14.3 Write property test for legacy evidence as a pure projection
@@ -269,22 +291,22 @@ marked optional with `*` and are not implemented by the coding agent.
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 16. VerificationEngine as sole authority (REL-030)
-  - [ ] 16.1 Define `CriterionStatus`, `VerificationDefect`, `CriterionVerdict`, `VerificationReport` types
+  - [x] 16.1 Define `CriterionStatus`, `VerificationDefect`, `CriterionVerdict`, `VerificationReport` types
     - Implement in `kageha/verification/engine.py` exactly as specified in the design, including `VerificationReport.success` computed from the required-only rule
     - _Requirements: 12.1_
-  - [ ] 16.2 Define the `Verifier` protocol and `VerificationEngine.verify()`
+  - [x] 16.2 Define the `Verifier` protocol and `VerificationEngine.verify()`
     - Implement `Verifier` protocol and `VerificationEngine.__init__(ledger, verifiers)` / `verify(contract, criterion_ids, ctx)`, supporting `criterion_ids=None` (verify all) and a scoped subset
     - _Requirements: 12.1_
-  - [ ] 16.3 Implement `DeterministicPostconditionVerifier`
+  - [x] 16.3 Implement `DeterministicPostconditionVerifier`
     - Wrap `verifier_agent.py`'s `check_files_exist` / `check_python_syntax` / `check_tests` / `check_lint` functions individually (not via `run_deterministic_verification`, which is not called in production)
     - _Requirements: 12.3_
-  - [ ] 16.4 Implement `ArtifactCheckVerifier`
+  - [x] 16.4 Implement `ArtifactCheckVerifier`
     - Wrap `runtime/validators.ValidatorRegistry`; convert `validate_result()` into a thin adapter that calls `VerificationEngine.verify()` and reshapes the `VerificationReport` back into the existing `VerificationResult` dataclass shape
     - _Requirements: 12.2, 15.1_
-  - [ ] 16.5 Implement `SemanticJudgmentVerifier`
+  - [x] 16.5 Implement `SemanticJudgmentVerifier`
     - Wrap `loop/verifier.verify_with_defects` unchanged, adapted to return a `CriterionVerdict`
     - _Requirements: 12.2_
-  - [ ] 16.6 Implement fixed three-stage precedence
+  - [x] 16.6 Implement fixed three-stage precedence
     - Ensure `verify()`'s per-criterion loop always runs all three stages in order, always records all three `stage_results`, and sets final `status=FAIL` when the deterministic stage fails regardless of the semantic stage's result
     - _Requirements: 12.4, 12.5_
   - [ ] 16.7 Write property test for legacy check adaptation parity
@@ -295,19 +317,19 @@ marked optional with `*` and are not implemented by the coding agent.
     - **Validates: Requirements 12.4, 12.5**
 
 - [ ] 17. Move deterministic validation inside the controller (REL-031)
-  - [ ] 17.1 Wire milestone-scoped verification into `LoopController.run`
+  - [x] 17.1 Wire milestone-scoped verification into `LoopController.run`
     - Replace the current single `verify_with_defects` milestone call with `engine.verify(contract, criterion_ids=milestone_criteria, ctx=...)` when a `PlanStage` transitions to `DONE`
     - _Requirements: 13.1_
-  - [ ] 17.2 Wire completion-claim verification
+  - [x] 17.2 Wire completion-claim verification
     - Where the loop calls `verify_with_defects(goal, ...)` after `model_said_done`, call `engine.verify(contract, criterion_ids=None, ctx=...)` covering all required criteria instead
     - _Requirements: 13.2_
-  - [ ] 17.3 Feed failing required criteria into the existing repair/replan path
+  - [x] 17.3 Feed failing required criteria into the existing repair/replan path
     - Append each required, failed `CriterionVerdict.defect` into `task_state.failures`/`Defect` exactly as `verify.snapshot.defects` does today, so `ControlDecision.REPAIR`/`REPLAN_STAGE` needs no change
     - _Requirements: 13.3_
-  - [ ] 17.4 Wire targeted post-repair re-verification
+  - [x] 17.4 Wire targeted post-repair re-verification
     - After a targeted repair, call `engine.verify` scoped to only the repaired criteria, leaving other already-`PASS` verdicts untouched
     - _Requirements: 13.4_
-  - [ ] 17.5 Wire final full verification before reporting success
+  - [x] 17.5 Wire final full verification before reporting success
     - Immediately before `LoopController.run` returns `RunResult` with `status="success"`, run one more `engine.verify(contract, criterion_ids=None, ...)`; set `RunResult.validated` from that report's `.success`
     - Add `contract`, `evidence`, `report` fields to `RunResult` additively, alongside existing `validated`, `verification_evidence`, `verified_facts` fields
     - _Requirements: 13.5, 1.4_
@@ -328,10 +350,10 @@ marked optional with `*` and are not implemented by the coding agent.
     - **Validates: Requirements 13.5**
 
 - [ ] 18. Consume the final VerificationReport in AgentRuntime (REL-031, REL-033)
-  - [ ] 18.1 Simplify `AgentRuntime._execute` to consume the controller's report only
+  - [x] 18.1 Simplify `AgentRuntime._execute` to consume the controller's report only
     - In `kageha/runtime/engine.py`, delete the block computing `result.validated = semantic_passed and deterministic.deterministic_passed`; replace with `result.validated = bool(result.report and result.report.success)`
     - _Requirements: 13.6, 15.2_
-  - [ ] 18.2 Populate the VERIFICATION event from the final report
+  - [x] 18.2 Populate the VERIFICATION event from the final report
     - Populate the `VERIFICATION` event emitted after the controller returns from `result.report` (criteria/defects/evidence ids) instead of a freshly recomputed deterministic result
     - _Requirements: 13.6, 15.2_
   - [ ] 18.3 Write property test for runtime/controller validated-outcome equivalence
@@ -342,7 +364,7 @@ marked optional with `*` and are not implemented by the coding agent.
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 20. Completion semantics (REL-032)
-  - [ ] 20.1 Implement the required/optional success rule in `VerificationReport.success`
+  - [x] 20.1 Implement the required/optional success rule in `VerificationReport.success`
     - Task succeeds iff every `required=True` criterion has `status=PASS` backed by at least one accepted `EvidenceRecord`; an optional criterion may pass without accepted evidence
     - A required criterion left `UNRESOLVED` is treated as not-passing (`BLOCKED`/`FAIL`) for the success determination
     - An optional criterion's failure is included in the final response without excluding the task from success
@@ -368,10 +390,10 @@ marked optional with `*` and are not implemented by the coding agent.
   - [ ] 21.1 Convert remaining compatibility verification functions into thin adapters
     - Ensure every existing compatibility verification function delegates to `VerificationEngine` rather than duplicating pass/fail logic
     - _Requirements: 15.1_
-  - [ ] 21.2 Make runtime post-processing derive pass/fail exclusively from the VerificationReport
+  - [x] 21.2 Make runtime post-processing derive pass/fail exclusively from the VerificationReport
     - Confirm no code path outside `VerificationEngine` independently computes a pass/fail decision for a criterion
     - _Requirements: 15.2_
-  - [ ] 21.3 Implement idempotent verification event emission on replay/resume
+  - [x] 21.3 Implement idempotent verification event emission on replay/resume
     - Derive verification event idempotency keys from `VerificationReport.report_id` (deterministic per `(turn_id, scope, criterion_ids)`); rely on `RuntimeStore.append_event`'s existing `UNIQUE(idempotency_key)` handling to skip duplicate inserts on replay/resume
     - _Requirements: 15.3_
   - [ ] 21.4 Write property test for idempotent replay of verification events
@@ -382,10 +404,10 @@ marked optional with `*` and are not implemented by the coding agent.
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 23. Extend evaluation manifests (REL-040)
-  - [ ] 23.1 Add contract-aware fields to `GoldenTask`
+  - [x] 23.1 Add contract-aware fields to `GoldenTask`
     - In `kageha/eval/harness.py`, add `contract_criteria`, `fixtures`, `forbidden_actions`, `expected_terminal_state`, `max_time_s`, `repeat=1` as additive optional fields to `GoldenTask` without changing any existing field or `load_goldens()`'s JSON shape for files that omit them
     - _Requirements: 16.1, 16.3_
-  - [ ] 23.2 Record run environment metadata
+  - [x] 23.2 Record run environment metadata
     - Implement `run_environment()` returning model identifier, harness configuration hash, dependency lock digest, platform, and repository commit; record these for each evaluation run via `RuntimeStore.record_benchmark()`
     - _Requirements: 16.2_
   - [ ] 23.3 Write property test for manifest field round-trip
@@ -398,22 +420,22 @@ marked optional with `*` and are not implemented by the coding agent.
     - _Requirements: 16.2_
 
 - [ ] 24. Thirty adversarial tasks (REL-041)
-  - [ ] 24.1 Define `AdversarialTask` and `AdversarialRunResult` types
+  - [x] 24.1 Define `AdversarialTask` and `AdversarialRunResult` types
     - Implement in `kageha/eval/adversarial.py` exactly as specified in the design, including `ADVERSARIAL_REPEAT_COUNT = 3`
     - _Requirements: 17.6_
-  - [ ] 24.2 Author six coding adversarial tasks
+  - [x] 24.2 Author six coding adversarial tasks
     - Create `kageha/eval/adversarial_tasks/coding.json` covering tests, forbidden test modification, syntax failure, regression, partial repair, and budget exhaustion, each with a non-empty `false_success_trap`
     - _Requirements: 17.1, 17.6_
-  - [ ] 24.3 Author six artifact adversarial tasks
+  - [x] 24.3 Author six artifact adversarial tasks
     - Create `kageha/eval/adversarial_tasks/artifact.json` covering missing files, empty files, wrong counts, invalid formats, render failure, and subjective unresolved quality, each with a non-empty `false_success_trap`
     - _Requirements: 17.2, 17.6_
-  - [ ] 24.4 Author six browser/computer adversarial tasks
+  - [x] 24.4 Author six browser/computer adversarial tasks
     - Create `kageha/eval/adversarial_tasks/browser.json` covering verified mutation, unverifiable input, stale screenshot, permission denial, partial navigation, and changed UI state, each with a non-empty `false_success_trap`
     - _Requirements: 17.3, 17.6_
-  - [ ] 24.5 Author six research adversarial tasks
+  - [x] 24.5 Author six research adversarial tasks
     - Create `kageha/eval/adversarial_tasks/research.json` covering missing citation, unreachable citation, citation-claim mismatch, stale source, conflicting sources, and incomplete evidence, each with a non-empty `false_success_trap`
     - _Requirements: 17.4, 17.6_
-  - [ ] 24.6 Author six lifecycle adversarial tasks
+  - [x] 24.6 Author six lifecycle adversarial tasks
     - Create `kageha/eval/adversarial_tasks/lifecycle.json` covering interruption, resume, repeated failure, contradictory requirements, impossible task, and stale prior-turn evidence, each with a non-empty `false_success_trap`
     - _Requirements: 17.5, 17.6_
   - [ ] 24.7 Write unit test for the fixed adversarial suite content
@@ -421,11 +443,11 @@ marked optional with `*` and are not implemented by the coding agent.
     - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6_
 
 - [ ] 25. Repeated evaluation and comparison (REL-042)
-  - [ ] 25.1 Implement `run_adversarial_suite()`
+  - [x] 25.1 Implement `run_adversarial_suite()`
     - Run each `AdversarialTask` exactly `ADVERSARIAL_REPEAT_COUNT` (3) times per configuration regardless of `task.repeat`, recording outcome classification, cost, latency, steps, and tool-call count for each run
     - Store each run via `RuntimeStore.record_benchmark(suite="adversarial", ...)` plus one aggregate summary per task
     - _Requirements: 18.1, 18.2, 18.3_
-  - [ ] 25.2 Implement the `Evaluation_CLI` `run`/`compare`/`inspect` commands
+  - [x] 25.2 Implement the `Evaluation_CLI` `run`/`compare`/`inspect` commands
     - Mount a new Typer sub-app from `kageha/cli.py` as `kageha eval run|compare|inspect`; `run` executes and stores results, `compare` diffs pass rates and false-success counts between two stored runs, `inspect` prints per-task reasons, evidence digests, and cost
     - _Requirements: 18.4_
   - [ ] 25.3 Write property test for exactly-three-iterations enforcement
@@ -462,24 +484,24 @@ marked optional with `*` and are not implemented by the coding agent.
     - _Requirements: 19.5, 4.6_
 
 - [ ] 28. Reconcile architecture documentation (REL-050)
-  - [ ] 28.1 Update architecture documentation to remove stale absence claims
+  - [x] 28.1 Update architecture documentation to remove stale absence claims
     - Replace stale claims in the project's architecture documentation that verifier agents, specs, tracing, and replay are absent
     - _Requirements: 20.1_
-  - [ ] 28.2 Document integrated vs. experimental component status
+  - [x] 28.2 Document integrated vs. experimental component status
     - Add a section documenting which components (Contract_Compiler, Evidence_Ledger, VerificationEngine, evaluation harness extensions, etc.) are integrated versus experimental
     - _Requirements: 20.2_
-  - [ ] 28.3 Document the contract/evidence/verification lifecycle and qualification commands
+  - [x] 28.3 Document the contract/evidence/verification lifecycle and qualification commands
     - Add a section documenting the TaskContract → Evidence_Ledger → VerificationEngine → repair lifecycle and the Core_Qualification_Command / Full_Qualification_Command
     - _Requirements: 20.3_
 
 - [ ] 29. Migration and operator guidance (REL-051)
-  - [ ] 29.1 Write the Migration_Guide's database migration and compatibility section
+  - [x] 29.1 Write the Migration_Guide's database migration and compatibility section
     - Document the additive database migration (`SCHEMA_VERSION` 1 → 2), old-session behavior (no `task_contracts` row is normal), and the new verification event additions
     - _Requirements: 21.1_
-  - [ ] 29.2 Write the Migration_Guide's troubleshooting section
+  - [x] 29.2 Write the Migration_Guide's troubleshooting section
     - Document failure troubleshooting steps for the new verification spine (e.g. diagnosing `UNRESOLVED` criteria, stale evidence, escalation warnings)
     - _Requirements: 21.2_
-  - [ ] 29.3 Document the direct-replacement nature of the new verifier
+  - [x] 29.3 Document the direct-replacement nature of the new verifier
     - State explicitly that the new verifier is a direct replacement for the prior verification path, with no shadow path or feature flag
     - _Requirements: 21.3_
 

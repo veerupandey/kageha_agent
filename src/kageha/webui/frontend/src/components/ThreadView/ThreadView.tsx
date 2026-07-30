@@ -54,13 +54,16 @@ export function ThreadView({ onOpenLightbox }: ThreadViewProps) {
       />
 
       <div className="flex min-h-0 flex-1">
-        {/* Conversation panel (left) */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col border-r border-[var(--color-line)] lg:max-w-[50%]">
+        {/* Conversation panel (left) — full width on mobile, 60% on tablet,
+            50% on desktop. */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col border-r border-[var(--color-line)] md:max-w-[60%] lg:max-w-[50%]">
           <ConversationPanel />
         </div>
 
-        {/* Right panel: Agent Canvas (live activity) OR Artifact Panel */}
-        <div className="hidden min-h-0 flex-1 flex-col lg:flex">
+        {/* Right panel: Agent Canvas (live activity) OR Artifact Panel.
+            Hidden on mobile (<768px), ~40% on tablet (768–1024px), even
+            split on desktop (>=1024px). */}
+        <div className="hidden min-h-0 flex-1 flex-col md:flex">
           {showAgentCanvas ? (
             <AgentCanvas alwaysShow />
           ) : (

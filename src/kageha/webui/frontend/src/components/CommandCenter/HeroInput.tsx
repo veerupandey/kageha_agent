@@ -1,4 +1,9 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  startMicRecording,
+  stopSpokenReply,
+  transcribeBlob,
+} from "../../lib/voiceClient";
 import { useAppStore } from "../../store";
 
 export function HeroInput() {
@@ -9,7 +14,18 @@ export function HeroInput() {
   const setModelOverride = useAppStore((s) => s.setModelOverride);
   const agentMode = useAppStore((s) => s.agentMode);
   const models = useAppStore((s) => s.models);
+  const sessionId = useAppStore((s) => s.sessionId);
+  const sending = useAppStore((s) => s.sending);
+  const pendingFiles = useAppStore((s) => s.pendingFiles);
+  const addPendingFiles = useAppStore((s) => s.addPendingFiles);
+  const removePendingFile = useAppStore((s) => s.removePendingFile);
+  const showToast = useAppStore((s) => s.showToast);
+
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const micStopRef = useRef<null | (() => Promise<Blob>)>(null);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
 
   const autosize = useCallback(() => {
     const el = inputRef.current;
@@ -22,18 +38,88 @@ export function HeroInput() {
     autosize();
   }, [draft, autosize]);
 
+  const handleMic = useCallback(() => {
+    void (async () => {
+      if (!sessionId) {
+        showToast("Start a thread before using voice input");
+        return;
+      }
+      if (recording && micStopRef.current) {
+        setRecording(false);
+        setTranscribing(true);
+        try {
+          const blob = await micStopRef.current();
+          micStopRef.current = null;
+          const text = await transcribeBlob(sessionId, blob);
+          if (text) {
+            const next = draft.trim() ? `${draft.trim()} ${text}` : text;
+            setDraft(next);
+            await sendMessage(next);
+          } else {
+            showToast("No speech detected");
+          }
+        } catch (err) {
+          showToast(`Mic: ${err instanceof Error ? err.message : err}`);
+        } finally {
+          setTranscribing(false);
+        }
+        return;
+      }
+      try {
+        stopSpokenReply();
+        const rec = await startMicRecording();
+        micStopRef.current = rec.stop;
+        setRecording(true);
+        showToast("Listening… click mic again to send");
+      } catch (err) {
+        showToast(`Mic: ${err instanceof Error ? err.message : err}`);
+      }
+    })();
+  }, [draft, recording, sendMessage, sessionId, setDraft, showToast]);
+
   return (
     <div className="w-full max-w-[640px]">
       <div className="relative rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] shadow-[0_2px_12px_rgba(0,0,0,0.1)] transition-shadow focus-within:border-[var(--color-accent)] focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)]">
+        {pendingFiles.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-4 pt-3">
+            {pendingFiles.map((f, i) => (
+              <span
+                key={`${f.name}-${i}`}
+                className="inline-flex items-center gap-1 rounded-md bg-[var(--color-canvas)] px-2 py-0.5 text-xs text-muted"
+              >
+                {f.name}
+                <button
+                  type="button"
+                  className="text-faint hover:text-ink"
+                  aria-label={`Remove ${f.name}`}
+                  onClick={() => removePendingFile(i)}
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <div className="flex items-end px-4 pt-3 pb-2">
           <button
             type="button"
             className="mb-0.5 mr-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:text-ink"
-            aria-label="Attach"
+            aria-label="Attach files"
             title="Attach files"
+            onClick={() => fileInputRef.current?.click()}
           >
             +
           </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.length) addPendingFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
           <textarea
             ref={inputRef}
             className="max-h-[120px] min-h-[44px] flex-1 resize-none bg-transparent text-[1rem] leading-relaxed text-ink outline-none placeholder:text-faint"
@@ -48,6 +134,19 @@ export function HeroInput() {
               }
             }}
           />
+          <button
+            type="button"
+            className="mb-0.5 ml-2 inline-flex h-8 shrink-0 items-center justify-center rounded-full px-2 text-xs text-muted hover:text-ink disabled:opacity-40"
+            title={
+              recording ? "Stop recording" : "Click to record, click again to send"
+            }
+            aria-label={recording ? "Stop recording" : "Voice input"}
+            aria-pressed={recording}
+            disabled={sending || transcribing}
+            onClick={handleMic}
+          >
+            {transcribing ? "…" : recording ? "■" : "Mic"}
+          </button>
           <button
             type="button"
             className="mb-0.5 ml-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-white transition-opacity hover:opacity-90"

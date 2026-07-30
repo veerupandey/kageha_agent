@@ -9,7 +9,6 @@ prompt having occurred in that test.
 
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 
 import pytest
@@ -18,7 +17,7 @@ from hypothesis import strategies as st
 
 # Import the guard classes directly from conftest so we can test them
 # in isolation without needing the autouse fixture to install them.
-from conftest import StdinGuardState, _GuardedStdin, _GuardedStdinBuffer
+from conftest import StdinGuardState, _GuardedStdin
 
 
 # ---------------------------------------------------------------------------

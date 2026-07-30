@@ -4,6 +4,28 @@
 **Date:** 2026-07-29
 **Scope:** Harness Engineering, Graph Engineering, Loop Engineering — learning from Kiro IDE/CLI and Cursor
 
+> **Status note (2026-07-30):** This document is a point-in-time research snapshot, not
+> living architecture documentation. Several gaps identified in Section 7 below have since
+> been closed. Do not treat the gap analysis as current system status — see
+> [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) for the current, maintained picture of what is
+> integrated versus experimental.
+>
+> Resolved since this snapshot:
+> - **GAP 3 (spec-driven pipeline)** — `.kiro/specs/<feature>/{requirements,design,tasks}.md`
+>   now exists and is used for structured feature work (see this repo's `.kiro/specs/`).
+> - **GAP 5 (verifier not a full agent)** — addressed by `kageha/loop/verifier_agent.py`
+>   (deterministic checks: files exist, syntax, tests, lint) and superseded by the
+>   `VerificationEngine` (`kageha/verification/engine.py`), which runs deterministic,
+>   artifact, and semantic verification stages in fixed order before any LLM judgment counts.
+> - **GAP 8 (no visual session replay)** — a session replay TUI now exists (see git history
+>   `cde2753`).
+> - **GAP 9 (no decision trace)** — the `EvidenceLedger` (`kageha/verification/evidence.py`)
+>   now records structured, reproducible proof (source, certainty, digest) for verification
+>   decisions, in addition to existing OTEL spans/events.
+>
+> Still open: GAP 1 (per-model harness tuning), GAP 2 (cloud/remote execution), GAP 4
+> (dynamic context engineering), GAP 6 (hook event set), GAP 7 (native steering convention).
+
 ---
 
 ## Table of Contents

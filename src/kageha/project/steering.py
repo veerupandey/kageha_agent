@@ -22,7 +22,6 @@ import re
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Any
 
 import yaml
 
