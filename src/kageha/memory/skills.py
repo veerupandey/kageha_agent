@@ -881,11 +881,17 @@ class SkillRegistry:
                     break
 
         if exclusive_primary is not None:
-            # Keep all forced + the exclusive winner (may already be forced).
+            # Keep all forced + the exclusive winner + non-exclusive skills
+            # (non-exclusive skills don't compete with the exclusive group).
+            exclusive_members: set[str] = set()
+            for group in EXCLUSIVE_SKILL_GROUPS:
+                exclusive_members.update(group)
             chosen = [
                 (sc, sk)
                 for sc, sk in selected
-                if sk.name in seen_force or sk.name == exclusive_primary
+                if sk.name in seen_force
+                or sk.name == exclusive_primary
+                or sk.name not in exclusive_members
             ]
         else:
             # Forced + up to `limit` matched (forced don't count against limit).

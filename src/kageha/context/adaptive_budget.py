@@ -115,12 +115,18 @@ class AdaptiveBudget:
         # Complexity adjustment: complex tasks need more history
         if self.complexity > 1.2:
             # Steal from tools/skills for more history
-            steal = int((self.complexity - 1.0) * 1000)
-            tools = max(1500, tools - steal // 2)
-            skills = max(800, skills - steal // 2)
-            history += steal
+            steal_target = int((self.complexity - 1.0) * 1000)
+            # Calculate how much we can actually steal
+            steal_from_tools = min(steal_target // 2, tools - 1500)
+            steal_from_tools = max(0, steal_from_tools)
+            steal_from_skills = min(steal_target // 2, skills - 800)
+            steal_from_skills = max(0, steal_from_skills)
+            actual_steal = steal_from_tools + steal_from_skills
+            tools -= steal_from_tools
+            skills -= steal_from_skills
+            history += actual_steal
 
-        # Plan mode: boost working notes
+        # Plan mode: boost working notes (redistribute, not add)
         if has_plan:
             boost = min(1500, history // 8)
             history -= boost

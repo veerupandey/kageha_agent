@@ -124,6 +124,8 @@ def replan_steering_message(state: TaskState, *, whole_task: bool = False) -> st
 
 
 def switch_tool_steering_message(state: TaskState, *, detail: str = "") -> str:
+    from kageha.loop.tool_guardrails import suggest_alternatives_for_tool
+
     last = state.failures[-1] if state.failures else None
     lines = [
         "[adaptive steer — SWITCH_TOOL]",
@@ -136,6 +138,13 @@ def switch_tool_steering_message(state: TaskState, *, detail: str = "") -> str:
             f"Last failure: {last.action}/{last.kind} — change required: "
             f"{last.required_change or 'switch approach'}"
         )
+        # Inject capability-aware alternatives when available.
+        tool_name = last.action.split("(")[0].split("/")[-1].strip()
+        goal_hint = state.objective[:200] if state.objective else ""
+        alt = suggest_alternatives_for_tool(tool_name, goal_hint=goal_hint)
+        if alt:
+            lines.append("")
+            lines.append(alt)
     return "\n".join(lines)
 
 

@@ -699,6 +699,29 @@ def runtime_metrics(
         store.close()
 
 
+@runtime_app.command("replay")
+def runtime_replay(
+    session_id: Optional[str] = typer.Argument(None, help="Session id (partial match OK)"),
+    last: bool = typer.Option(False, "--last", help="Replay the most recent session"),
+    step: Optional[int] = typer.Option(None, "--step", "-s", help="Show detail for one step (non-interactive)"),
+    static: bool = typer.Option(False, "--static", help="Non-interactive text output (for piping)"),
+    kinds: Optional[str] = typer.Option(None, "--kinds", "-k", help="Comma-separated event kinds to filter"),
+) -> None:
+    """Interactive session replay — browse timeline, tool calls, decisions."""
+    from kageha.obs.replay_tui import render_replay_static, run_replay_tui
+
+    kind_set = set(kinds.split(",")) if kinds else None
+
+    if static or step is not None:
+        output = render_replay_static(
+            session_id, last=last, step=step, kinds=kind_set
+        )
+        typer.echo(output)
+        return
+
+    run_replay_tui(session_id, last=last)
+
+
 @app.command("memory-worker", hidden=True)
 def memory_worker() -> None:
     """Run the persistent memory extraction worker under the supervisor."""

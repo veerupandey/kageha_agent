@@ -46,9 +46,16 @@ Override default with `KAGEHA_NANO_BANANA_MODEL`.
 ## Carousel recipe
 
 1. Download / extract product references → `artifacts/product_*.png`
-2. For each slide: `nano_banana_generate(prompt=…, reference_images=…, aspect_ratio="4:5", filename="artifacts/slide_N.png")`
+2. For each slide: `nano_banana_generate(prompt=…, reference_images=…, aspect_ratio="4:5", filename="artifacts/slide_N.jpg")`
 3. Keep brand palette, typography, and product fidelity consistent across slides
-4. Report the `artifacts/slide_*.png` paths
+4. Report the `artifacts/slide_*.jpg` paths
+
+## Important: file format
+
+**Always use `.jpg` filenames** (not `.png`). The image provider only supports
+JPEG output. If you pass a `.png` filename the call will fail with HTTP 400.
+
+If a generation fails with "image/png is not supported", retry with `.jpg`.
 
 ## Aspect ratios
 
@@ -56,6 +63,25 @@ Override default with `KAGEHA_NANO_BANANA_MODEL`.
 - Story / Reel cover: `9:16`
 - Landscape ad: `16:9`
 
+## Carousel cohesion
+
+When generating multi-slide carousels:
+- Generate slide 1 first, then reference its style in subsequent prompts
+- Include consistent brand elements in every prompt (palette, typography, product)
+- Use `reference_images` with the real product photo for all slides
+- After generating all slides, visually verify they share the same look
+
 ## Requirements
 
 `GEMINI_API_KEY` (paid Gemini API key). Tools return a clear error if missing.
+
+## Observations
+
+- (2026-07-30) Pitfall: bash commands that use Python network libraries may fail because requests is not installed in the sandbox. Prefer first-class tools (web_fetch/browser) or use curl/python stdlib if shell access is needed.
+
+## Refinements
+
+### 2026-07-30
+
+OLD: Use bash/python network libraries to inspect source pages.
+NEW: For source-page inspection, prefer first-class web_fetch/browser tools. If shell access is needed, avoid Python requests; use curl or Python stdlib urllib only. This prevents failures when requests is unavailable in the sandbox.

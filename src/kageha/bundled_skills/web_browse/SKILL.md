@@ -73,3 +73,14 @@ Or set `KAGEHA_BROWSER_MODE=auto` (default) / `comet` / `headless`.
 ## Observations
 
 - (2026-07-27) Default mode is `auto`: Comet CDP when up, else headless — no ECONNREFUSED block.
+
+## Refinements
+
+### 2026-07-29
+
+- Instagram and other login-gated sites: if `web_fetch` redirects to a login
+  page, try `browser_connect(target='auto')` + `browser_open(url)` to access
+  the public profile in a browser session. If login is still required, do not
+  block with `ask_human`; proceed with available public-site findings and note
+  the limitation.
+- (2026-07-29) Pitfall: ask_human can time out when the task is blocked by login-gated Instagram access. Prefer using browser_connect/browser_open to inspect the public Instagram page directly, and if login is still required, avoid asking the human in the same turn; instead continue with the public site findings and note the limitation succinctly.
