@@ -315,6 +315,16 @@ def test_secret_is_redacted_before_runtime_persistence(store: RuntimeStore):
     assert secret not in json.dumps([event.to_dict() for event in store.events(accepted.turn_id)])
 
 
+def test_public_reference_url_survives_runtime_persistence(store: RuntimeStore):
+    url = "https://www.instagram.com/reels/DbX-hGFyjD0/"
+    accepted, snapshot = store.start_turn(
+        TurnRequest(objective=f"inspect reference {url}")
+    )
+
+    assert url in snapshot.objective
+    assert url in json.dumps([event.to_dict() for event in store.events(accepted.turn_id)])
+
+
 def test_channel_queue_deduplicates_and_recovers_stale_claim(store: RuntimeStore):
     queue = DurableChannelQueue("telegram", store)
     first = queue.register_inbound(identity="42", external_id="m1", text="hello")

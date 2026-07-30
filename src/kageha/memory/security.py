@@ -11,10 +11,15 @@ from kageha.memory.models import MemorySensitivity
 
 
 _NAMED_SECRET = re.compile(
-    r"(?i)\b(api[_-]?key|authorization|bearer|access[_-]?token|refresh[_-]?token|"
+    r"(?i)(?<![?&])\b(api[_-]?key|authorization|bearer|access[_-]?token|refresh[_-]?token|"
     r"password|passwd|client[_-]?secret|private[_-]?key)\b\s*[:=]\s*['\"]?([^\s'\"]+)"
 )
 _TOKEN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z0-9_./+=-]{24,}(?![A-Za-z0-9])")
+_URL = re.compile(r"https?://[^\s<>'\"]+", re.IGNORECASE)
+_SENSITIVE_URL_QUERY = re.compile(
+    r"(?i)([?&](?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|"
+    r"signature|sig|x-amz-signature|x-goog-signature)=)([^&#\s]+)"
+)
 _PROMPT_INJECTION = re.compile(
     r"(?i)\b(ignore|disregard|override)\b.{0,30}\b(previous|system|developer|instructions?)\b|"
     r"\b(system prompt|developer message|reveal your prompt|you are now)\b"
@@ -58,6 +63,19 @@ def _looks_like_secret_token(value: str) -> bool:
     return classes >= 3
 
 
+def _inside_public_url(match: re.Match[str], text: str) -> bool:
+    """Return whether a token candidate is wholly contained in an HTTP(S) URL.
+
+    The entropy heuristic otherwise treats complete URLs as credentials because
+    they are long and contain several character classes. Credential-bearing
+    query parameters are handled separately by ``_SENSITIVE_URL_QUERY``.
+    """
+    return any(
+        url.start() <= match.start() and match.end() <= url.end()
+        for url in _URL.finditer(text)
+    )
+
+
 def inspect_memory_text(text: str) -> SecurityResult:
     """Return redacted text and a persistence classification.
 
@@ -72,7 +90,15 @@ def inspect_memory_text(text: str) -> SecurityResult:
         findings.append("named_secret")
         redacted = _NAMED_SECRET.sub(r"\1=[REDACTED]", redacted)
 
-    token_secrets = [m.group(0) for m in _TOKEN.finditer(raw) if _looks_like_secret_token(m.group(0))]
+    if _SENSITIVE_URL_QUERY.search(redacted):
+        findings.append("url_query_secret")
+        redacted = _SENSITIVE_URL_QUERY.sub(r"\1[REDACTED]", redacted)
+
+    token_secrets = [
+        m.group(0)
+        for m in _TOKEN.finditer(raw)
+        if _looks_like_secret_token(m.group(0)) and not _inside_public_url(m, raw)
+    ]
     if token_secrets:
         findings.append("high_entropy_secret")
         for token in token_secrets:
