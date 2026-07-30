@@ -1,5 +1,5 @@
 /**
- * AgentCanvas — HyperAgent-style monitoring panel.
+ * AgentCanvas — Monitoring panel.
  *
  * Three tabs:
  * - Timeline: Live tool calls with expand/collapse, I/O, duration, status
@@ -7,9 +7,9 @@
  * - Stats: Cost, tokens, steps, elapsed time
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CanvasItem } from "../lib/artifactMedia";
-import { artifactDownloadUrl, formatBytes, isPreviewableKind, kindLabel } from "../lib/artifactMedia";
+import { artifactDownloadUrl, kindLabel } from "../lib/artifactMedia";
 import { cn } from "../lib/cn";
 import { useAppStore } from "../store";
 import type { ActivityStep, ToolCard } from "../api/types";
@@ -18,13 +18,6 @@ import type { ActivityStep, ToolCard } from "../api/types";
 // ── Types ──────────────────────────────────────────────────────────────
 
 type CanvasTab = "timeline" | "artifacts" | "stats";
-
-interface TimelineEvent {
-  kind: string;
-  ts: number;
-  step: number;
-  data: Record<string, unknown>;
-}
 
 interface SessionStats {
   steps: number;
@@ -465,9 +458,8 @@ const TAB_CONFIG: { id: CanvasTab; label: string; icon: string }[] = [
   { id: "stats", label: "Stats", icon: "📊" },
 ];
 
-/** HyperAgent-style monitoring canvas with Timeline, Artifacts, and Stats tabs. */
-export function AgentCanvas() {
-  const sessionId = useAppStore((s) => s.sessionId);
+/** Monitoring canvas with Timeline, Artifacts, and Stats tabs. */
+export function AgentCanvas({ alwaysShow }: { alwaysShow?: boolean } = {}) {
   const canvasOpen = useAppStore((s) => s.canvasOpen);
   const setCanvasOpen = useAppStore((s) => s.setCanvasOpen);
   const canvasItems = useAppStore((s) => s.canvasItems);
@@ -486,7 +478,7 @@ export function AgentCanvas() {
     }
   }, [canvasItems.length]);
 
-  if (!canvasOpen) return null;
+  if (!alwaysShow && !canvasOpen) return null;
 
   return (
     <aside
@@ -520,15 +512,17 @@ export function AgentCanvas() {
             </button>
           ))}
         </div>
-        {/* Close */}
-        <button
-          type="button"
-          className="rounded-md px-2 py-1 text-xs text-muted hover:bg-line/70"
-          aria-label="Close canvas"
-          onClick={() => setCanvasOpen(false)}
-        >
-          ✕
-        </button>
+        {/* Close — only show when in old layout (not alwaysShow) */}
+        {!alwaysShow && (
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-xs text-muted hover:bg-line/70"
+            aria-label="Close canvas"
+            onClick={() => setCanvasOpen(false)}
+          >
+            ✕
+          </button>
+        )}
       </header>
 
       {/* Tab Content */}

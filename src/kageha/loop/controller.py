@@ -22,7 +22,7 @@ from kageha.config import (
     post_checkpoint_guard_enabled,
 )
 from kageha.context.assembler import ContextAssembler
-from kageha.harness.approvals import ApprovalGate, cli_approver
+from kageha.harness.approvals import ApprovalGate
 from kageha.harness.router import execute_tool_calls
 from kageha.harness.runtime import HarnessContext
 from kageha.harness.sandbox import SessionWorkspace
@@ -414,9 +414,11 @@ class LoopController:
         self.auto_approve = auto_approve
         # Plan Build gate — independent of tool auto_approve.
         self.auto_build = auto_build
-        # Always keep an approver so elevated / Codex-style Once|Session|Full can ask
-        # even when tool auto_approve is on (require() short-circuits; require_explicit does not).
-        self.approver = approver or cli_approver
+        # Fail closed by default: no construction path silently installs the
+        # interactive CLI approver. Only an explicitly injected approver (e.g.
+        # cli_approver wired in at CLI/REPL entrypoints) can grant approvals;
+        # ApprovalGate._ask() denies (denied_no_approver) when this is None.
+        self.approver = approver
         self.attached_kbs = attached_kbs or []
         self.skill_catalog = skill_catalog
         self.kb_pins = kb_pins

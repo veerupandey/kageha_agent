@@ -9,8 +9,9 @@ export const DEFAULT_PREFS: UserPrefs = {
   defaultAskMode: false,
   defaultAgentMode: "normal",
   reduceMotion: false,
-  theme: "light",
+  theme: "dark",
   voiceReply: false,
+  newUi: true,
 };
 
 const AGENT_MODES: AgentMode[] = ["normal", "plan", "goal"];
@@ -59,6 +60,9 @@ export function loadPrefs(): UserPrefs {
       if (typeof parsed.voiceReply === "boolean") {
         base.voiceReply = parsed.voiceReply;
       }
+      if (typeof parsed.newUi === "boolean") {
+        base.newUi = parsed.newUi;
+      }
     } else {
       const legacy = readLegacyAskMode();
       if (legacy != null) base.defaultAskMode = legacy;
@@ -86,6 +90,13 @@ export function applyPrefsToDocument(prefs: UserPrefs): void {
   const root = document.getElementById("app") || document.documentElement;
   root.setAttribute("data-density", prefs.density);
   root.setAttribute("data-theme", prefs.theme);
+  if (prefs.newUi) {
+    root.setAttribute("data-ui", "kageha");
+    document.documentElement.setAttribute("data-ui", "kageha");
+  } else {
+    root.removeAttribute("data-ui");
+    document.documentElement.removeAttribute("data-ui");
+  }
   if (prefs.reduceMotion) {
     root.setAttribute("data-reduce-motion", "true");
   } else {
@@ -118,6 +129,9 @@ export function mergePrefs(
   if (isTheme(patch.theme)) next.theme = patch.theme;
   if (typeof patch.voiceReply === "boolean") {
     next.voiceReply = patch.voiceReply;
+  }
+  if (typeof patch.newUi === "boolean") {
+    next.newUi = patch.newUi;
   }
   return next;
 }

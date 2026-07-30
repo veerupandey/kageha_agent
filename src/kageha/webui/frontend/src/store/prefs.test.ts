@@ -44,6 +44,7 @@ describe("prefs load/save", () => {
       reduceMotion: true,
       theme: "dark",
       voiceReply: true,
+      newUi: true,
     };
     savePrefs(prefs);
     expect(store.get(PREFS_KEY)).toBeTruthy();

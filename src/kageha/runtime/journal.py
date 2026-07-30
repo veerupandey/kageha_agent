@@ -7,6 +7,7 @@ import re
 import time
 from typing import Any
 
+from kageha.harness.tool_deadlines import tool_deadline_s
 from kageha.runtime.store import RuntimeStore
 from kageha.runtime.types import RunEventKind, ToolReconciliation
 
@@ -260,7 +261,7 @@ class ToolJournal:
             side_effect=side_effect,
             risk_class=risk_class,
             policy_grant=policy_grant,
-            deadline_at=time.time() + self.timeout_s,
+            deadline_at=time.time() + tool_deadline_s(tool_name, self.timeout_s),
         )
         if not created:
             if attempt.state == ToolReconciliation.COMPLETED:

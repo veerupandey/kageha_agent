@@ -244,6 +244,7 @@ def run_cmd(
         catalog = skills.catalog(limit=40)
         durable: Any = None
         try:
+            from kageha.harness.approvals import cli_approver
             from kageha.runtime import AgentRuntime, SecurityProfile, TurnRequest
 
             durable = AgentRuntime()
@@ -262,6 +263,11 @@ def run_cmd(
                 "platform": "cli",
                 "agent_mode": mode,
                 "loop_mode": loop_mode_for(mode),
+                # One-shot CLI is always interactive at the terminal — wire the
+                # interactive approver explicitly (Requirement 2.2). When
+                # auto_approve is set, ApprovalGate.auto_approve short-circuits
+                # before this approver is ever invoked.
+                "approver": cli_approver,
             }
             if resume:
                 result = await durable.execute_resume(

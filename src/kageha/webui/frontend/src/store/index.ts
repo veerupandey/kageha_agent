@@ -41,6 +41,7 @@ import {
   mergePrefs,
   savePrefs,
 } from "./prefs";
+import { reattachToActiveTurn } from "./reattach";
 import { runTurn as runTurnStream } from "./runTurn";
 import {
   applySessionFlagsLocally,
@@ -237,6 +238,13 @@ export const useAppStore = create<AppState>((set, get) => {
       opts,
     );
 
+  const reattach = (
+    sessionId: string,
+    threadId: string,
+    turnId: string,
+    opts: { pendingApproval?: PendingApproval | null } = {},
+  ) =>
+    reattachToActiveTurn({ set, get, updateRun }, sessionId, threadId, turnId, opts);
 
   return {
     sessions: [],
@@ -621,9 +629,11 @@ export const useAppStore = create<AppState>((set, get) => {
           status?: string;
           messages?: Array<{ role: string; text: string }>;
           pending_approval?: PendingApproval | null;
+          active_turn?: { turn_id?: string; status?: string; phase?: string } | null;
         }>(`/api/sessions/${encodeURIComponent(sessionId)}`);
         const messages = mapHistoryMessages(data.messages);
         const threadId = data.thread_id || `web-${data.session_id}`;
+        const turnId = String(data.active_turn?.turn_id || "").trim();
         const run: SessionRun = {
           ...emptyRun(data.session_id, threadId),
           messages,
@@ -648,6 +658,14 @@ export const useAppStore = create<AppState>((set, get) => {
         }));
         await get().refreshSessions();
         void get().refreshArtifacts();
+        // Backend still has this turn running (survived a reload / tab
+        // switch) — reattach and rebuild the live-run UI (Stop button,
+        // activity feed) instead of treating it as finished history.
+        if (turnId) {
+          reattach(data.session_id, threadId, turnId, {
+            pendingApproval: data.pending_approval,
+          });
+        }
       } catch (err) {
         set({
           runStatus: "error",

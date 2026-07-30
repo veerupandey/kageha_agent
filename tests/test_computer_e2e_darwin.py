@@ -28,6 +28,7 @@ _IS_DARWIN = platform.system() == "Darwin"
 _E2E = os.environ.get("KAGEHA_COMPUTER_E2E", "").strip() in {"1", "true", "yes"}
 
 pytestmark = [
+    pytest.mark.live_ui,
     pytest.mark.skipif(not _IS_DARWIN, reason="Darwin-only"),
     pytest.mark.skipif(not _E2E, reason="set KAGEHA_COMPUTER_E2E=1 to run"),
 ]

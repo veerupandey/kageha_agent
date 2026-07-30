@@ -122,6 +122,8 @@ export interface UserPrefs {
   theme: ThemeMode;
   /** Auto-speak assistant replies via Gemini TTS. */
   voiceReply: boolean;
+  /** Enable new canvas UI. */
+  newUi: boolean;
 }
 
 export interface ArtifactEntry {

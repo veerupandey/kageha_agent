@@ -85,3 +85,4 @@ When generating multi-slide carousels:
 
 OLD: Use bash/python network libraries to inspect source pages.
 NEW: For source-page inspection, prefer first-class web_fetch/browser tools. If shell access is needed, avoid Python requests; use curl or Python stdlib urllib only. This prevents failures when requests is unavailable in the sandbox.
+- (2026-07-30) Pitfall: When building multi-scene videos via ffmpeg, rendering each scene to an intermediate ProRes MOV (with zoompan + overlay per scene) exceeds the 120s tool deadline. Fix: prefer a single-pass ffmpeg filter_complex that scales/zooms/overlays all images and xfade-stitches them in ONE command, or render scenes to lightweight PNG frame sequences in parallel. Avoid per-scene ProRes MOV encoding for >6 scenes.

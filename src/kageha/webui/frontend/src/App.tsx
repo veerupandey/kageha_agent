@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { AppShell } from "./components/AppShell";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConnectionBanner } from "./components/ConnectionBanner";
 import { DropOverlay } from "./components/DropOverlay";
@@ -12,6 +13,7 @@ export default function App() {
   const boot = useAppStore((s) => s.boot);
   const addPendingFiles = useAppStore((s) => s.addPendingFiles);
   const setConnectionOnline = useAppStore((s) => s.setConnectionOnline);
+  const newUi = useAppStore((s) => s.prefs.newUi);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [dropping, setDropping] = useState(false);
@@ -116,16 +118,23 @@ export default function App() {
   return (
     <>
       <ConnectionBanner />
-      <div
-        className="flex h-full min-h-0 bg-canvas text-ink"
-        id="app"
-      >
-        <SessionsRail
-          open={sessionsOpen}
-          onClose={() => setSessionsOpen(false)}
-        />
-        <Stage onToggleSessions={() => setSessionsOpen((v) => !v)} />
-      </div>
+
+      {newUi ? (
+        /* New layout */
+        <AppShell />
+      ) : (
+        /* Classic layout */
+        <div
+          className="flex h-full min-h-0 bg-canvas text-ink"
+          id="app"
+        >
+          <SessionsRail
+            open={sessionsOpen}
+            onClose={() => setSessionsOpen(false)}
+          />
+          <Stage onToggleSessions={() => setSessionsOpen((v) => !v)} />
+        </div>
+      )}
 
       <div
         className={cn(

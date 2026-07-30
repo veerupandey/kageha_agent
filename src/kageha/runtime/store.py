@@ -808,6 +808,55 @@ class RuntimeStore:
                 out.append(self._row_tool_attempt(refreshed))
             return out
 
+    def find_expired_in_progress(
+        self, *, now: float | None = None
+    ) -> list[ToolAttempt]:
+        """Tool attempts still IN_PROGRESS whose deadline has passed.
+
+        Scans across *all* sessions — the watchdog's job is to catch attempts
+        orphaned by a crashed/restarted process, which can belong to any
+        session, not just the one currently resuming.
+        """
+        cutoff = now if now is not None else time.time()
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM tool_attempts
+                WHERE state=? AND deadline_at IS NOT NULL AND deadline_at < ?
+                """,
+                (ToolReconciliation.IN_PROGRESS.value, cutoff),
+            ).fetchall()
+            return [self._row_tool_attempt(row) for row in rows]
+
+    def reap_expired_tool_attempt(self, attempt: ToolAttempt) -> ToolAttempt:
+        """Resolve one expired IN_PROGRESS attempt: reads → RETRYABLE, mutations
+        → UNCERTAIN (mirrors ``reconcile_inflight``'s crash-recovery semantics).
+
+        Idempotent against races with a live process: only transitions rows
+        still IN_PROGRESS at the time of update.
+        """
+        state = (
+            ToolReconciliation.RETRYABLE
+            if attempt.side_effect == "read"
+            else ToolReconciliation.UNCERTAIN
+        )
+        now = time.time()
+        with self._lock:
+            self._conn.execute(
+                """
+                UPDATE tool_attempts SET state=?, updated_at=?
+                WHERE id=? AND state=?
+                """,
+                (state.value, now, attempt.id, ToolReconciliation.IN_PROGRESS.value),
+            )
+            row = self._conn.execute(
+                "SELECT * FROM tool_attempts WHERE id=?",
+                (attempt.id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown tool attempt: {attempt.id}")
+            return self._row_tool_attempt(row)
+
     def _row_tool_attempt(self, row: sqlite3.Row) -> ToolAttempt:
         return ToolAttempt(
             id=row["id"],

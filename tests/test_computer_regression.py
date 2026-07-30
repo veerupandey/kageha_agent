@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import platform
 from pathlib import Path
 from types import SimpleNamespace
@@ -415,8 +416,241 @@ def test_computer_type_retries_foreground_then_errors_if_unverifiable(
     asyncio.run(_run())
 
 
+def test_denied_requests_produce_zero_driver_mutations(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    """REL-001 / Req 2.6: denied requests MUST NOT produce completed mutation calls.
+
+    Brief non-mutating driver contact (list_apps, get_window_state) before
+    the block is acceptable, but no mutating call (click, type_text,
+    launch_app, scroll, key, hotkey, etc.) should reach the driver.
+    """
+    import kageha.harness.tools.computer as computer_mod
+    import kageha.harness.tools.computer_allowlist as allow_mod
+    import kageha.harness.tools.computer_driver as driver_mod
+
+    monkeypatch.setenv("KAGEHA_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(computer_mod, "_require_macos", lambda: None)
+    monkeypatch.setattr(driver_mod, "require_macos", lambda: None)
+    monkeypatch.setattr(allow_mod, "get_decision", lambda _bid: None)
+
+    # Track all driver calls with their tool names.
+    driver_calls: list[str] = []
+
+    # Define which driver tools are mutations (state-changing).
+    _MUTATION_TOOLS = frozenset({
+        "click",
+        "type_text",
+        "launch_app",
+        "scroll",
+        "key",
+        "hotkey",
+        "move",
+        "set_value",
+        "drag",
+    })
+
+    async def tracking_call(tool: str, args=None, **kwargs):
+        driver_calls.append(tool)
+        if tool == "list_apps":
+            return {
+                "apps": [
+                    {
+                        "name": "Calculator",
+                        "bundle_id": "com.apple.calculator",
+                        "pid": 42,
+                        "running": True,
+                        "windows": [{"window_id": 7}],
+                    }
+                ]
+            }
+        if tool == "get_window_state":
+            return {
+                "elements": [
+                    {"element_index": 0, "role": "button", "label": "1"},
+                    {"element_index": 1, "role": "button", "label": "2"},
+                ],
+                "tree_markdown": "[element_index 0] button 1\n[element_index 1] button 2",
+            }
+        if tool == "list_windows":
+            return {"windows": [{"window_id": 7}]}
+        # Any mutation call reaching here means the gate failed to block.
+        if tool in _MUTATION_TOOLS:
+            return {"ok": True}
+        raise AssertionError(f"unexpected driver call: {tool}")
+
+    monkeypatch.setattr(driver_mod, "call", tracking_call)
+
+    # Fail-closed: no approver, auto_approve=False
+    ctx = _ctx(tmp_path, auto_approve=False)
+    reg = register_computer_tools(ctx)
+
+    async def _run():
+        # Allow get_state (non-mutating) to bind the session target.
+        st = await reg.get("computer_get_state").call(app="Calculator")
+        assert not st.startswith("ERROR:"), st
+
+        # Record which driver calls happened for get_state (non-mutating only).
+        pre_mutation_calls = list(driver_calls)
+        for c in pre_mutation_calls:
+            assert c not in _MUTATION_TOOLS, (
+                f"Non-mutating get_state produced mutation call: {c}"
+            )
+
+        # Now attempt all mutating tools — all should be DENIED.
+        mutating_attempts = [
+            ("computer_click", {"ref": "e0"}),
+            ("computer_click_sequence", {"refs": "e0,e1"}),
+            ("computer_click_sequence", {"app": "Calculator", "text": "123"}),
+            ("computer_click_sequence", {"app": "Calculator", "labels": "1,2"}),
+            ("computer_type", {"text": "hello"}),
+            ("computer_key", {"key": "escape"}),
+            ("computer_set_value", {"ref": "e0", "value": "9"}),
+            ("computer_scroll", {"direction": "down"}),
+            ("computer_hotkey", {"keys": "command+c"}),
+            ("computer_move", {"x": 100, "y": 100}),
+            ("computer_launch", {"app": "Calculator"}),
+        ]
+
+        for name, kwargs in mutating_attempts:
+            out = await reg.get(name).call(**kwargs)
+            assert out.startswith("DENIED:"), (
+                f"{name} was not denied: {out[:200]}"
+            )
+
+        # Core assertion: filter driver calls to only those after get_state,
+        # and verify ZERO of them are mutation calls.
+        post_getstate_calls = driver_calls[len(pre_mutation_calls):]
+        completed_mutations = [
+            c for c in post_getstate_calls if c in _MUTATION_TOOLS
+        ]
+        assert completed_mutations == [], (
+            f"Expected zero completed mutation calls for denied requests, "
+            f"but driver saw: {completed_mutations}"
+        )
+
+        # Non-mutating calls (list_apps, get_window_state, list_windows) in
+        # the post-getstate phase are acceptable per Req 2.6 — they are
+        # brief non-mutating driver contact before the block.
+        non_mutating_post = [
+            c for c in post_getstate_calls if c not in _MUTATION_TOOLS
+        ]
+        for c in non_mutating_post:
+            assert c in {"list_apps", "get_window_state", "list_windows"}, (
+                f"Unexpected non-mutating driver call: {c}"
+            )
+
+    asyncio.run(_run())
+
+
+def test_denied_requests_zero_mutations_no_prior_get_state(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    """REL-001 / Req 2.6: denied mutations produce zero driver mutations even
+    when no prior get_state has been called (unbound session).
+
+    Verifies the gate blocks before any driver mutation call regardless of
+    whether the session has a bound app/window target.
+    """
+    import kageha.harness.tools.computer as computer_mod
+    import kageha.harness.tools.computer_allowlist as allow_mod
+    import kageha.harness.tools.computer_driver as driver_mod
+
+    monkeypatch.setenv("KAGEHA_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(computer_mod, "_require_macos", lambda: None)
+    monkeypatch.setattr(driver_mod, "require_macos", lambda: None)
+    monkeypatch.setattr(allow_mod, "get_decision", lambda _bid: None)
+
+    driver_calls: list[str] = []
+
+    _MUTATION_TOOLS = frozenset({
+        "click",
+        "type_text",
+        "launch_app",
+        "scroll",
+        "key",
+        "hotkey",
+        "move",
+        "set_value",
+        "drag",
+    })
+
+    async def tracking_call(tool: str, args=None, **kwargs):
+        driver_calls.append(tool)
+        if tool == "list_apps":
+            return {
+                "apps": [
+                    {
+                        "name": "Calculator",
+                        "bundle_id": "com.apple.calculator",
+                        "pid": 42,
+                        "running": True,
+                        "windows": [{"window_id": 7}],
+                    }
+                ]
+            }
+        if tool == "get_window_state":
+            return {
+                "elements": [
+                    {"element_index": 0, "role": "button", "label": "1"},
+                ],
+                "tree_markdown": "[element_index 0] button 1",
+            }
+        if tool == "list_windows":
+            return {"windows": [{"window_id": 7}]}
+        if tool in _MUTATION_TOOLS:
+            return {"ok": True}
+        raise AssertionError(f"unexpected driver call: {tool}")
+
+    monkeypatch.setattr(driver_mod, "call", tracking_call)
+
+    # Fail-closed: no approver, auto_approve=False — no get_state binding.
+    ctx = _ctx(tmp_path, auto_approve=False)
+    reg = register_computer_tools(ctx)
+
+    async def _run():
+        # Attempt mutating calls without prior get_state (unbound session).
+        # These should either return ERROR (unbound target) or DENIED,
+        # but never produce a completed mutation driver call.
+        unbound_attempts = [
+            ("computer_click", {"ref": "e0"}),
+            ("computer_type", {"text": "hello"}),
+            ("computer_key", {"key": "escape"}),
+            ("computer_scroll", {"direction": "down"}),
+            ("computer_hotkey", {"keys": "command+c"}),
+            ("computer_move", {"x": 50, "y": 50}),
+            # launch and click_sequence with app= may contact the driver to
+            # resolve the app, but must not produce any mutation calls.
+            ("computer_launch", {"app": "Calculator"}),
+            ("computer_click_sequence", {"app": "Calculator", "text": "5+3"}),
+        ]
+
+        for name, kwargs in unbound_attempts:
+            out = await reg.get(name).call(**kwargs)
+            assert out.startswith("DENIED:") or out.startswith("ERROR:"), (
+                f"{name} was not denied/errored without prior get_state: {out[:200]}"
+            )
+
+        # Core assertion: zero mutation calls reached the driver.
+        completed_mutations = [
+            c for c in driver_calls if c in _MUTATION_TOOLS
+        ]
+        assert completed_mutations == [], (
+            f"Expected zero completed mutation calls for denied requests "
+            f"(no prior get_state), but driver saw: {completed_mutations}"
+        )
+
+    asyncio.run(_run())
+
+
+@pytest.mark.live_ui
 @pytest.mark.skipif(not _IS_DARWIN, reason="computer-use v1 is macOS-only")
+@pytest.mark.skipif(
+    os.environ.get("KAGEHA_LIVE_UI_TESTS") != "1",
+    reason="set KAGEHA_LIVE_UI_TESTS=1 to run a real screencapture/cua-driver smoke test",
+)
 def test_darwin_screenshot_smoke(tmp_path):
+    """Genuinely live: takes a real screenshot via cua-driver/screencapture (REL-002, Req 3.3)."""
     ctx = _ctx(tmp_path)
     reg = register_computer_tools(ctx)
 

@@ -91,6 +91,7 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
   "live_provider: billed integration tests for configured model providers",
+  "live_ui: tests that drive a real desktop/OS UI (e.g. cua-driver, screencapture) and require an explicit opt-in env var",
 ]
 
 [tool.ruff]

@@ -252,3 +252,14 @@ uv run pytest
 uv run ruff check src tests
 cd src/kageha/webui/frontend && npm test && npm run build
 ```
+
+### Qualification commands
+
+- `scripts/qualify_core.sh` — Core_Qualification_Command: fast,
+  representative subset (lint + Python tests). Use this for quick local
+  iteration.
+- `scripts/qualify.sh [runs]` — Full_Qualification_Command: Python lint,
+  Python type checking, the Python test suite, and the frontend test suite
+  (lint, build/type-check, `npm test`), run together non-interactively. Pass
+  a run count (default 1) to repeat the full sequence, e.g.
+  `scripts/qualify.sh 3` for a release-gate stability check.

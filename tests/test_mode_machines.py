@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import pytest
 
+from kageha.harness.approvals import ApprovalOutcome
 from kageha.harness.sandbox import SessionWorkspace
 from kageha.loop.controller import LoopController
 from kageha.loop.mode_policy import (
@@ -21,6 +22,19 @@ from kageha.loop.mode_policy import (
 )
 from kageha.loop.planner import PlanStep, TaskPlan
 from kageha.models.base import ChatMessage, ChatResponse, ChatUsage
+
+
+async def _deny_approver(_req) -> ApprovalOutcome:
+    """Deterministic stand-in for the interactive ``cli_approver``.
+
+    Mode-machine tests exercise the Build/plan-approval gate and expect it to
+    land on ``awaiting_plan_approval`` without ever prompting a human. This
+    fixture injects that deterministic "not yet approved" decision explicitly
+    (Requirement 3.1) instead of leaving ``approver=None`` and relying on the
+    production fail-closed default — the mode machines under test should get
+    a real, named approval decision, not an implicit non-decision.
+    """
+    return ApprovalOutcome(False)
 
 
 def _stub_plan() -> TaskPlan:
@@ -56,6 +70,12 @@ async def _run_mode(
     skip_explore: bool = True,
     plan_fn=None,
 ):
+    # Inject a deterministic approval decision by default (Requirement 3.1)
+    # instead of leaving ``approver=None`` for the mode-machine tests to fall
+    # through to the production fail-closed default — the Build/plan gate
+    # under test should see an explicit, named decision.
+    if approver is None:
+        approver = _deny_approver
     home = tmp_path / "home"
     home.mkdir()
     # Session isolation under tmp; keep real models.yaml discoverable.
@@ -242,6 +262,7 @@ async def test_fresh_plan_clears_stale_approved_flag(
         max_steps_limit=3,
         project_root=str(tmp_path / "proj"),
         platform="cli",
+        approver=_deny_approver,
     ).run(
         objective,
         workspace=ws,
@@ -347,6 +368,7 @@ async def test_explicit_normal_ignores_stale_escalate_flag(
         max_steps_limit=3,
         project_root=str(project),
         platform="cli",
+        approver=_deny_approver,
     ).run(
         "Summarize the README in one sentence",
         workspace=ws,
@@ -413,6 +435,7 @@ async def test_plan_different_ask_does_not_write_followup_stub(
         max_steps_limit=3,
         project_root=str(tmp_path / "proj"),
         platform="cli",
+        approver=_deny_approver,
     ).run(
         "Create second_plan.py that prints second",
         workspace=ws,
@@ -511,6 +534,7 @@ async def test_plan_clarify_then_continue(tmp_path: Path, monkeypatch: pytest.Mo
         project_root=str(project),
         platform="cli",
         defer_human_input=True,
+        approver=_deny_approver,
     )
     r1 = await ctrl.run(
         "authenticate users somehow with either JWT or sessions",

@@ -789,6 +789,7 @@ async def run_chat_repl(
                 detailed=verbose,
                 console=console,
             ) as progress:
+                from kageha.harness.approvals import cli_approver
                 from kageha.runtime import SecurityProfile, TurnRequest
 
                 stream_reply.on_suspend = progress.suspend
@@ -832,6 +833,11 @@ async def run_chat_repl(
                     # Act/followup by default; full for plan/goal.
                     "loop_mode": loop_mode,
                     "agent_mode": agent_mode,
+                    # Interactive terminal chat — wire the interactive approver
+                    # explicitly (Requirement 2.2). ApprovalGate.auto_approve
+                    # short-circuits before this approver is invoked when
+                    # approve_all/--auto-approve is set.
+                    "approver": cli_approver,
                 }
                 build_once = False
                 if attach:
