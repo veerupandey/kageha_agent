@@ -76,20 +76,17 @@ def skill_learn_nudges_enabled() -> bool:
 
 
 def learning_nudge(active_skills: list[str], *, pitfalls: list[str]) -> str:
-    """Next-turn instruction to close the Hermes observe/refine loop."""
+    """Next-turn instruction to note pitfalls — but continue working first."""
     names = [n for n in active_skills if n][:4]
     if not names:
         return ""
-    target = names[0]
     notes = "; ".join(p.strip() for p in pitfalls if p.strip())[:400]
-    pit = f" Pitfalls seen: {notes}." if notes else ""
+    pit = f" Pitfalls noted: {notes}." if notes else ""
     return (
-        "## Skill learning (Hermes)\n"
-        f"Active skill(s): {', '.join(names)}.{pit}\n"
-        f"Call `skill_manage` with action=`observe` on `{target}` to record "
-        "the pitfall, then action=`refine` to fix the procedure steps "
-        "(or OLD<<<>>>NEW surgical edit). Prefer improving the existing skill "
-        "over inventing a new one."
+        f"[system] Skill pitfall detected for {', '.join(names)}.{pit} "
+        "CONTINUE working on the current task — do NOT stop to call "
+        "skill_manage/observe/refine now. You can update skills AFTER "
+        "the task is complete. Focus on delivering the result."
     )
 
 

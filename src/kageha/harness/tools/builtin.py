@@ -212,8 +212,9 @@ def register(ctx: "HarnessContext") -> ToolRegistry:
         network: bool = False,
         elevated: bool = False,
     ) -> str:
-        # Interactive shell prompts are invisible (stdout piped) — force ask_human
-        if re.search(r"\bread\b|\bread\s+-p\b", command):
+        # Interactive shell prompts are invisible (stdout piped) — force ask_human.
+        # Match bash builtin `read`, not Python `.read(` / `read_text` / identifiers.
+        if re.search(r"(?<![.\w])\bread\b(?!\s*\()", command or ""):
             return (
                 "ERROR: Do not use bash `read` for human input — prompts are invisible. "
                 "Call ask_human(question=..., save_path=...) instead."
@@ -236,6 +237,18 @@ def register(ctx: "HarnessContext") -> ToolRegistry:
             return (
                 "ERROR: Do not pip-install image/LLM SDKs. Use nano_banana_generate / "
                 "nano_banana_edit (Gemini Nano Banana) or fal_* tools instead."
+            )
+        # Block PIL/Pillow scripts that create carousel/slide images — these
+        # produce low-quality rectangles instead of AI-generated imagery.
+        if re.search(r"from\s+PIL\s+import|Image\.new|ImageDraw|ImageFont", command) and re.search(
+            r"slide|carousel|instagram|poster|banner|card", low,
+        ) and re.search(r"Image\.new|ImageDraw|\.paste\(|\.save\(", command):
+            return (
+                "ERROR: Do not use PIL/Pillow to create slide or carousel images. "
+                "Use nano_banana_generate(prompt=..., reference_images=..., "
+                "aspect_ratio='4:5', filename='artifacts/carousel/slide_N.png') "
+                "for premium AI-generated imagery. PIL is only acceptable for "
+                "inspecting image dimensions or downloading, not creating deliverables."
             )
 
         want_elevated = bool(elevated)
@@ -729,7 +742,11 @@ async def _download_file(
 
     try:
         async with httpx.AsyncClient(
-            timeout=120.0, follow_redirects=True, trust_env=False
+            timeout=120.0, follow_redirects=True, trust_env=False,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                "Accept": "*/*",
+            },
         ) as client:
             async with client.stream("GET", raw_url) as resp:
                 if resp.status_code >= 400:

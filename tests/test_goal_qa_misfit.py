@@ -41,6 +41,8 @@ def test_informational_qa_classifier_positive(prompt: str):
         "Implement the healthcheck endpoint and verify it returns 200",
         "generate a carousel of product images",
         "create an 8-slide powerpoint deck",
+        # Must not soft-redirect just because the spec mentions "list keys".
+        "Build a tiny KV HTTP API with REST endpoints and include pytest coverage",
     ],
 )
 def test_verifiable_objective_stays_in_goal(prompt: str):

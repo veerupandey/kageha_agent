@@ -39,16 +39,30 @@ def _normalize_filename(filename: str, mime: str) -> str:
 def _load_refs(
     ctx: "HarnessContext", image_paths: str
 ) -> list[tuple[bytes, str]] | str:
-    """Parse comma/newline-separated workspace-relative paths into image bytes."""
+    """Parse comma/newline-separated workspace-relative paths into image bytes.
+
+    Resolves paths in order: workspace root → project root → absolute path.
+    """
+    from pathlib import Path
+
     raw = (image_paths or "").strip()
     if not raw:
         return []
     parts = [p.strip() for p in raw.replace("\n", ",").split(",") if p.strip()]
     refs: list[tuple[bytes, str]] = []
+    project_root = ctx.meta.get("project_root") or ""
     for rel in parts[:14]:
+        # Try workspace first
         src = ctx.workspace.path(rel)
         if not src.is_file():
-            return f"ERROR: reference image not found: {rel}"
+            # Try project root
+            if project_root:
+                src = Path(project_root) / rel
+            if not src.is_file():
+                # Try absolute path
+                src = Path(rel).expanduser()
+            if not src.is_file():
+                return f"ERROR: reference image not found: {rel} (checked workspace, project root, and absolute path)"
         refs.append((src.read_bytes(), _mime_for_path(str(src))))
     return refs
 

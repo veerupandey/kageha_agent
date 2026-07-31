@@ -15,7 +15,10 @@ from kageha.runtime.types import FailureClass, ProviderHealth
 
 
 _AUTH_RE = re.compile(r"\b(401|403|unauthori[sz]ed|invalid api key|authentication)\b", re.I)
-_QUOTA_RE = re.compile(r"\b(402|429|quota|rate.?limit|insufficient credits?)\b", re.I)
+_HARD_QUOTA_RE = re.compile(
+    r"\b(402|insufficient[_\s-]?quota|billing|payment.?required|credit)\b", re.I
+)
+_RATE_LIMIT_RE = re.compile(r"\b(429|rate.?limit|too many requests|tpm|rpm)\b", re.I)
 _TIMEOUT_RE = re.compile(r"\b(timeout|timed out|deadline exceeded)\b", re.I)
 _TRANSIENT_RE = re.compile(r"\b(408|409|425|500|502|503|504|connection|temporar)\b", re.I)
 _MODEL_TURN_RE = re.compile(r"ending with a model turn", re.I)
@@ -25,11 +28,15 @@ def classify_provider_failure(error: str) -> FailureClass:
     text = error or ""
     if _AUTH_RE.search(text):
         return FailureClass.AUTH
-    if _QUOTA_RE.search(text):
+    if _HARD_QUOTA_RE.search(text):
         return FailureClass.QUOTA
+    if _RATE_LIMIT_RE.search(text):
+        return FailureClass.RATE_LIMIT
     if _TIMEOUT_RE.search(text):
         return FailureClass.TIMEOUT
-    if "empty model response" in text.lower() or _MODEL_TURN_RE.search(text):
+    if "empty model response" in text.lower() or "empty stream response" in text.lower():
+        return FailureClass.TRANSIENT
+    if _MODEL_TURN_RE.search(text):
         return FailureClass.TRANSIENT
     if _TRANSIENT_RE.search(text):
         return FailureClass.TRANSIENT
@@ -172,10 +179,23 @@ class ProviderControlPlane:
         cooldown = {
             FailureClass.AUTH: 900.0,
             FailureClass.QUOTA: 300.0,
+            # Burst 429s: short cool-down so controller safety-net retry can run.
+            FailureClass.RATE_LIMIT: 2.0,
             FailureClass.TIMEOUT: 30.0,
             # Empty responses / blips — keep short so the next chat turn can run.
             FailureClass.TRANSIENT: 5.0,
         }.get(failure, 60.0)
+        # Prefer provider-supplied Retry-After when present.
+        from kageha.models.retry import extract_retry_after
+
+        retry_after = extract_retry_after(error)
+        if retry_after is not None and failure in {
+            FailureClass.RATE_LIMIT,
+            FailureClass.TRANSIENT,
+            FailureClass.TIMEOUT,
+        }:
+            # Cap so a large Retry-After cannot block the next attempt for minutes.
+            cooldown = min(max(float(retry_after), 1.0), 8.0 if failure == FailureClass.RATE_LIMIT else 30.0)
         config = self.registry.models.get(model_id)
         self.store.record_provider_health(
             ProviderHealth(
