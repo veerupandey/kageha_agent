@@ -18,6 +18,7 @@ import {
   extractArtifactPaths,
   rewriteMarkdownMediaHtml,
 } from "../lib/markdownMedia";
+import { enhanceJsonBlocks, initJsonCardHandlers } from "../lib/jsonRenderer";
 import { useAppStore } from "../store";
 import { TerminalActivity } from "./TerminalActivity";
 
@@ -40,7 +41,8 @@ function renderMarkdownCached(
   const hit = mdCache.get(key);
   if (hit != null) return hit;
   const raw = marked.parse(text || "", { async: false }) as string;
-  const html = rewriteMarkdownMediaHtml(DOMPurify.sanitize(raw), sessionId);
+  let html = rewriteMarkdownMediaHtml(DOMPurify.sanitize(raw), sessionId);
+  html = enhanceJsonBlocks(html);
   mdCache.set(key, html);
   if (mdCache.size > MD_CACHE_MAX) {
     const first = mdCache.keys().next().value;
@@ -474,6 +476,9 @@ const MessageRow = memo(function MessageRow({
       ) : null}
       {bodyHtml ? (
         <div
+          ref={(el) => {
+            if (el && !streaming) initJsonCardHandlers(el);
+          }}
           className={cn(
             "markdown",
             isUser &&

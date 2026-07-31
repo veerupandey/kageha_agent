@@ -311,6 +311,117 @@
   width: 100%;
 }
 
+/* JSON Data Cards — polished rendering for structured data */
+.json-data-card {
+  margin: 0.6em 0;
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.json-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-line) 30%, transparent);
+}
+
+.json-card-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.json-card-actions {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.json-card-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--color-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 150ms, background-color 150ms;
+}
+
+.json-card-btn:hover {
+  color: var(--color-ink);
+  background: color-mix(in srgb, var(--color-line) 60%, transparent);
+}
+
+.json-card-body {
+  max-height: 24rem;
+  overflow: auto;
+}
+
+.json-card-body pre {
+  margin: 0;
+  padding: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: transparent;
+  color: var(--color-ink);
+}
+
+/* JSON syntax coloring */
+.json-key {
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+.json-str {
+  color: #b5695a;
+}
+
+.json-num {
+  color: #6d8a4e;
+}
+
+.json-bool {
+  color: #8a6db5;
+}
+
+.json-null {
+  color: var(--color-faint);
+  font-style: italic;
+}
+
+.json-bracket {
+  color: var(--color-muted);
+}
+
+[data-theme="dark"] .json-str {
+  color: #e6a07a;
+}
+
+[data-theme="dark"] .json-num {
+  color: #a3c982;
+}
+
+[data-theme="dark"] .json-bool {
+  color: #c4a3e6;
+}
+
 /* TodoBoard animations */
 @keyframes check-draw {
   from {
