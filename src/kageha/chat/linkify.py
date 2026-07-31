@@ -33,7 +33,7 @@ _URL = re.compile(
 # Absolute / home paths and relative deliverable-looking paths.
 _PATH = re.compile(
     rf"(?P<path>"
-    rf"(?:~|/Users|/home|/tmp|/var|/private|/opt|/Volumes)[^\s<>\[\]\"']+"
+    rf"(?:~|/Users|/home|/tmp|/var|/private|/opt|/Volumes|/teamspace|/workspace)[^\s<>\[\]\"']+"
     rf"|(?:(?:\./|\.\./)?(?:artifacts|sessions|downloads)/[^\s<>\[\]\"']+)"
     rf"|(?:[A-Za-z0-9_./-]+\.(?:{_FILE_EXT}))"
     rf")",

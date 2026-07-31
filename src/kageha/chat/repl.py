@@ -334,6 +334,20 @@ async def run_chat_repl(
             continue
         remember(line)
 
+        # Parse @file attachments and /attach commands from input.
+        try:
+            from kageha.chat.prompt_input import parse_attachments
+
+            line, attachments = parse_attachments(line)
+            if attachments:
+                attach_names = [a.get("name", "file") for a in attachments]
+                print_info(
+                    f"Attached: {', '.join(attach_names)}",
+                    console=console,
+                )
+        except Exception:  # noqa: BLE001
+            attachments = []
+
         low = line.lower()
         if low in {"/quit", "/exit", ":q", "quit", "exit"}:
             print_status("Bye.", console=console)
