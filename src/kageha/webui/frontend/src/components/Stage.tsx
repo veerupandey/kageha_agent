@@ -161,9 +161,14 @@ export function Stage({ onToggleSessions }: StageProps) {
           >
             <MessageList messages={messages} />
           </section>
-          {/* Live todo/milestone board — visible while agent is running */}
+          {/* Live todo/milestone board — slides in while agent is running */}
           {todoBoard && todoBoard.total > 0 && (
-            <div className="shrink-0 border-t border-line px-4 py-2">
+            <div
+              className={cn(
+                "shrink-0 border-t border-line px-4 py-2.5 transition-all duration-300",
+                "animate-[slideUp_0.3s_ease-out]",
+              )}
+            >
               <TodoBoard board={todoBoard} />
             </div>
           )}

@@ -259,7 +259,7 @@ export function ArtifactCanvas() {
   return (
     <>
       <aside
-        className="flex w-full min-w-0 flex-col border-l border-line bg-surface md:w-[22rem] lg:w-[26rem]"
+        className="flex w-full min-w-0 flex-col border-l border-line bg-surface md:w-[22rem] lg:w-[26rem] animate-[slideIn_0.2s_ease-out]"
         id="artifact-canvas"
         aria-label="Artifact canvas"
       >
@@ -295,8 +295,18 @@ export function ArtifactCanvas() {
         </header>
 
         {!canvasItems.length ? (
-          <div className="flex flex-1 items-center justify-center px-4 text-center text-sm text-muted">
-            No artifacts yet. Files created in this session will show up here.
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-line/50">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-muted">
+                <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M3 15l5-5 4 4 5-6 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
+              </svg>
+            </div>
+            <p className="text-sm text-muted">No artifacts yet</p>
+            <p className="text-xs text-faint max-w-[200px]">
+              Files and images created during this session will appear here for preview and download.
+            </p>
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
