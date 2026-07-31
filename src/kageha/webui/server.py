@@ -2481,6 +2481,8 @@ class WebUIApp:
             "loop_mode": "quick" if quick else loop_mode,
             "quick": quick,
             "sources": sources[:20],
+            "steps": result.get("steps"),
+            "spent_usd": result.get("spent_usd"),
         }
         run_id = str(result.get("run_id") or "").strip()
         if run_id:

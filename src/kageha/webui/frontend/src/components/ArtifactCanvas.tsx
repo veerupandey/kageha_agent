@@ -132,6 +132,35 @@ function PreviewBody({
     if (textLoading) {
       return <p className="p-4 text-sm text-muted">Loading…</p>;
     }
+    // Live HTML rendering — show .html files in a sandboxed iframe
+    const isHtml = item.path.endsWith(".html") || item.path.endsWith(".htm");
+    if (isHtml) {
+      return (
+        <div className="relative rounded-lg border border-line overflow-hidden bg-white">
+          <div className="flex items-center gap-2 border-b border-line bg-canvas px-3 py-1.5">
+            <span className="flex h-2 w-2 rounded-full bg-accent animate-pulse" />
+            <span className="text-[0.65rem] font-medium text-muted uppercase tracking-wide">Live Preview</span>
+            <a
+              href={item.url}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-auto text-[0.65rem] text-accent hover:underline"
+            >
+              Open in tab ↗
+            </a>
+          </div>
+          <iframe
+            title={item.caption}
+            src={item.url}
+            sandbox="allow-scripts allow-same-origin"
+            className={cn(
+              "w-full border-0 bg-white",
+              large ? "h-[min(80vh,900px)]" : "h-80",
+            )}
+          />
+        </div>
+      );
+    }
     return (
       <pre
         className={cn(

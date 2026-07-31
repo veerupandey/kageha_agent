@@ -388,6 +388,8 @@ export async function runTurn(
               : awaitingClarify
                 ? "Awaiting clarification"
                 : "Done",
+      turnSteps: typeof done.steps === "number" ? done.steps : undefined,
+      turnCostUsd: typeof done.spent_usd === "number" ? done.spent_usd : undefined,
     });
     updateRun(sessionId, (r) => ({
       ...r,

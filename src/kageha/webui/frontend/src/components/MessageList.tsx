@@ -430,6 +430,14 @@ const MessageRow = memo(function MessageRow({
             {friendlyActivityLabel(m.statusLabel) || m.statusLabel}
           </span>
         ) : null}
+        {/* Cost/steps badge — shown on completed assistant messages */}
+        {!isUser && !streaming && (m.turnSteps || m.turnCostUsd) ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-line/60 px-2 py-0.5 text-[0.6rem] font-medium tabular-nums text-faint">
+            {m.turnSteps ? <span>{m.turnSteps} steps</span> : null}
+            {m.turnSteps && m.turnCostUsd ? <span className="text-line-strong">·</span> : null}
+            {m.turnCostUsd ? <span>${m.turnCostUsd.toFixed(4)}</span> : null}
+          </span>
+        ) : null}
         {!streaming && (m.text || showRetry) ? (
           <div className="ml-auto flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             {m.text ? (
