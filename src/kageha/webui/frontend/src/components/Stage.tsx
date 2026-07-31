@@ -5,6 +5,7 @@ import { ApprovalBanner } from "./ApprovalBanner";
 import { ArtifactCanvas } from "./ArtifactCanvas";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
+import { TodoBoard } from "./TodoBoard";
 
 interface StageProps {
   onToggleSessions?: () => void;
@@ -35,6 +36,7 @@ export function Stage({ onToggleSessions }: StageProps) {
   const setCanvasOpen = useAppStore((s) => s.setCanvasOpen);
   const refreshArtifacts = useAppStore((s) => s.refreshArtifacts);
   const canvasItems = useAppStore((s) => s.canvasItems);
+  const todoBoard = useAppStore((s) => s.todoBoard);
   const theme = useAppStore((s) => s.prefs.theme);
   const setPrefs = useAppStore((s) => s.setPrefs);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -159,6 +161,12 @@ export function Stage({ onToggleSessions }: StageProps) {
           >
             <MessageList messages={messages} />
           </section>
+          {/* Live todo/milestone board — visible while agent is running */}
+          {todoBoard && todoBoard.total > 0 && (
+            <div className="shrink-0 border-t border-line px-4 py-2">
+              <TodoBoard board={todoBoard} />
+            </div>
+          )}
           <ApprovalBanner />
           {error ? (
             <p
