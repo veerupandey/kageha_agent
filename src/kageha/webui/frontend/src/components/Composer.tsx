@@ -563,8 +563,13 @@ export function Composer() {
               ) : (
                 <button
                   type="submit"
-                  className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-95"
+                  className={cn(
+                    "rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white",
+                    "hover:opacity-90 active:scale-[0.97]",
+                    "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100",
+                  )}
                   id="btn-send"
+                  disabled={!draft.trim() && !pendingFiles.length}
                 >
                   Send
                 </button>

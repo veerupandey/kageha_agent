@@ -60,12 +60,26 @@
     background: var(--color-canvas);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
   }
 
   button,
   input,
   textarea {
     font: inherit;
+  }
+
+  /* Global transition on interactive elements */
+  button,
+  a,
+  [role="button"] {
+    transition: color 150ms ease, background-color 150ms ease, opacity 150ms ease, transform 100ms ease;
+  }
+
+  /* Custom selection */
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent) 25%, transparent);
+    color: var(--color-ink);
   }
 
   :focus-visible {
@@ -84,6 +98,42 @@
     white-space: nowrap;
     border: 0;
   }
+}
+
+/* Reduced motion: disable all custom animations */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Scrollbar styling (webkit + Firefox) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
 }
 
 /* Terminal-style activity — follows light/dark theme tokens */
@@ -208,6 +258,38 @@
   background: var(--color-accent-soft);
 }
 
+.markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.55em 0;
+  font-size: 0.88em;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid var(--color-line);
+  padding: 0.45em 0.75em;
+  text-align: left;
+}
+
+.markdown th {
+  background: var(--color-line);
+  font-weight: 600;
+  font-size: 0.9em;
+  text-transform: none;
+}
+
+.markdown tr:nth-child(even) {
+  background: color-mix(in srgb, var(--color-line) 30%, transparent);
+}
+
+.markdown hr {
+  border: none;
+  height: 1px;
+  background: var(--color-line);
+  margin: 1.5em 0;
+}
+
 .markdown img {
   display: block;
   max-width: min(100%, 28rem);
@@ -278,6 +360,40 @@
   to {
     opacity: 1;
     transform: translateX(0);
+  }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Touch device: always show action buttons (no hover on mobile) */
+@media (hover: none) {
+  .group .group-hover\:opacity-100 {
+    opacity: 1 !important;
   }
 }
 

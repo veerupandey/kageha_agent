@@ -397,7 +397,7 @@ const MessageRow = memo(function MessageRow({
   return (
     <article
       className={cn(
-        "group relative mx-auto w-full max-w-3xl px-4 py-4 md:px-6",
+        "group relative mx-auto w-full max-w-3xl px-4 py-4 md:px-6 animate-[fadeInUp_250ms_ease-out]",
         isUser ? "bg-transparent" : "bg-transparent",
       )}
     >
@@ -501,7 +501,7 @@ const MessageRow = memo(function MessageRow({
         />
       ) : streaming ? (
         <div className="text-sm text-muted">
-          <span className="inline-block h-4 w-1 animate-pulse bg-accent/70" />
+          <span className="inline-block h-4 w-[2px] rounded-full bg-accent animate-[blink_1s_steps(2,start)_infinite]" />
         </div>
       ) : null}
     </article>
