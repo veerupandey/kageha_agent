@@ -365,13 +365,15 @@ def run_cmd(
             f"\nrun_id={result.run_id} status={result.status} "
             f"steps={result.steps} usd~{result.spent_usd:.4f}"
         )
-        typer.echo(
-            format_artifacts_report(
-                run_id=result.run_id,
-                artifacts=result.artifacts,
-                workspace_root=sessions_dir() / result.run_id,
-            )
+        from kageha.chat.linkify import linkify_text
+
+        report = format_artifacts_report(
+            run_id=result.run_id,
+            artifacts=result.artifacts,
+            workspace_root=sessions_dir() / result.run_id,
         )
+        # Print artifact report with Rich so file paths are clickable OSC-8 links.
+        console.print(linkify_text(report))
         maybe_prompt_skill_distill(
             result,
             task=task_text if not resume else (task_text or f"resume:{resume}"),
