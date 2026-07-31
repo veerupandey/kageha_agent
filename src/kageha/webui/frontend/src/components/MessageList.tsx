@@ -19,6 +19,7 @@ import {
   rewriteMarkdownMediaHtml,
 } from "../lib/markdownMedia";
 import { enhanceJsonBlocks, initJsonCardHandlers } from "../lib/jsonRenderer";
+import { enhanceCodeBlocks, initCodeBlockHandlers } from "../lib/codeEnhancer";
 import { useAppStore } from "../store";
 import { TerminalActivity } from "./TerminalActivity";
 
@@ -43,6 +44,7 @@ function renderMarkdownCached(
   const raw = marked.parse(text || "", { async: false }) as string;
   let html = rewriteMarkdownMediaHtml(DOMPurify.sanitize(raw), sessionId);
   html = enhanceJsonBlocks(html);
+  html = enhanceCodeBlocks(html);
   mdCache.set(key, html);
   if (mdCache.size > MD_CACHE_MAX) {
     const first = mdCache.keys().next().value;
@@ -477,7 +479,10 @@ const MessageRow = memo(function MessageRow({
       {bodyHtml ? (
         <div
           ref={(el) => {
-            if (el && !streaming) initJsonCardHandlers(el);
+            if (el && !streaming) {
+              initJsonCardHandlers(el);
+              initCodeBlockHandlers(el);
+            }
           }}
           className={cn(
             "markdown",

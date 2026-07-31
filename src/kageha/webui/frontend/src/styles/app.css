@@ -422,6 +422,210 @@
   color: #c4a3e6;
 }
 
+/* Enhanced code blocks — language label, copy button, collapsible */
+.code-block-enhanced {
+  margin: 0.6em 0;
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: #1c1b19;
+}
+
+[data-theme="light"] .code-block-enhanced {
+  background: #1c1b19;
+}
+
+.code-block-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  background: #252420;
+  border-bottom: 1px solid #333028;
+}
+
+.code-block-lang {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8a8680;
+  flex: 1;
+}
+
+.code-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.45rem;
+  border: none;
+  border-radius: 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: #8a8680;
+  background: transparent;
+  cursor: pointer;
+  transition: color 150ms, background-color 150ms;
+}
+
+.code-copy-btn:hover {
+  color: #e2e0d8;
+  background: #3a3830;
+}
+
+.code-block-enhanced pre {
+  margin: 0;
+  padding: 0.75rem;
+  overflow-x: auto;
+  background: transparent;
+  border-radius: 0;
+}
+
+.code-block-enhanced pre code {
+  background: transparent;
+  padding: 0;
+  color: #f3f1ea;
+}
+
+.code-block-collapse summary {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.72rem;
+  color: #8a8680;
+  cursor: pointer;
+  list-style: none;
+}
+
+.code-block-collapse summary:hover {
+  color: #c2bfb6;
+}
+
+.code-block-collapse[open] summary {
+  border-bottom: 1px solid #333028;
+}
+
+/* Syntax highlighting tokens */
+.syn-kw {
+  color: #c792ea;
+}
+
+.syn-str {
+  color: #c3e88d;
+}
+
+.syn-num {
+  color: #f78c6c;
+}
+
+.syn-comment {
+  color: #676e6e;
+  font-style: italic;
+}
+
+.syn-var {
+  color: #82aaff;
+}
+
+.syn-bool {
+  color: #ffcb6b;
+}
+
+.syn-punct {
+  color: #89ddff;
+}
+
+/* CSV Table rendering */
+.csv-table-wrapper {
+  margin: 0.6em 0;
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+  overflow: auto;
+  max-height: 20rem;
+}
+
+.csv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.csv-table th {
+  position: sticky;
+  top: 0;
+  background: color-mix(in srgb, var(--color-line) 50%, var(--color-surface));
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-muted);
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.csv-table td {
+  padding: 0.4rem 0.65rem;
+  border-bottom: 1px solid var(--color-line);
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+.csv-table tr:hover td {
+  background: color-mix(in srgb, var(--color-accent) 5%, transparent);
+}
+
+.csv-truncated {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.72rem;
+  color: var(--color-faint);
+  text-align: center;
+  border-top: 1px solid var(--color-line);
+}
+
+/* Mermaid diagram placeholder */
+.mermaid-block {
+  margin: 0.6em 0;
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.mermaid-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-accent) 5%, var(--color-surface));
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
+.mermaid-source {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--color-ink);
+  background: transparent;
+  white-space: pre-wrap;
+  max-height: 12rem;
+  overflow: auto;
+}
+
+.mermaid-note {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.68rem;
+  color: var(--color-faint);
+  border-top: 1px solid var(--color-line);
+}
+
+.mermaid-note a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
 /* TodoBoard animations */
 @keyframes check-draw {
   from {
