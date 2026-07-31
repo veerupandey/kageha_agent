@@ -59,6 +59,12 @@ def test_normalize_aliases():
     broken = normalize_tool_arguments("write_file", {"_raw": '{"path": "x.md", "con'})
     assert _args_look_broken("write_file", broken)
 
+    # Explicit empty content is valid (package __init__.py).
+    assert not _args_look_broken(
+        "write_file", {"path": "pkg/__init__.py", "content": ""}
+    )
+    assert _args_look_broken("write_file", {"path": "pkg/__init__.py"})
+
     bash = normalize_tool_arguments("bash", {"cmd": "echo hi"})
     assert bash["command"] == "echo hi"
 

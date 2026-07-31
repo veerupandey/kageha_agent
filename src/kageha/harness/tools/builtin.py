@@ -212,8 +212,9 @@ def register(ctx: "HarnessContext") -> ToolRegistry:
         network: bool = False,
         elevated: bool = False,
     ) -> str:
-        # Interactive shell prompts are invisible (stdout piped) — force ask_human
-        if re.search(r"\bread\b|\bread\s+-p\b", command):
+        # Interactive shell prompts are invisible (stdout piped) — force ask_human.
+        # Match bash builtin `read`, not Python `.read(` / `read_text` / identifiers.
+        if re.search(r"(?<![.\w])\bread\b(?!\s*\()", command or ""):
             return (
                 "ERROR: Do not use bash `read` for human input — prompts are invisible. "
                 "Call ask_human(question=..., save_path=...) instead."

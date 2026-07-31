@@ -498,6 +498,14 @@ def _args_look_broken(tool_name: str, args: dict[str, Any]) -> bool:
     needed = _REQUIRED_HINTS.get(tool_name)
     if not needed:
         return False
+    # Explicit empty string is valid for write_file content (e.g. package __init__.py).
+    # Missing keys / null still mean truncated tool JSON.
+    if tool_name == "write_file":
+        if "path" not in args or args.get("path") in (None, ""):
+            return True
+        if "content" not in args or args.get("content") is None:
+            return True
+        return False
     if args.get("_raw") and not all(args.get(k) not in (None, "") for k in needed):
         return True
     return any(args.get(k) in (None, "") for k in needed)
