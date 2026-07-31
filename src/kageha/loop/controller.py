@@ -2507,13 +2507,15 @@ class LoopController:
                 # and no new deliverables (Antigravity/text-only regressions).
                 # Computer grouped-action early-stop also skips verifier LLM
                 # (OSWorld-Human: plan/reflect dominate latency).
+                # Import once for this verify block — also used below when
+                # promoting validation after goals pass with tool evidence.
+                from kageha.loop.verifier import is_lookup_status_goal
+
                 if (
                     mode == "followup"
                     or computer_early_stopped
                     or browser_early_stopped
                 ) and not tool_fail:
-                    from kageha.loop.verifier import is_lookup_status_goal
-
                     informational = is_lookup_status_goal(goal)
                     computer_evidence = False
                     if wants_computer or computer_early_stopped:
