@@ -197,6 +197,7 @@ async def test_controller_rereads_plan_md_on_approve(
         )
 
     monkeypatch.setattr("kageha.loop.controller.make_plan", fake_plan)
+    monkeypatch.setattr("kageha.loop.controller.make_adaptive_plan", fake_plan)
 
     from kageha.harness.tools.base import ToolRegistry
 
@@ -233,6 +234,9 @@ async def test_controller_rereads_plan_md_on_approve(
 
     monkeypatch.setattr(
         "kageha.loop.controller.verify_with_defects", fake_verify
+    )
+    monkeypatch.setattr(
+        "kageha.loop.controller.verify_adaptive", fake_verify
     )
 
     project = tmp_path / "proj"

@@ -75,7 +75,11 @@ class RecoveryPolicy:
             return RecoveryAction.RECONCILE
         if failure in {FailureClass.AUTH, FailureClass.QUOTA, FailureClass.PROVIDER}:
             return RecoveryAction.SWITCH_PROVIDER
-        if failure in {FailureClass.TRANSIENT, FailureClass.TIMEOUT}:
+        if failure in {
+            FailureClass.TRANSIENT,
+            FailureClass.TIMEOUT,
+            FailureClass.RATE_LIMIT,
+        }:
             return RecoveryAction.RETRY if attempts < 3 else RecoveryAction.SWITCH_TOOL
         if failure == FailureClass.INVALID_OUTPUT:
             return RecoveryAction.REPAIR

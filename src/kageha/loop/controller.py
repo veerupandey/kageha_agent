@@ -39,7 +39,7 @@ from kageha.loop.adaptive import (
 from kageha.loop.checkpoint import create_checkpoint, history_token_estimate
 from kageha.loop.goal_card import GoalCard
 from kageha.loop.monitor import monitor_plan_alignment
-from kageha.loop.planner import make_followup_plan, make_plan
+from kageha.loop.planner import make_adaptive_plan, make_followup_plan, make_plan
 from kageha.loop.resume_text import (
     is_resume_wrapper,
     unwrap_objective,
@@ -61,10 +61,11 @@ from kageha.loop.tool_guardrails import (
 from kageha.loop.verifier import (
     VerifyResult,
     build_workspace_evidence,
+    verify_adaptive,
     verify_with_defects,
 )
 from kageha.models.base import ChatMessage
-from kageha.models.effort import classify_effort
+from kageha.models.effort import TaskProfile, classify_effort, profile_task
 from kageha.models.registry import ModelRegistry
 from kageha.models.router import ModelRouter
 from kageha.obs.events import EventLog
@@ -760,13 +761,58 @@ class LoopController:
         if goal_qa_soft_redirect:
             # Win over client loop_mode=full sent with Goal chip.
             mode = "followup"
+        task_profile = profile_task(turn_objective)
         effort = classify_effort(turn_objective)
         if mode == "followup":
-            effort = "low"
+            # Normal mode defaults to followup, but complex tasks need full mode.
+            # Escalate to full when the task profile says it's high-effort work
+            # (multi-file, multi-deliverable, requires tests, or explicitly high).
+            if (
+                resolved_agent_mode == "normal"
+                and task_profile.effort == "high"
+                and not goal_qa_soft_redirect
+            ):
+                mode = "full"
+                self._log(
+                    f"[kageha] escalating followup → full (task_profile.effort=high, "
+                    f"signals={task_profile.signals})"
+                )
+            elif (
+                resolved_agent_mode == "normal"
+                and task_profile.effort == "medium"
+                and not task_profile.is_qa
+                and not task_profile.is_single_action
+                and not goal_qa_soft_redirect
+            ):
+                # Medium non-trivial tasks keep effort=medium but stay in followup
+                # with moderate planning. Don't override to low.
+                pass
+            else:
+                effort = "low"
+                task_profile = TaskProfile(
+                    effort="low",
+                    is_qa=task_profile.is_qa,
+                    is_single_action=task_profile.is_single_action,
+                    skip_planning=True,
+                    skip_verification=True,
+                    verification_depth="none",
+                    estimated_tool_calls=1,
+                    signals=task_profile.signals + ["followup_override"],
+                )
         elif resolved_agent_mode != "normal" and effort == "low":
             # Short prompts must not collapse plan/goal into followup-like
             # sparse verify — deep modes need a real plan→verify cadence.
             effort = "medium"
+            task_profile = TaskProfile(
+                effort="medium",
+                is_qa=task_profile.is_qa,
+                is_single_action=False,
+                skip_planning=False,
+                skip_verification=False,
+                verification_depth="light",
+                estimated_tool_calls=3,
+                signals=task_profile.signals + ["mode_bump"],
+            )
         turn_snapshot = _workspace_file_snapshot(workspace.root)
         project_root_path: Path | None = None
         project_turn_snapshot: dict[str, tuple[int, int]] = {}
@@ -796,6 +842,17 @@ class LoopController:
                 "agent_mode": resolved_agent_mode,
                 "loop_mode": mode,
                 "goal_qa_soft_redirect": goal_qa_soft_redirect,
+                "task_profile": {
+                    "effort": task_profile.effort,
+                    "is_qa": task_profile.is_qa,
+                    "is_multi_file": task_profile.is_multi_file,
+                    "is_multi_deliverable": task_profile.is_multi_deliverable,
+                    "requires_tests": task_profile.requires_tests,
+                    "verification_depth": task_profile.verification_depth,
+                    "skip_planning": task_profile.skip_planning,
+                    "estimated_tool_calls": task_profile.estimated_tool_calls,
+                    "signals": task_profile.signals,
+                },
             },
         )
         if goal_qa_soft_redirect:
@@ -817,6 +874,11 @@ class LoopController:
         self._log(
             f"[kageha] agent_mode={resolved_agent_mode} loop_mode={mode} "
             f"effort={effort}"
+        )
+        self._log(
+            f"[kageha] task_profile: verify={task_profile.verification_depth} "
+            f"skip_plan={task_profile.skip_planning} "
+            f"signals={task_profile.signals}"
         )
         self._log(f"[kageha] task={task[:200]}{'…' if len(task) > 200 else ''}")
 
@@ -1500,14 +1562,27 @@ class LoopController:
                 except Exception:  # noqa: BLE001
                     pass
 
-            plan = await make_plan(
-                turn_objective,
-                router,
-                role=self.planning_role,
-                available_tools={spec.name for spec in ctx.tools.specs()},
-                effort=effort,
-                explore_notes=explore_notes,
-            )
+            # Plan/Goal modes always use full LLM planning (they produce
+            # plan.md for user review); adaptive planning is for Normal mode.
+            if requires_plan_approval(resolved_agent_mode):
+                plan = await make_plan(
+                    turn_objective,
+                    router,
+                    role=self.planning_role,
+                    available_tools={spec.name for spec in ctx.tools.specs()},
+                    effort=effort,
+                    explore_notes=explore_notes,
+                )
+            else:
+                plan = await make_adaptive_plan(
+                    turn_objective,
+                    router,
+                    role=self.planning_role,
+                    available_tools={spec.name for spec in ctx.tools.specs()},
+                    effort=effort,
+                    explore_notes=explore_notes,
+                    profile=task_profile,
+                )
             goal = GoalCard.from_task(turn_objective, plan.milestones or None)
             workspace.write_text("goal_card.json", json.dumps({
                 "task": goal.task,
@@ -1544,6 +1619,21 @@ class LoopController:
                 "agent_mode": resolved_agent_mode,
             },
         )
+        if str(plan.source or "").startswith("template") and resolved_agent_mode in {
+            "goal",
+            "plan",
+        }:
+            events.emit(
+                "planning_degraded",
+                {
+                    "source": plan.source,
+                    "agent_mode": resolved_agent_mode,
+                    "reason": "planner_fallback",
+                },
+            )
+            self._log(
+                "[kageha] planning degraded — using objective-derived fallback plan"
+            )
 
         # Plan mode materializes a visible artifact, then hard-gates Build.
         # auto_approve (tool HITL) must NOT skip this — Plan ≠ Normal.
@@ -1707,6 +1797,14 @@ class LoopController:
 
         step_cap = self.max_steps_limit if self.max_steps_limit is not None else max_steps()
         step_cap = max(1, int(step_cap))
+        # Scale step budget based on task complexity when no explicit limit is set.
+        # Simple tasks don't need 30+ steps; complex tasks need the full budget.
+        if self.max_steps_limit is None:
+            if task_profile.effort == "low":
+                step_cap = min(step_cap, 4)
+            elif task_profile.effort == "medium" and not task_profile.is_multi_file:
+                step_cap = min(step_cap, 12)
+            # High effort keeps the full configured budget.
         # Plan length is a checklist, NOT the loop budget. Budget is a hard ceiling.
         self._log(
             f"[kageha] plan ready ({plan.source}, {len(plan.steps)} plan items) — "
@@ -1928,17 +2026,57 @@ class LoopController:
                 begin = getattr(step_delta, "begin_step", None)
                 if callable(begin):
                     begin()
-            try:
-                model, resp = await router.chat(
-                    assembled.messages,
-                    tool_specs,
-                    role=self.execution_role,
-                    task_id=workspace.run_id,
-                    max_tokens=8192,
-                    effort=effort,
-                    on_text_delta=step_delta if callable(step_delta) else None,
-                )
-            except Exception as e:  # noqa: BLE001
+            model = None
+            resp = None
+            model_error: Exception | None = None
+            for model_attempt in range(1, 3):
+                try:
+                    model, resp = await router.chat(
+                        assembled.messages,
+                        tool_specs,
+                        role=self.execution_role,
+                        task_id=workspace.run_id,
+                        max_tokens=8192,
+                        effort=effort,
+                        on_text_delta=step_delta if callable(step_delta) else None,
+                    )
+                    model_error = None
+                    break
+                except Exception as e:  # noqa: BLE001
+                    model_error = e
+                    from kageha.models.retry import (
+                        classify_error,
+                        compute_delay,
+                        sleep_backoff,
+                    )
+
+                    kind = classify_error(e)
+                    # One controller-level safety-net retry for transient provider
+                    # exhaustion after the router's own same-model retries.
+                    if model_attempt < 2 and kind in {
+                        "rate_limit",
+                        "transient",
+                        "timeout",
+                    }:
+                        delay = compute_delay(model_attempt, e)
+                        self._log(
+                            f"[kageha] model retry after {kind} "
+                            f"(wait {delay:.1f}s): {e}"
+                        )
+                        events.emit(
+                            "model_retry",
+                            {
+                                "attempt": model_attempt,
+                                "error": str(e)[:300],
+                                "failure_class": kind,
+                                "delay_s": delay,
+                            },
+                        )
+                        await sleep_backoff(delay)
+                        continue
+                    break
+            if model_error is not None or model is None or resp is None:
+                e = model_error or RuntimeError("model call failed")
                 if callable(step_delta):
                     end = getattr(step_delta, "end_step", None)
                     if callable(end):
@@ -2507,13 +2645,15 @@ class LoopController:
                 # and no new deliverables (Antigravity/text-only regressions).
                 # Computer grouped-action early-stop also skips verifier LLM
                 # (OSWorld-Human: plan/reflect dominate latency).
+                # Import once for this verify block — also used below when
+                # promoting validation after goals pass with tool evidence.
+                from kageha.loop.verifier import is_lookup_status_goal
+
                 if (
                     mode == "followup"
                     or computer_early_stopped
                     or browser_early_stopped
                 ) and not tool_fail:
-                    from kageha.loop.verifier import is_lookup_status_goal
-
                     informational = is_lookup_status_goal(goal)
                     computer_evidence = False
                     if wants_computer or computer_early_stopped:
@@ -2649,7 +2789,7 @@ class LoopController:
                             )
                         )
                 else:
-                    verify = await verify_with_defects(
+                    verify = await verify_adaptive(
                         goal,
                         router=router,
                         workspace_summary=files,
@@ -2664,6 +2804,7 @@ class LoopController:
                         successful_tools=successful_tools,
                         turn_artifacts=turn_deliverables,
                         answer_text=answer_text,
+                        verification_depth=task_profile.verification_depth,
                     )
                     if (
                         verify.snapshot.notes

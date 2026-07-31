@@ -74,6 +74,9 @@ async def _run_mode(
     monkeypatch.setattr(
         "kageha.loop.controller.make_plan", plan_fn or fake_plan
     )
+    monkeypatch.setattr(
+        "kageha.loop.controller.make_adaptive_plan", plan_fn or fake_plan
+    )
 
     if skip_explore:
         async def fake_explore(**_k):
@@ -123,6 +126,9 @@ async def _run_mode(
 
     monkeypatch.setattr(
         "kageha.loop.controller.verify_with_defects", fake_verify
+    )
+    monkeypatch.setattr(
+        "kageha.loop.controller.verify_adaptive", fake_verify
     )
 
     ctrl = LoopController(

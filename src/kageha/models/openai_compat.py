@@ -17,6 +17,7 @@ from kageha.models.base import (
     ToolCall,
     ToolSpec,
 )
+from kageha.models.retry import raise_for_status as raise_http_status
 
 
 class OpenAICompatModel:
@@ -132,7 +133,7 @@ class OpenAICompatModel:
                 headers=self._headers(),
                 json=payload,
             )
-            resp.raise_for_status()
+            raise_http_status(resp)
             data = resp.json()
 
         choice = data["choices"][0]
@@ -214,7 +215,15 @@ class OpenAICompatModel:
                 headers=self._headers(),
                 json=payload,
             ) as resp:
-                resp.raise_for_status()
+                if resp.status_code >= 400:
+                    err_body = ""
+                    try:
+                        err_body = (await resp.aread()).decode("utf-8", errors="replace")[
+                            :400
+                        ]
+                    except Exception:  # noqa: BLE001
+                        err_body = ""
+                    raise_http_status(resp, body=err_body)
                 async for line in resp.aiter_lines():
                     if not line.startswith("data:"):
                         continue

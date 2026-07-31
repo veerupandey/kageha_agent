@@ -15,6 +15,25 @@ from kageha.config import load_env
 
 load_env()
 
+
+def _exit_code_for_run_status(status: str | None) -> int:
+    """Map a run status to a process exit code (fail closed on unknown/empty)."""
+    value = str(status or "").strip().lower()
+    if value in {"success", "ok", "completed"}:
+        return 0
+    if value in {
+        "awaiting_plan_approval",
+        "awaiting_clarify",
+        "ask_user",
+        "waiting_approval",
+        "waiting_input",
+    }:
+        return 0
+    if value in {"cancelled", "canceled"}:
+        return 130
+    return 1
+
+
 app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
@@ -94,6 +113,12 @@ def run_cmd(
         help="Continue an existing session by run_id (same workspace). Prefer: kageha chat --resume",
     ),
     quiet: bool = typer.Option(False, "--quiet", help="Hide live step/tool progress"),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Show detailed tool/reasoning traces instead of compact progress",
+    ),
     max_steps: Optional[int] = typer.Option(
         None,
         "--max-steps",
@@ -172,31 +197,37 @@ def run_cmd(
     mode = resolve_agent_mode(task or "", explicit=agent_mode)
 
     if attach:
+        from kageha.chat.progress import TransientProgress
         from kageha.chat.remote_turn import remote_turn
+        from kageha.chat.ui import get_console
 
-        result = asyncio.run(
-            remote_turn(
-                attach=attach,
-                message=task or f"resume:{resume}",
-                session_id=resume,
-                project_root=str(project.resolve()),
-                auto_approve=auto_approve,
-                agent_mode=mode,
-                loop_mode=loop_mode_for(mode),
-                max_steps=int(max_steps or (40 if mode != "normal" else 24)),
-                auto_build=build,
-            )
-        )
+        console = get_console()
+
+        async def _attached() -> dict[str, Any]:
+            with TransientProgress(
+                enabled=not quiet,
+                detailed=verbose,
+                console=console,
+            ) as progress:
+                progress.update("[kageha] step 1/1 — thinking…")
+                return await remote_turn(
+                    attach=attach,
+                    message=task or f"resume:{resume}",
+                    session_id=resume,
+                    project_root=str(project.resolve()),
+                    auto_approve=auto_approve,
+                    agent_mode=mode,
+                    loop_mode=loop_mode_for(mode),
+                    max_steps=int(max_steps or (40 if mode != "normal" else 24)),
+                    auto_build=build,
+                    on_status=progress.update if not quiet else None,
+                )
+
+        result = asyncio.run(_attached())
         typer.echo(json.dumps(result, indent=2, default=str))
-        status = str(result.get("status") or "").lower()
-        if status and status not in {
-            "success",
-            "ok",
-            "completed",
-            "awaiting_plan_approval",
-            "awaiting_clarify",
-        }:
-            raise typer.Exit(code=1)
+        code = _exit_code_for_run_status(str(result.get("status") or ""))
+        if code:
+            raise typer.Exit(code=code)
         return
 
     selected_security = security_profile(security)
@@ -243,36 +274,50 @@ def run_cmd(
     async def _run() -> None:
         catalog = skills.catalog(limit=40)
         durable: Any = None
-        try:
-            from kageha.runtime import AgentRuntime, SecurityProfile, TurnRequest
+        from kageha.chat.progress import TransientProgress
+        from kageha.chat.ui import StreamReply, get_console, print_assistant
+        from kageha.runtime import AgentRuntime, SecurityProfile, TurnRequest
 
+        console = get_console()
+        stream_reply = StreamReply(console=console)
+        try:
             durable = AgentRuntime()
-            common = {
-                "user_id": "local",
-                "agent_id": "main",
-                "project_root": project_root,
-                "auto_approve": auto_approve,
-                "auto_build": build,
-                "security_profile": SecurityProfile(selected_security),
-                "max_steps": max_steps,
-                "skill_catalog": catalog,
-                "system_extra": memory_extra,
-                "export_dir": str(output_dir) if output_dir else "",
-                "live": not quiet,
-                "platform": "cli",
-                "agent_mode": mode,
-                "loop_mode": loop_mode_for(mode),
-            }
-            if resume:
-                result = await durable.execute_resume(
-                    resume,
-                    task_text or "Continue until the remaining goals pass.",
-                    **common,
-                )
-            else:
-                result = await durable.execute(
-                    TurnRequest(objective=task_text, **common)
-                )
+            with TransientProgress(
+                enabled=not quiet,
+                detailed=verbose,
+                console=console,
+            ) as progress:
+                stream_reply.on_suspend = progress.suspend
+                stream_reply.on_resume = lambda: progress.resume("Working…")
+                common = {
+                    "user_id": "local",
+                    "agent_id": "main",
+                    "project_root": project_root,
+                    "auto_approve": auto_approve,
+                    "auto_build": build,
+                    "security_profile": SecurityProfile(selected_security),
+                    "max_steps": max_steps,
+                    "skill_catalog": catalog,
+                    "system_extra": memory_extra,
+                    "export_dir": str(output_dir) if output_dir else "",
+                    "live": not quiet,
+                    "log_handler": progress.update,
+                    "on_text_delta": stream_reply if not quiet else None,
+                    "platform": "cli",
+                    "agent_mode": mode,
+                    "loop_mode": loop_mode_for(mode),
+                }
+                if resume:
+                    handle = durable.resume(
+                        resume,
+                        task_text or "Continue until the remaining goals pass.",
+                        **common,
+                    )
+                else:
+                    handle = durable.submit(
+                        TurnRequest(objective=task_text, **common)
+                    )
+                result = await handle.result()
         except Exception as exc:
             memory.capture_turn(
                 TurnMemoryInput(
@@ -304,11 +349,22 @@ def run_cmd(
         from kageha.memory.learning_loop import maybe_prompt_skill_distill
         from kageha.config import sessions_dir
 
+        # Prefer streamed tokens → one final panel; else classic print.
+        if not quiet and stream_reply.text().strip():
+            stream_reply.finalize(result.message or "")
+        elif result.message:
+            stream_reply.close()
+            if not quiet:
+                print_assistant(result.message, console=console)
+            else:
+                typer.echo(result.message)
+        else:
+            stream_reply.close()
+
         typer.echo(
             f"\nrun_id={result.run_id} status={result.status} "
             f"steps={result.steps} usd~{result.spent_usd:.4f}"
         )
-        typer.echo(result.message)
         typer.echo(
             format_artifacts_report(
                 run_id=result.run_id,
@@ -322,6 +378,9 @@ def run_cmd(
             registry=skills,
             interactive=not auto_approve,
         )
+        code = _exit_code_for_run_status(str(result.status or ""))
+        if code:
+            raise typer.Exit(code=code)
 
     asyncio.run(_run())
 

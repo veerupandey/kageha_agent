@@ -54,8 +54,18 @@ _HEAVY_DELIVERABLE_RE = re.compile(
     r"\b("
     r"pptx|powerpoint|pdf|slide|deck|video|reel|carousel|diagram|"
     r"implement|compile|refactor|"
-    r"(?:create|build|write|generate|make|produce|render)\b[^.]{0,40}\b"
-    r"(?:app|code|script|module|service|image|poster)"
+    r"(?:create|build|write|generate|make|produce|render)\b[^.]{0,80}\b"
+    r"(?:app|api|code|script|module|package|service|server|library|endpoint|"
+    r"image|poster|suite|coverage)"
+    r")\b",
+    re.I,
+)
+
+# Strong build verbs — Goal mode must not soft-redirect these to Normal Q&A.
+_BUILD_INTENT_RE = re.compile(
+    r"\b("
+    r"build|implement|create|scaffold|develop|write|generate|produce|"
+    r"refactor|migrate|add\s+tests?|include\s+pytest|ship"
     r")\b",
     re.I,
 )
@@ -65,6 +75,81 @@ _INTERNAL_ANSWER_RE = re.compile(
     r"produced the requested deliverable|verified the new deliverable)"
 )
 
+_REQUIRES_TESTS_RE = re.compile(
+    r"\b("
+    r"pytest|unit\s+tests?|test\s+coverage|include\s+tests?|"
+    r"tests?\s+that\s+prove|with\s+tests?|and\s+tests?\b"
+    r")\b",
+    re.I,
+)
+_TEST_PASS_EVIDENCE_RE = re.compile(
+    r"("
+    r"\b\d+\s+passed\b|"
+    r"\bpytest\b.{0,80}\b(passed|ok)\b|"
+    r"\ball\s+tests?\s+passed\b|"
+    r"\btests?\s+(passed|green|ok)\b|"
+    r"\bexit[_ ]?code[=:]?\s*0\b.{0,40}\bpytest\b|"
+    r"\bpytest\b.{0,40}\bexit[_ ]?code[=:]?\s*0\b"
+    r")",
+    re.I | re.S,
+)
+
+
+def task_requires_test_evidence(task: str) -> bool:
+    """True when the objective explicitly requires running/passing tests."""
+    return bool(_REQUIRES_TESTS_RE.search(task or ""))
+
+
+def has_test_pass_evidence(*blobs: str) -> bool:
+    """True when combined evidence shows tests were executed and passed."""
+    text = "\n".join(b for b in blobs if b)
+    return bool(_TEST_PASS_EVIDENCE_RE.search(text))
+
+
+def _enforce_test_evidence_gate(
+    goal: GoalCard,
+    snapshot: ValidationSnapshot,
+    *,
+    transcript_tail: str = "",
+    workspace_summary: str = "",
+) -> ValidationSnapshot:
+    """Downgrade pass→repair when tests were required but not evidenced."""
+    if snapshot.status != "pass":
+        return snapshot
+    if not task_requires_test_evidence(goal.task):
+        return snapshot
+    evidence_bits = [
+        workspace_summary,
+        transcript_tail,
+        snapshot.notes,
+        *[item.evidence for item in goal.items if item.evidence],
+    ]
+    if has_test_pass_evidence(*evidence_bits):
+        return snapshot
+    defects = list(snapshot.defects)
+    defects.append(
+        Defect(
+            artifact="tests",
+            severity="critical",
+            problem="Task requires tests, but no evidence shows they were run and passed",
+            evidence="missing pytest/test pass output in transcript or workspace evidence",
+            repair=(
+                "Run the requested test suite (e.g. pytest) and fix failures until green; "
+                "keep the command output as evidence before claiming done"
+            ),
+            stage_id="",
+        )
+    )
+    return ValidationSnapshot(
+        status="repair",
+        defects=defects,
+        next_action="repair_artifact",
+        notes=(
+            (snapshot.notes + " | " if snapshot.notes else "")
+            + "test evidence gate: required tests not proven"
+        )[:400],
+    )
+
 
 @dataclass
 class VerifyResult:
@@ -72,12 +157,170 @@ class VerifyResult:
     snapshot: ValidationSnapshot = field(default_factory=ValidationSnapshot)
 
 
+def skip_verification(goal: GoalCard) -> VerifyResult:
+    """Instant pass for simple tasks — no LLM call, no evidence collection.
+
+    Used when TaskProfile.skip_verification is True (effort=low, Q&A, single actions).
+    Marks all goal items as passed with a "skipped (simple task)" note.
+    """
+    for item in goal.items:
+        if not item.passes:
+            goal.mark(item.id, passes=True, evidence="auto-pass (simple task)")
+    return VerifyResult(
+        goal=goal,
+        snapshot=ValidationSnapshot(
+            status="pass",
+            notes="verification skipped — simple task",
+        ),
+    )
+
+
+def verify_light(
+    goal: GoalCard,
+    *,
+    successful_tools: list[str] | None = None,
+    turn_artifacts: list[str] | None = None,
+    answer_text: str = "",
+    tool_errors: list[str] | None = None,
+) -> VerifyResult:
+    """Lightweight deterministic verification for moderate tasks.
+
+    No LLM round-trip. Checks:
+    1. Did at least one tool succeed?
+    2. Were there any tool errors that indicate failure?
+    3. Is there a substantive answer or artifact produced?
+
+    Returns pass/repair based on these heuristics alone.
+    """
+    tools = [t for t in (successful_tools or []) if t and t not in _META_TOOLS]
+    errors = [e for e in (tool_errors or []) if e]
+    artifacts = [a for a in (turn_artifacts or []) if a]
+    answer = (answer_text or "").strip()
+
+    # If there were tool errors and no successful non-meta tools, it's a repair.
+    if errors and not tools:
+        defects = [
+            Defect(
+                artifact="execution",
+                severity="major",
+                problem=f"Tool execution failed: {errors[0][:200]}",
+                evidence="; ".join(errors[:3])[:400],
+                repair="Fix the error and retry the failed operation",
+                stage_id="",
+            )
+        ]
+        return VerifyResult(
+            goal=goal,
+            snapshot=ValidationSnapshot(
+                status="repair",
+                defects=defects,
+                next_action="repair_artifact",
+                notes="light verify: tool errors detected",
+            ),
+        )
+
+    # If we have successful tools plus either artifacts or a substantive answer, pass.
+    has_output = bool(artifacts) or (
+        len(answer) >= 20
+        and not _INTERNAL_ANSWER_RE.search(answer)
+    )
+    if tools and has_output:
+        evidence = ", ".join(tools[:4])
+        if artifacts:
+            evidence += f" → {', '.join(artifacts[:3])}"
+        for item in goal.items:
+            if not item.passes:
+                goal.mark(item.id, passes=True, evidence=f"light verify: {evidence}")
+        return VerifyResult(
+            goal=goal,
+            snapshot=ValidationSnapshot(
+                status="pass",
+                notes=f"light verify pass ({evidence})"[:400],
+            ),
+        )
+
+    # If we have a substantive answer even without tools (pure Q&A answered in chat).
+    if len(answer) >= 40 and not _INTERNAL_ANSWER_RE.search(answer):
+        for item in goal.items:
+            if not item.passes:
+                goal.mark(item.id, passes=True, evidence="light verify: answer provided")
+        return VerifyResult(
+            goal=goal,
+            snapshot=ValidationSnapshot(
+                status="pass",
+                notes="light verify pass (chat answer)",
+            ),
+        )
+
+    # Inconclusive — let the loop continue without claiming failure.
+    return VerifyResult(
+        goal=goal,
+        snapshot=ValidationSnapshot(
+            status="unknown",
+            notes="light verify: inconclusive, continuing",
+        ),
+    )
+
+
+async def verify_adaptive(
+    goal: GoalCard,
+    *,
+    router: ModelRouter,
+    workspace_summary: str = "",
+    transcript_tail: str = "",
+    task_state_projection: str = "",
+    execution_provider: str = "",
+    task_id: str = "",
+    model_said_done: bool = False,
+    successful_tools: list[str] | None = None,
+    turn_artifacts: list[str] | None = None,
+    answer_text: str = "",
+    tool_errors: list[str] | None = None,
+    verification_depth: str = "full",
+) -> VerifyResult:
+    """Complexity-aware verification dispatcher.
+
+    Args:
+        verification_depth: "none" | "light" | "full" (from TaskProfile).
+
+    - "none": instant pass, no checks.
+    - "light": deterministic heuristic check, no LLM call.
+    - "full": existing LLM-based verify_with_defects.
+    """
+    if verification_depth == "none":
+        return skip_verification(goal)
+
+    if verification_depth == "light":
+        return verify_light(
+            goal,
+            successful_tools=successful_tools,
+            turn_artifacts=turn_artifacts,
+            answer_text=answer_text,
+            tool_errors=tool_errors,
+        )
+
+    # Full verification with LLM.
+    return await verify_with_defects(
+        goal,
+        router=router,
+        workspace_summary=workspace_summary,
+        transcript_tail=transcript_tail,
+        task_state_projection=task_state_projection,
+        execution_provider=execution_provider,
+        task_id=task_id,
+        model_said_done=model_said_done,
+        successful_tools=successful_tools,
+        turn_artifacts=turn_artifacts,
+        answer_text=answer_text,
+    )
+
+
 def is_lookup_status_text(text: str) -> bool:
     """True when *text* is primarily informational (lookup/status), not a build."""
     blob = (text or "").strip()
     if not blob:
         return False
-    if _HEAVY_DELIVERABLE_RE.search(blob):
+    if _HEAVY_DELIVERABLE_RE.search(blob) or _BUILD_INTENT_RE.search(blob):
         return False
     return bool(_LOOKUP_STATUS_RE.search(blob))
 
@@ -286,6 +529,9 @@ async def verify_with_defects(
         "- If a requested deliverable is missing/incomplete, status=repair and add a defect "
         "with a specific repair instruction (not vague advice).\n"
         "- status=pass only when every goal has evidence and no critical/major defects.\n"
+        "- If the task explicitly requires tests/pytest/coverage, status=pass ONLY when "
+        "transcript or workspace evidence shows those tests were executed and passed "
+        "(e.g. 'N passed'). Missing test runs → status=repair with a concrete pytest repair.\n"
         "- status=fail only when the approach is fundamentally wrong (not a small fix).\n"
         "- next_action examples: repair_artifact | continue | replan_stage | ask_user.\n\n"
         f"Goal card:\n{goal.to_markdown()}\n\n"
@@ -313,7 +559,11 @@ async def verify_with_defects(
             if det is not None:
                 return det
             return VerifyResult(goal=goal, snapshot=snapshot)
-        data = json.loads(match.group(0))
+        try:
+            data = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            repaired = re.sub(r",\s*([}\]])", r"\1", match.group(0))
+            data = json.loads(repaired)
         for upd in data.get("updates") or []:
             if upd.get("passes"):
                 goal.mark(
@@ -377,4 +627,10 @@ async def verify_with_defects(
         det = _maybe_deterministic_lookup_pass(goal, **det_kwargs)
         if det is not None:
             return det
+    snapshot = _enforce_test_evidence_gate(
+        goal,
+        snapshot,
+        transcript_tail=transcript_tail,
+        workspace_summary=workspace_summary,
+    )
     return VerifyResult(goal=goal, snapshot=snapshot)
