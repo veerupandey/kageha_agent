@@ -15,6 +15,25 @@ from kageha.config import load_env
 
 load_env()
 
+
+def _exit_code_for_run_status(status: str | None) -> int:
+    """Map a run status to a process exit code (fail closed on unknown/empty)."""
+    value = str(status or "").strip().lower()
+    if value in {"success", "ok", "completed"}:
+        return 0
+    if value in {
+        "awaiting_plan_approval",
+        "awaiting_clarify",
+        "ask_user",
+        "waiting_approval",
+        "waiting_input",
+    }:
+        return 0
+    if value in {"cancelled", "canceled"}:
+        return 130
+    return 1
+
+
 app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
@@ -206,15 +225,9 @@ def run_cmd(
 
         result = asyncio.run(_attached())
         typer.echo(json.dumps(result, indent=2, default=str))
-        status = str(result.get("status") or "").lower()
-        if status and status not in {
-            "success",
-            "ok",
-            "completed",
-            "awaiting_plan_approval",
-            "awaiting_clarify",
-        }:
-            raise typer.Exit(code=1)
+        code = _exit_code_for_run_status(str(result.get("status") or ""))
+        if code:
+            raise typer.Exit(code=code)
         return
 
     selected_security = security_profile(security)
@@ -365,15 +378,9 @@ def run_cmd(
             registry=skills,
             interactive=not auto_approve,
         )
-        status = str(result.status or "").lower()
-        if status and status not in {
-            "success",
-            "ok",
-            "completed",
-            "awaiting_plan_approval",
-            "awaiting_clarify",
-        }:
-            raise typer.Exit(code=1)
+        code = _exit_code_for_run_status(str(result.status or ""))
+        if code:
+            raise typer.Exit(code=code)
 
     asyncio.run(_run())
 

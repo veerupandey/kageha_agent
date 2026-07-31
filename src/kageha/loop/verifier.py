@@ -65,6 +65,81 @@ _INTERNAL_ANSWER_RE = re.compile(
     r"produced the requested deliverable|verified the new deliverable)"
 )
 
+_REQUIRES_TESTS_RE = re.compile(
+    r"\b("
+    r"pytest|unit\s+tests?|test\s+coverage|include\s+tests?|"
+    r"tests?\s+that\s+prove|with\s+tests?|and\s+tests?\b"
+    r")\b",
+    re.I,
+)
+_TEST_PASS_EVIDENCE_RE = re.compile(
+    r"("
+    r"\b\d+\s+passed\b|"
+    r"\bpytest\b.{0,80}\b(passed|ok)\b|"
+    r"\ball\s+tests?\s+passed\b|"
+    r"\btests?\s+(passed|green|ok)\b|"
+    r"\bexit[_ ]?code[=:]?\s*0\b.{0,40}\bpytest\b|"
+    r"\bpytest\b.{0,40}\bexit[_ ]?code[=:]?\s*0\b"
+    r")",
+    re.I | re.S,
+)
+
+
+def task_requires_test_evidence(task: str) -> bool:
+    """True when the objective explicitly requires running/passing tests."""
+    return bool(_REQUIRES_TESTS_RE.search(task or ""))
+
+
+def has_test_pass_evidence(*blobs: str) -> bool:
+    """True when combined evidence shows tests were executed and passed."""
+    text = "\n".join(b for b in blobs if b)
+    return bool(_TEST_PASS_EVIDENCE_RE.search(text))
+
+
+def _enforce_test_evidence_gate(
+    goal: GoalCard,
+    snapshot: ValidationSnapshot,
+    *,
+    transcript_tail: str = "",
+    workspace_summary: str = "",
+) -> ValidationSnapshot:
+    """Downgrade pass→repair when tests were required but not evidenced."""
+    if snapshot.status != "pass":
+        return snapshot
+    if not task_requires_test_evidence(goal.task):
+        return snapshot
+    evidence_bits = [
+        workspace_summary,
+        transcript_tail,
+        snapshot.notes,
+        *[item.evidence for item in goal.items if item.evidence],
+    ]
+    if has_test_pass_evidence(*evidence_bits):
+        return snapshot
+    defects = list(snapshot.defects)
+    defects.append(
+        Defect(
+            artifact="tests",
+            severity="critical",
+            problem="Task requires tests, but no evidence shows they were run and passed",
+            evidence="missing pytest/test pass output in transcript or workspace evidence",
+            repair=(
+                "Run the requested test suite (e.g. pytest) and fix failures until green; "
+                "keep the command output as evidence before claiming done"
+            ),
+            stage_id="",
+        )
+    )
+    return ValidationSnapshot(
+        status="repair",
+        defects=defects,
+        next_action="repair_artifact",
+        notes=(
+            (snapshot.notes + " | " if snapshot.notes else "")
+            + "test evidence gate: required tests not proven"
+        )[:400],
+    )
+
 
 @dataclass
 class VerifyResult:
@@ -286,6 +361,9 @@ async def verify_with_defects(
         "- If a requested deliverable is missing/incomplete, status=repair and add a defect "
         "with a specific repair instruction (not vague advice).\n"
         "- status=pass only when every goal has evidence and no critical/major defects.\n"
+        "- If the task explicitly requires tests/pytest/coverage, status=pass ONLY when "
+        "transcript or workspace evidence shows those tests were executed and passed "
+        "(e.g. 'N passed'). Missing test runs → status=repair with a concrete pytest repair.\n"
         "- status=fail only when the approach is fundamentally wrong (not a small fix).\n"
         "- next_action examples: repair_artifact | continue | replan_stage | ask_user.\n\n"
         f"Goal card:\n{goal.to_markdown()}\n\n"
@@ -313,7 +391,11 @@ async def verify_with_defects(
             if det is not None:
                 return det
             return VerifyResult(goal=goal, snapshot=snapshot)
-        data = json.loads(match.group(0))
+        try:
+            data = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            repaired = re.sub(r",\s*([}\]])", r"\1", match.group(0))
+            data = json.loads(repaired)
         for upd in data.get("updates") or []:
             if upd.get("passes"):
                 goal.mark(
@@ -377,4 +459,10 @@ async def verify_with_defects(
         det = _maybe_deterministic_lookup_pass(goal, **det_kwargs)
         if det is not None:
             return det
+    snapshot = _enforce_test_evidence_gate(
+        goal,
+        snapshot,
+        transcript_tail=transcript_tail,
+        workspace_summary=workspace_summary,
+    )
     return VerifyResult(goal=goal, snapshot=snapshot)

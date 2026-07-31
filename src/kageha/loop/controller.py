@@ -1544,6 +1544,21 @@ class LoopController:
                 "agent_mode": resolved_agent_mode,
             },
         )
+        if str(plan.source or "").startswith("template") and resolved_agent_mode in {
+            "goal",
+            "plan",
+        }:
+            events.emit(
+                "planning_degraded",
+                {
+                    "source": plan.source,
+                    "agent_mode": resolved_agent_mode,
+                    "reason": "planner_fallback",
+                },
+            )
+            self._log(
+                "[kageha] planning degraded — using objective-derived fallback plan"
+            )
 
         # Plan mode materializes a visible artifact, then hard-gates Build.
         # auto_approve (tool HITL) must NOT skip this — Plan ≠ Normal.
@@ -1928,17 +1943,57 @@ class LoopController:
                 begin = getattr(step_delta, "begin_step", None)
                 if callable(begin):
                     begin()
-            try:
-                model, resp = await router.chat(
-                    assembled.messages,
-                    tool_specs,
-                    role=self.execution_role,
-                    task_id=workspace.run_id,
-                    max_tokens=8192,
-                    effort=effort,
-                    on_text_delta=step_delta if callable(step_delta) else None,
-                )
-            except Exception as e:  # noqa: BLE001
+            model = None
+            resp = None
+            model_error: Exception | None = None
+            for model_attempt in range(1, 3):
+                try:
+                    model, resp = await router.chat(
+                        assembled.messages,
+                        tool_specs,
+                        role=self.execution_role,
+                        task_id=workspace.run_id,
+                        max_tokens=8192,
+                        effort=effort,
+                        on_text_delta=step_delta if callable(step_delta) else None,
+                    )
+                    model_error = None
+                    break
+                except Exception as e:  # noqa: BLE001
+                    model_error = e
+                    from kageha.models.retry import (
+                        classify_error,
+                        compute_delay,
+                        sleep_backoff,
+                    )
+
+                    kind = classify_error(e)
+                    # One controller-level safety-net retry for transient provider
+                    # exhaustion after the router's own same-model retries.
+                    if model_attempt < 2 and kind in {
+                        "rate_limit",
+                        "transient",
+                        "timeout",
+                    }:
+                        delay = compute_delay(model_attempt, e)
+                        self._log(
+                            f"[kageha] model retry after {kind} "
+                            f"(wait {delay:.1f}s): {e}"
+                        )
+                        events.emit(
+                            "model_retry",
+                            {
+                                "attempt": model_attempt,
+                                "error": str(e)[:300],
+                                "failure_class": kind,
+                                "delay_s": delay,
+                            },
+                        )
+                        await sleep_backoff(delay)
+                        continue
+                    break
+            if model_error is not None or model is None or resp is None:
+                e = model_error or RuntimeError("model call failed")
                 if callable(step_delta):
                     end = getattr(step_delta, "end_step", None)
                     if callable(end):

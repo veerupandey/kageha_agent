@@ -444,7 +444,11 @@ def test_provider_failure_taxonomy_and_capabilities(store: RuntimeStore):
     control = ProviderControlPlane(store, registry)
     assert control.supports("m", ProviderRequirement(tool_calling=True, minimum_context=999))
     assert not control.supports("m", ProviderRequirement(vision=True))
-    assert classify_provider_failure("429 quota exceeded") == FailureClass.QUOTA
+    # Burst 429s are rate limits; hard billing/quota strings stay QUOTA.
+    assert classify_provider_failure("429 Too Many Requests") == FailureClass.RATE_LIMIT
+    assert (
+        classify_provider_failure("429 insufficient_quota") == FailureClass.QUOTA
+    )
     assert classify_provider_failure("request timed out") == FailureClass.TIMEOUT
     control.record_route_failure(
         model_id="m",
@@ -567,6 +571,7 @@ def test_all_recovery_stop_and_scheduler_policy_branches(store: RuntimeStore):
 
     recovery = RecoveryPolicy()
     assert recovery.decide(FailureClass.TRANSIENT, attempts=0) == RecoveryAction.RETRY
+    assert recovery.decide(FailureClass.RATE_LIMIT, attempts=0) == RecoveryAction.RETRY
     assert (
         recovery.decide(FailureClass.TIMEOUT, attempts=3)
         == RecoveryAction.SWITCH_TOOL

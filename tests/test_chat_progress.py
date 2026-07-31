@@ -83,6 +83,18 @@ def test_hitl_telemetry_becomes_one_human_status():
         )
         == "Reading file · src/kageha/cli.py"
     )
+    assert (
+        _friendly_status(
+            "[kageha] model: retrying glm-5.2-zai in 1.2s (retry 1/3: HTTP 429)"
+        )
+        == "Retrying model…"
+    )
+    assert (
+        _friendly_status(
+            "[kageha] planning degraded — using objective-derived fallback plan"
+        )
+        == "Planning (fallback)…"
+    )
 
 
 def test_detailed_progress_shows_subagent_assignments():

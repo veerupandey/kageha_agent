@@ -181,13 +181,19 @@ class ModelRouter:
 
     @staticmethod
     def format_failover_line(notice: dict[str, Any]) -> str:
-        """One-line Hermes-style failover summary."""
+        """One-line Hermes-style failover / retry summary."""
         frm = str(notice.get("from") or "?")
         to = str(notice.get("to") or "?")
         err = str(notice.get("error") or "error").strip()
         if len(err) > 80:
             err = err[:79] + "…"
         role = str(notice.get("role") or "")
+        if role == "retry" or frm == to:
+            delay = notice.get("delay_s")
+            delay_bit = ""
+            if isinstance(delay, (int, float)) and float(delay) > 0:
+                delay_bit = f" in {float(delay):.1f}s"
+            return f"model: retrying {frm}{delay_bit} ({err})"
         role_bit = f" role={role}" if role else ""
         return f"model: {frm} → {to} ({err}){role_bit}"
 
@@ -235,6 +241,12 @@ class ModelRouter:
         exclude_providers: set[str] | None = None,
         on_text_delta: Callable[[str], None] | None = None,
     ) -> tuple[ChatModel, ChatResponse]:
+        from kageha.models.retry import (
+            DEFAULT_RETRY_POLICY,
+            decide_retry,
+            short_err,
+            sleep_backoff,
+        )
         from kageha.models.streaming import collect_stream, supports_stream
 
         attempt_errors: list[str] = []
@@ -242,6 +254,7 @@ class ModelRouter:
         failed_ids: list[str] = []
         last_err = ""
         ladder = self.ladder(role)
+        policy = DEFAULT_RETRY_POLICY
         # Native tool loops need API/Codex providers — Antigravity/gemini-cli is
         # text-only and will invent "tools missing" excuses if selected.
         require_tool_calling = bool(tools)
@@ -268,82 +281,146 @@ class ModelRouter:
                 # history on every fallback model switch, even within a provider.
                 force=bool(prev_model and prev_model != model.model_id),
             )
-            try:
-                resp: ChatResponse | None = None
-                if on_text_delta is not None and supports_stream(model):
-                    try:
-                        resp = await collect_stream(
-                            model.stream(
-                                use_messages,
-                                tools,
-                                temperature=temperature,
-                                max_tokens=max_tokens,
-                                effort=effort,
-                            ),
-                            on_text_delta=on_text_delta,
-                            model_id=model.model_id,
-                        )
-                    except Exception as stream_exc:  # noqa: BLE001
-                        # Fall back to buffered chat on this model before ladder.
-                        last_err = _short_err(stream_exc)
-                        resp = None
-                    else:
-                        # Some providers (e.g. Z.AI GLM reasoning streams) can
-                        # finish a stream with neither visible text nor tool
-                        # calls. Treat that as a soft stream miss and retry
-                        # buffered chat on the same model before failing over.
-                        if (
-                            resp is not None
-                            and not (resp.message.content or "").strip()
-                            and not resp.message.tool_calls
-                        ):
-                            last_err = "empty stream response"
+            model_err = ""
+            for attempt in range(1, policy.max_attempts + 1):
+                try:
+                    resp: ChatResponse | None = None
+                    stream_err: Exception | None = None
+                    if on_text_delta is not None and supports_stream(model):
+                        try:
+                            resp = await collect_stream(
+                                model.stream(
+                                    use_messages,
+                                    tools,
+                                    temperature=temperature,
+                                    max_tokens=max_tokens,
+                                    effort=effort,
+                                ),
+                                on_text_delta=on_text_delta,
+                                model_id=model.model_id,
+                            )
+                        except Exception as stream_exc:  # noqa: BLE001
+                            # Prefer buffered chat on this model before retry/
+                            # ladder, especially for empty/partial streams.
+                            stream_err = stream_exc
+                            model_err = short_err(stream_exc)
                             resp = None
-                if resp is None:
-                    resp = await model.chat(
-                        use_messages,
-                        tools,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        effort=effort,
+                        else:
+                            # Some providers (e.g. Z.AI GLM reasoning streams) can
+                            # finish a stream with neither visible text nor tool
+                            # calls. Treat that as a soft stream miss.
+                            if (
+                                resp is not None
+                                and not (resp.message.content or "").strip()
+                                and not resp.message.tool_calls
+                            ):
+                                model_err = "empty stream response"
+                                resp = None
+                    if resp is None:
+                        # If the stream failed with a retryable HTTP error,
+                        # back off before the buffered attempt.
+                        if stream_err is not None:
+                            decision = decide_retry(
+                                attempt, stream_err, policy=policy
+                            )
+                            if decision.retryable and decision.delay_s > 0:
+                                self._log_retry(
+                                    model.model_id,
+                                    attempt=attempt,
+                                    max_attempts=policy.max_attempts,
+                                    error=model_err or short_err(stream_err),
+                                    delay_s=decision.delay_s,
+                                )
+                                await sleep_backoff(decision.delay_s)
+                        resp = await model.chat(
+                            use_messages,
+                            tools,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            effort=effort,
+                        )
+                    # Empty text with no tools is a soft failure.
+                    if (
+                        not (resp.message.content or "").strip()
+                        and not resp.message.tool_calls
+                    ):
+                        raise RuntimeError("empty model response")
+                    self.record_success(
+                        model.model_id, task_id=task_id, provider=model.provider
                     )
-                # Empty text with no tools is a soft failure — try next model.
-                if not (resp.message.content or "").strip() and not resp.message.tool_calls:
-                    raise RuntimeError("empty model response")
-                self.record_success(
-                    model.model_id, task_id=task_id, provider=model.provider
-                )
-                if failed_ids:
-                    self._record_failover(
-                        role=role,
-                        from_id=failed_ids[0],
-                        to_id=model.model_id,
-                        error=last_err or "ladder failover",
+                    if failed_ids:
+                        self._record_failover(
+                            role=role,
+                            from_id=failed_ids[0],
+                            to_id=model.model_id,
+                            error=last_err or "ladder failover",
+                        )
+                    return model, resp
+                except Exception as e:  # noqa: BLE001
+                    model_err = short_err(e)
+                    last_err = model_err
+                    decision = decide_retry(attempt, e, policy=policy)
+                    if decision.retryable:
+                        self._log_retry(
+                            model.model_id,
+                            attempt=attempt,
+                            max_attempts=policy.max_attempts,
+                            error=model_err,
+                            delay_s=decision.delay_s,
+                        )
+                        await sleep_backoff(decision.delay_s)
+                        continue
+                    # Exhausted retries / non-retryable — leave this model.
+                    failed_ids.append(model.model_id)
+                    attempt_errors.append(f"{model.model_id}: {model_err}")
+                    failure_class = decision.failure_class or _classify_route_failure(
+                        model_err
                     )
-                return model, resp
-            except Exception as e:  # noqa: BLE001
-                err = _short_err(e)
-                last_err = err
-                failed_ids.append(model.model_id)
-                attempt_errors.append(f"{model.model_id}: {err}")
-                failure_class = _classify_route_failure(err)
-                self.record_failure(
-                    model.model_id,
-                    task_id=task_id,
-                    failure_class=failure_class,
-                    error=err,
-                )
-                self.history.append(
-                    RouteAttempt(
-                        role=role,
-                        requested=model.model_id,
-                        actual=model.model_id,
-                        reason="fallback",
-                        error=err,
+                    self.record_failure(
+                        model.model_id,
+                        task_id=task_id,
+                        failure_class=failure_class,
+                        error=model_err,
                     )
-                )
+                    self.history.append(
+                        RouteAttempt(
+                            role=role,
+                            requested=model.model_id,
+                            actual=model.model_id,
+                            reason="fallback",
+                            error=model_err,
+                        )
+                    )
+                    break
         detail = "; ".join(attempt_errors) if attempt_errors else "no eligible models"
         raise RuntimeError(f"All models failed for role={role}. {detail}")
+
+    def _log_retry(
+        self,
+        model_id: str,
+        *,
+        attempt: int,
+        max_attempts: int,
+        error: str,
+        delay_s: float,
+    ) -> None:
+        notice = {
+            "from": model_id,
+            "to": model_id,
+            "error": f"retry {attempt}/{max_attempts}: {error}",
+            "role": "retry",
+            "delay_s": delay_s,
+        }
+        self.failover_notices.append(notice)
+        self.history.append(
+            RouteAttempt(
+                role="retry",
+                requested=model_id,
+                actual=model_id,
+                reason="retry",
+                error=error,
+            )
+        )
 
     def _model_supports_tool_calling(self, model_id: str) -> bool:
         configured = self.registry.models.get(model_id)
@@ -468,19 +545,6 @@ class ModelRouter:
 
 
 def _classify_route_failure(err: str) -> str:
-    e = (err or "").lower()
-    if "403" in e or "401" in e or "forbidden" in e or "unauthorized" in e:
-        return "auth"
-    if "429" in e or "rate limit" in e or "quota" in e:
-        return "quota"
-    # Soft blips — try the next ladder model without opening a long circuit.
-    if (
-        "empty model response" in e
-        or "timed out" in e
-        or "timeout" in e
-        or "function call turn" in e
-        or "thoughtsignature" in e
-        or "thought signature" in e
-    ):
-        return "transient"
-    return "hard_fail"
+    from kageha.models.retry import classify_error
+
+    return classify_error(err)

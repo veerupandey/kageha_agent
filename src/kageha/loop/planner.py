@@ -1,4 +1,4 @@
-"""Task planner with LLM plan + deterministic template fallback."""
+"""Task planner with LLM plan + objective-derived fallback."""
 
 from __future__ import annotations
 
@@ -57,6 +57,116 @@ def make_followup_plan(task: str) -> TaskPlan:
     )
 
 
+def _objective_fallback_plan(task: str, allowed_tools: set[str]) -> TaskPlan:
+    """Better than a generic template when the planner LLM fails."""
+    text = (task or "").strip() or "Complete the requested work"
+    clip = text if len(text) <= 240 else text[:237].rstrip() + "…"
+    tools_impl = [
+        name
+        for name in ("write_file", "edit_file", "bash", "read_file", "todo_write")
+        if name in allowed_tools
+    ]
+    tools_verify = [
+        name for name in ("bash", "read_file", "todo_write") if name in allowed_tools
+    ]
+    return TaskPlan(
+        summary=clip,
+        steps=[
+            PlanStep(
+                "p1",
+                f"Implement the requested work for: {clip}",
+                tools_impl,
+            ),
+            PlanStep(
+                "p2",
+                "Run the requested verification (tests/commands) and fix failures until green",
+                tools_verify,
+            ),
+            PlanStep(
+                "p3",
+                "Confirm every explicitly requested deliverable exists and summarize results",
+                [name for name in ("read_file", "todo_write", "bash") if name in allowed_tools],
+            ),
+        ],
+        milestones=[
+            "Primary deliverable produced as requested",
+            "Verification commands/tests pass",
+            "Requested artifacts/docs are present",
+        ],
+        source="template",
+    )
+
+
+def _loads_json_lenient(blob: str) -> object:
+    """Parse JSON, repairing common LLM trailing-comma mistakes."""
+    try:
+        return json.loads(blob)
+    except json.JSONDecodeError:
+        repaired = re.sub(r",\s*([}\]])", r"\1", blob)
+        if repaired == blob:
+            raise
+        return json.loads(repaired)
+
+
+def _parse_plan_json(
+    text: str, *, task: str, allowed_tools: set[str]
+) -> TaskPlan:
+    match = re.search(r"\{.*\}", text or "", flags=re.S)
+    if not match:
+        raise ValueError("no json")
+    data = _loads_json_lenient(match.group(0))
+    if not isinstance(data, dict):
+        raise ValueError("plan json must be an object")
+    steps = [
+        PlanStep(
+            id=s.get("id") or f"s{i}",
+            description=s.get("description") or "",
+            tools=[
+                str(name)
+                for name in (s.get("tools") or [])
+                if str(name) in allowed_tools
+            ],
+            depends_on=[str(d) for d in (s.get("depends_on") or [])],
+            parallel_group=str(s.get("parallel_group") or ""),
+            estimated_steps=int(s.get("estimated_steps") or 0),
+            estimated_usd=float(s.get("estimated_usd") or 0.0),
+        )
+        for i, s in enumerate(data.get("steps") or [])
+    ]
+    steps = [s for s in steps if (s.description or "").strip()]
+    if not steps:
+        raise ValueError("empty steps")
+    # Deduplicate ids while preserving order.
+    seen: set[str] = set()
+    unique: list[PlanStep] = []
+    for step in steps[:8]:
+        sid = step.id or f"s{len(unique)+1}"
+        if sid in seen:
+            sid = f"{sid}_{len(unique)+1}"
+        seen.add(sid)
+        unique.append(
+            PlanStep(
+                id=sid,
+                description=step.description,
+                tools=step.tools,
+                depends_on=step.depends_on,
+                parallel_group=step.parallel_group,
+                estimated_steps=step.estimated_steps,
+                estimated_usd=step.estimated_usd,
+            )
+        )
+    return TaskPlan(
+        summary=data.get("summary") or task,
+        steps=unique,
+        milestones=[
+            str(item)
+            for item in (data.get("milestones") or [])
+            if str(item).strip()
+        ][:12],
+        source="llm",
+    )
+
+
 async def make_plan(
     task: str,
     router: ModelRouter,
@@ -100,6 +210,8 @@ async def make_plan(
         f"{explore_block}\n\n"
         f"Task: {task}"
     )
+    raw_text = ""
+    parse_error = ""
     try:
         _, resp = await router.chat(
             [ChatMessage(role="user", content=prompt)],
@@ -107,58 +219,34 @@ async def make_plan(
             max_tokens=1024,
             effort=effort or "medium",
         )
-        text = resp.message.content or ""
-        match = re.search(r"\{.*\}", text, flags=re.S)
-        if not match:
-            raise ValueError("no json")
-        data = json.loads(match.group(0))
-        steps = [
-            PlanStep(
-                id=s.get("id") or f"s{i}",
-                description=s.get("description") or "",
-                tools=[
-                    str(name)
-                    for name in (s.get("tools") or [])
-                    if str(name) in allowed_tools
-                ],
-                depends_on=[str(d) for d in (s.get("depends_on") or [])],
-                parallel_group=str(s.get("parallel_group") or ""),
-                estimated_steps=int(s.get("estimated_steps") or 0),
-                estimated_usd=float(s.get("estimated_usd") or 0.0),
-            )
-            for i, s in enumerate(data.get("steps") or [])
-        ]
-        if not steps:
-            raise ValueError("empty steps")
-        return TaskPlan(
-            summary=data.get("summary") or task,
-            steps=steps,
-            milestones=[
-                str(item)
-                for item in (data.get("milestones") or [])
-                if str(item).strip()
-            ][:12],
-            source="llm",
-        )
-    except Exception:  # noqa: BLE001
-        fallback_steps = [
-            PlanStep(
-                step.id,
-                step.description,
-                [name for name in step.tools if name in allowed_tools],
-            )
-            for step in TEMPLATE_STEPS
-        ]
-        return TaskPlan(
-            summary=task,
-            steps=fallback_steps,
-            milestones=[
-                "Understood the task and constraints",
-                "Produced the primary deliverable",
-                "Verified the deliverable against the request",
-            ],
-            source="template",
-        )
+        raw_text = resp.message.content or ""
+        return _parse_plan_json(raw_text, task=task, allowed_tools=allowed_tools)
+    except Exception as first_exc:  # noqa: BLE001
+        parse_error = str(first_exc)
+        # One repair pass for malformed JSON / truncated planner output.
+        if raw_text.strip():
+            try:
+                repair = (
+                    "Repair the following into ONLY valid JSON matching schema "
+                    '{"summary": str, "milestones": [str], '
+                    '"steps": [{"id": str, "description": str, "tools": [str]}]}. '
+                    f"Parse error: {parse_error[:200]}\n\nBroken output:\n"
+                    f"{raw_text[:3000]}"
+                )
+                _, repaired = await router.chat(
+                    [ChatMessage(role="user", content=repair)],
+                    role=role,
+                    max_tokens=1024,
+                    effort="low",
+                )
+                return _parse_plan_json(
+                    repaired.message.content or "",
+                    task=task,
+                    allowed_tools=allowed_tools,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        return _objective_fallback_plan(task, allowed_tools)
 
 
 def replace_plan(existing: TaskPlan | None, new_plan: TaskPlan, *, version: int = 1) -> TaskPlan:

@@ -800,8 +800,12 @@ def _friendly_status(message: str) -> str:
                 return f"{label} · {hint}"
             return f"{label}…"
         return "Working…"
+    if "planning degraded" in low or "fallback plan" in low:
+        return "Planning (fallback)…"
     if "planning" in low or "plan ready" in low or "] plan:" in low:
         return "Planning…"
+    if "model retry" in low or "model: retrying" in low or "retry after" in low:
+        return "Retrying model…"
     if "model:" in low and "→" in compact:
         # Failover-first: keep the concrete A → B line visible.
         m = re.search(r"model:\s*.+", compact, re.I)
