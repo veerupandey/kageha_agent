@@ -54,8 +54,18 @@ _HEAVY_DELIVERABLE_RE = re.compile(
     r"\b("
     r"pptx|powerpoint|pdf|slide|deck|video|reel|carousel|diagram|"
     r"implement|compile|refactor|"
-    r"(?:create|build|write|generate|make|produce|render)\b[^.]{0,40}\b"
-    r"(?:app|code|script|module|service|image|poster)"
+    r"(?:create|build|write|generate|make|produce|render)\b[^.]{0,80}\b"
+    r"(?:app|api|code|script|module|package|service|server|library|endpoint|"
+    r"image|poster|suite|coverage)"
+    r")\b",
+    re.I,
+)
+
+# Strong build verbs — Goal mode must not soft-redirect these to Normal Q&A.
+_BUILD_INTENT_RE = re.compile(
+    r"\b("
+    r"build|implement|create|scaffold|develop|write|generate|produce|"
+    r"refactor|migrate|add\s+tests?|include\s+pytest|ship"
     r")\b",
     re.I,
 )
@@ -152,7 +162,7 @@ def is_lookup_status_text(text: str) -> bool:
     blob = (text or "").strip()
     if not blob:
         return False
-    if _HEAVY_DELIVERABLE_RE.search(blob):
+    if _HEAVY_DELIVERABLE_RE.search(blob) or _BUILD_INTENT_RE.search(blob):
         return False
     return bool(_LOOKUP_STATUS_RE.search(blob))
 
