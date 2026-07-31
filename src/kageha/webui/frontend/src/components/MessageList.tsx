@@ -402,6 +402,17 @@ const MessageRow = memo(function MessageRow({
       )}
     >
       <div className="mb-1.5 flex items-center gap-2 text-xs">
+        {/* Avatar dot */}
+        <span
+          className={cn(
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.55rem] font-bold",
+            isUser
+              ? "bg-line text-muted"
+              : "bg-accent text-white",
+          )}
+        >
+          {isUser ? "Y" : "K"}
+        </span>
         <span
           className={cn(
             "font-semibold tracking-wide",
@@ -527,13 +538,43 @@ function MessageSkeletons() {
 }
 
 function EmptyState() {
+  const setDraft = useAppStore((s) => s.setDraft);
+
+  const suggestions = [
+    { label: "Create a carousel", text: "Create a 6-slide Instagram carousel for my product" },
+    { label: "Research & summarize", text: "Research the latest trends in AI agents and summarize" },
+    { label: "Build an app", text: "Build a simple todo app with React and save to artifacts/" },
+    { label: "Fix a bug", text: "Find and fix the bug in " },
+  ];
+
   return (
     <div className="flex h-full min-h-[16rem] flex-col items-center justify-center px-6 text-center">
-      <p className="text-lg font-medium text-ink">Message Kageha…</p>
+      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft">
+        <span className="text-2xl font-light text-accent">K</span>
+      </div>
+      <p className="text-lg font-medium text-ink">What can I help you build?</p>
       <p className="mt-2 max-w-sm text-sm text-muted">
-        Ask a question, start a task, or type{" "}
-        <span className="font-mono text-ink">/</span> for commands.
+        I can create files, research the web, write code, generate images, and
+        handle complex multi-step tasks. Type{" "}
+        <span className="font-mono text-accent">/</span> for commands.
       </p>
+      <div className="mt-5 flex flex-wrap justify-center gap-2 max-w-md">
+        {suggestions.map((s) => (
+          <button
+            key={s.label}
+            type="button"
+            className="rounded-full border border-line px-3 py-1.5 text-xs font-medium text-muted hover:border-accent/40 hover:text-ink hover:bg-accent-soft/50"
+            onClick={() => {
+              setDraft(s.text);
+              // Focus the composer
+              const el = document.getElementById("composer-input") as HTMLTextAreaElement | null;
+              el?.focus();
+            }}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
