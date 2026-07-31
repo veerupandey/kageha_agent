@@ -57,6 +57,9 @@ export interface AppState {
   canvasItems: CanvasItem[];
   canvasSelectedPath: string | null;
 
+  /** Live todo/milestone board from agent progress events. */
+  todoBoard: { done: number; total: number; items: { id: string; text: string; done: boolean }[] } | null;
+
   setDraft: (value: string) => void;
   setConnectionOnline: (online: boolean) => void;
   clearError: () => void;
