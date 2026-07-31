@@ -1676,6 +1676,25 @@ class WebUIApp:
             if not _SAFE_SESSION_ID.fullmatch(session_id):
                 raise ValueError("invalid session_id")
             return _json_bytes(self._session_design_payload(session_id))
+
+        m_share = re.fullmatch(r"/api/sessions/([^/]+)/share", path)
+        if method == "GET" and m_share:
+            session_id = m_share.group(1)
+            if not _SAFE_SESSION_ID.fullmatch(session_id):
+                raise ValueError("invalid session_id")
+            from kageha.share import generate_share_html
+            from kageha.config import sessions_dir
+
+            session_dir = sessions_dir() / session_id
+            if not session_dir.is_dir():
+                raise KeyError(f"session not found: {session_id}")
+            html = generate_share_html(session_id, session_dir)
+            return (
+                200,
+                html.encode("utf-8"),
+                "text/html; charset=utf-8",
+                {"Content-Disposition": f'inline; filename="kageha-session-{session_id[:8]}.html"'},
+            )
         if method in {"PUT", "PATCH"} and m_design:
             session_id = m_design.group(1)
             if not _SAFE_SESSION_ID.fullmatch(session_id):

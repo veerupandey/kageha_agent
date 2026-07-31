@@ -861,6 +861,30 @@ def sessions_cmd(
             f"[{row['turn_status'] or row['status']}]  "
             f"{label}"
         )
+
+
+@app.command("share")
+def share_cmd(
+    session_id: str = typer.Argument(help="Session ID to export (from `kageha sessions`)"),
+    output: str = typer.Option("", "--output", "-o", help="Output file path (default: session/share.html)"),
+) -> None:
+    """Export a session as a shareable standalone HTML replay.
+
+    Creates a self-contained HTML file with the conversation, artifacts
+    (images embedded), progress timeline, goals, and metadata. Share it
+    with anyone — no Kageha installation needed to view.
+    """
+    from kageha.share import export_session
+
+    try:
+        out = export_session(session_id, output or None)
+        typer.echo(f"Exported: {out}")
+        typer.echo(f"Open: file://{out.resolve()}")
+    except FileNotFoundError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1) from e
+
+
 @app.command("server")
 def server_cmd(
     listen: str = typer.Option(

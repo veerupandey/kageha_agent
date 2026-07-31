@@ -150,6 +150,18 @@ export function Stage({ onToggleSessions }: StageProps) {
         >
           Canvas{canvasItems.length ? ` · ${canvasItems.length}` : ""}
         </button>
+        <button
+          type="button"
+          className="shrink-0 rounded-md px-2.5 py-1 text-xs font-medium text-muted hover:bg-line/70 hover:text-ink"
+          title="Export session as shareable HTML"
+          disabled={!sessionId}
+          onClick={() => {
+            if (!sessionId) return;
+            window.open(`/api/sessions/${sessionId}/share`, "_blank");
+          }}
+        >
+          Share
+        </button>
       </header>
 
       <div className="flex min-h-0 flex-1">
