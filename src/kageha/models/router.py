@@ -287,6 +287,18 @@ class ModelRouter:
                         # Fall back to buffered chat on this model before ladder.
                         last_err = _short_err(stream_exc)
                         resp = None
+                    else:
+                        # Some providers (e.g. Z.AI GLM reasoning streams) can
+                        # finish a stream with neither visible text nor tool
+                        # calls. Treat that as a soft stream miss and retry
+                        # buffered chat on the same model before failing over.
+                        if (
+                            resp is not None
+                            and not (resp.message.content or "").strip()
+                            and not resp.message.tool_calls
+                        ):
+                            last_err = "empty stream response"
+                            resp = None
                 if resp is None:
                     resp = await model.chat(
                         use_messages,

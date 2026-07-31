@@ -78,8 +78,35 @@ async def test_router_uses_stream_when_delta_callback_set(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_router_falls_back_to_chat_without_callback():
-    fake = _FakeStreamModel()
+async def test_router_falls_back_when_stream_is_empty():
+    """Empty streamed replies (no text, no tools) must retry buffered chat."""
+
+    class _EmptyThenBuffered:
+        model_id = "fake-stream"
+        provider = "openai"
+
+        def __init__(self) -> None:
+            self.chat_calls = 0
+            self.stream_calls = 0
+
+        async def chat(self, messages, tools=None, **kwargs):  # noqa: ANN001
+            self.chat_calls += 1
+            return ChatResponse(
+                message=ChatMessage(role="assistant", content="buffered-ok"),
+                usage=ChatUsage(),
+                model=self.model_id,
+            )
+
+        async def stream(self, messages, tools=None, **kwargs):  # noqa: ANN001
+            self.stream_calls += 1
+            # Reasoning-only / empty finish — looks successful but useless.
+            yield StreamDelta(reasoning="thinking…", model=self.model_id)
+            yield StreamDelta(text="", finish_reason="stop", model=self.model_id)
+
+        async def smoke(self) -> str:
+            return "ok"
+
+    fake = _EmptyThenBuffered()
     router = ModelRouter.__new__(ModelRouter)
     router.registry = MagicMock()
     router.sticky = {}
@@ -103,7 +130,9 @@ async def test_router_falls_back_to_chat_without_callback():
         [ChatMessage(role="user", content="hi")],
         tools=None,
         role="default",
+        on_text_delta=lambda _t: None,
     )
-    assert resp.message.content == "buffered"
+    assert model is fake
+    assert resp.message.content == "buffered-ok"
+    assert fake.stream_calls == 1
     assert fake.chat_calls == 1
-    assert fake.stream_calls == 0

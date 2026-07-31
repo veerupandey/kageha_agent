@@ -365,6 +365,15 @@ def run_cmd(
             registry=skills,
             interactive=not auto_approve,
         )
+        status = str(result.status or "").lower()
+        if status and status not in {
+            "success",
+            "ok",
+            "completed",
+            "awaiting_plan_approval",
+            "awaiting_clarify",
+        }:
+            raise typer.Exit(code=1)
 
     asyncio.run(_run())
 
