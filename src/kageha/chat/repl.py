@@ -849,6 +849,7 @@ async def run_chat_repl(
                         agent_mode=agent_mode,
                         loop_mode=loop_mode,
                         max_steps=int(max_steps or 40),
+                        on_status=progress.update if not quiet else None,
                     )
                     result = SimpleNamespace(
                         run_id=str(
