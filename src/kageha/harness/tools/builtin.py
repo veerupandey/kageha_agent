@@ -127,11 +127,12 @@ def register(ctx: "HarnessContext") -> ToolRegistry:
 
     @tool(
         description=(
-            "Ask ONE blocking clarification in the live terminal. Use only when a "
-            "reasonable assumption would materially change the result. For binary "
-            "questions provide short yes_label and no_label strings; the user can "
-            "reply y/n. Never call repeatedly in one turn. Do not use bash `read`. "
-            "Optionally save the answer to a workspace-relative path."
+            "Ask the user a clarifying question. Use whenever you need information "
+            "that would materially affect the result — preferences, constraints, "
+            "choices between alternatives. The user will see it as an interactive "
+            "prompt and can answer freely. For binary questions, provide yes_label "
+            "and no_label. Do not use bash `read` for input — always use this tool. "
+            "You may call this multiple times if you need several pieces of info."
         ),
         risk_class="hitl",
     )
@@ -143,22 +144,13 @@ def register(ctx: "HarnessContext") -> ToolRegistry:
     ) -> str:
         key = re.sub(r"[^a-z0-9]+", " ", question.lower()).strip()
         async with human_question_lock:
-            if "key" in human_question_state:
-                if human_question_state["key"] == key:
-                    return json.dumps(
-                        {
-                            "answer": human_question_state.get("answer", ""),
-                            "reused": True,
-                            "instruction": "Proceed; do not ask this question again.",
-                        }
-                    )
+            # If this exact question was already asked and answered, reuse the answer.
+            if human_question_state.get("key") == key and human_question_state.get("answer"):
                 return json.dumps(
                     {
-                        "status": "clarification_limit",
-                        "instruction": (
-                            "One clarification was already asked this turn. "
-                            "Use that answer or make a reasonable assumption and proceed."
-                        ),
+                        "answer": human_question_state["answer"],
+                        "reused": True,
+                        "instruction": "Proceed; do not ask this question again.",
                     }
                 )
 

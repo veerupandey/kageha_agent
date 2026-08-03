@@ -193,7 +193,7 @@ async def test_cli_binary_question_accepts_yes_no(
 
 
 @pytest.mark.asyncio
-async def test_ask_human_prompts_only_once_per_turn(
+async def test_ask_human_allows_multiple_questions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -208,7 +208,7 @@ async def test_ask_human_prompts_only_once_per_turn(
     asker = AsyncMock(return_value="yes")
     monkeypatch.setattr(builtin, "cli_ask_human", asker)
     ctx = HarnessContext(
-        workspace=SessionWorkspace.create("hitl-once"),
+        workspace=SessionWorkspace.create("hitl-multi"),
         approvals=ApprovalGate(auto_approve=True),
         router=MagicMock(),
     )
@@ -224,9 +224,11 @@ async def test_ask_human_prompts_only_once_per_turn(
     second_question = await tool.call(question="Which visual style?")
 
     assert '"answer": "yes"' in first
+    # Same question reuses the cached answer
     assert '"reused": true' in duplicate
-    assert "clarification_limit" in second_question
-    asker.assert_awaited_once()
+    # Different question now gets asked (no more clarification_limit)
+    assert '"answer": "yes"' in second_question
+    assert asker.await_count == 2  # Called for first + second (not duplicate)
 
 
 @pytest.mark.asyncio

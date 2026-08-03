@@ -28,22 +28,22 @@ def _clear_embedding_env(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(key, raising=False)
 
 
-def test_models_yaml_defaults_to_azure_embedding(registry: ModelRegistry) -> None:
-    assert registry.embedding.get("provider") == "azure"
-    assert registry.embedding.get("model") == "text-embedding-3-large"
-    assert int(registry.embedding.get("dimensions") or 0) == 3072
+def test_models_yaml_defaults_to_gemini_embedding(registry: ModelRegistry) -> None:
+    assert registry.embedding.get("provider") == "gemini"
+    assert registry.embedding.get("model") == "text-embedding-004"
+    assert int(registry.embedding.get("dimensions") or 0) == 768
 
 
-def test_resolve_prefers_azure_when_key_present(
+def test_resolve_prefers_gemini_when_key_present(
     registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _clear_embedding_env(monkeypatch)
-    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "az-test")
+    monkeypatch.setenv("GEMINI_API_KEY", "gem-test")
     cfg = resolve_embedding_config(registry)
     assert cfg is not None
-    assert cfg.provider == "azure"
-    assert cfg.model == "text-embedding-3-large"
-    assert cfg.dimensions == 3072
+    assert cfg.provider == "gemini"
+    assert cfg.model == "text-embedding-004"
+    assert cfg.dimensions == 768
 
 
 def test_resolve_prefers_gemini_when_preferred(
