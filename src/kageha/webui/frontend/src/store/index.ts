@@ -272,6 +272,7 @@ export const useAppStore = create<AppState>((set, get) => {
     canvasExpanded: false,
     canvasItems: [],
     canvasSelectedPath: null,
+    canvasTurnPaths: new Set(),
     todoBoard: null,
     slashCatalog: SLASH_COMMANDS.slice(),
     capabilities: {
@@ -651,6 +652,7 @@ export const useAppStore = create<AppState>((set, get) => {
           sessionLoading: false,
           canvasItems: [],
           canvasSelectedPath: null,
+          canvasTurnPaths: new Set(),
           runs: { ...s.runs, [data.session_id]: run },
           pendingApproval: data.pending_approval
             ? { ...data.pending_approval, sessionId: data.session_id }
@@ -703,6 +705,7 @@ export const useAppStore = create<AppState>((set, get) => {
         error: null,
         canvasItems: [],
         canvasSelectedPath: null,
+        canvasTurnPaths: new Set(),
       });
     },
 
@@ -1079,6 +1082,46 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     },
 
+    deleteTurn: async (messageIndex: number) => {
+      const { sessionId } = get();
+      if (!sessionId) return;
+      try {
+        await api(`/api/sessions/${encodeURIComponent(sessionId)}/truncate`, {
+          method: "POST",
+          body: JSON.stringify({ message_index: messageIndex }),
+        });
+        set((s) => {
+          const messages = s.messages.slice(0, messageIndex);
+          return { messages };
+        });
+        const sid = sessionId;
+        updateRun(sid, (r) => ({
+          ...r,
+          messages: r.messages.slice(0, messageIndex),
+        }));
+        get().showToast("Turn deleted");
+      } catch (err) {
+        get().showToast(`Delete failed: ${err instanceof Error ? err.message : err}`);
+      }
+    },
+
+    deleteMemory: async (id: string, content?: string) => {
+      const { sessionId } = get();
+      try {
+        await api("/api/memory/delete", {
+          method: "POST",
+          body: JSON.stringify({
+            id,
+            content: content || "",
+            session_id: sessionId || "",
+          }),
+        });
+        get().showToast("Memory forgotten");
+      } catch (err) {
+        get().showToast(`Forget failed: ${err instanceof Error ? err.message : err}`);
+      }
+    },
+
     setCanvasOpen: (open) => set({ canvasOpen: open }),
     setCanvasExpanded: (expanded) => set({ canvasExpanded: expanded }),
     selectCanvasItem: (path) => set({ canvasSelectedPath: path }),
@@ -1100,9 +1143,12 @@ export const useAppStore = create<AppState>((set, get) => {
       const hadItems = get().canvasItems.length > 0;
       set((s) => {
         const byPath = new Map(s.canvasItems.map((i) => [i.path, i]));
+        const turnPaths = new Set(s.canvasTurnPaths);
         for (const raw of paths) {
           const path = String(raw || "").replace(/\\/g, "/").replace(/^\/+/, "");
-          if (!path || !isShowcaseArtifact(path) || byPath.has(path)) continue;
+          if (!path || !isShowcaseArtifact(path)) continue;
+          turnPaths.add(path);
+          if (byPath.has(path)) continue;
           const item = toCanvasItem(sid, path);
           if (item) byPath.set(path, item);
         }
@@ -1113,13 +1159,18 @@ export const useAppStore = create<AppState>((set, get) => {
         });
         // Auto-open canvas when first artifacts appear.
         const shouldAutoOpen = !hadItems && canvasItems.length > 0 && !s.canvasOpen;
+        // Auto-select the most recently updated deliverable (prefer webpage/markdown over config).
+        const bestTurnItem = canvasItems.find(
+          (i) => turnPaths.has(i.path) && (i.kind === "webpage" || i.kind === "markdown" || i.kind === "image"),
+        ) || canvasItems.find((i) => turnPaths.has(i.path));
         return {
           canvasItems,
+          canvasTurnPaths: turnPaths,
           canvasOpen: shouldAutoOpen ? true : s.canvasOpen,
-          canvasSelectedPath:
-            s.canvasSelectedPath && byPath.has(s.canvasSelectedPath)
+          canvasSelectedPath: bestTurnItem?.path
+            ?? (s.canvasSelectedPath && byPath.has(s.canvasSelectedPath)
               ? s.canvasSelectedPath
-              : canvasItems[0]?.path || null,
+              : canvasItems[0]?.path || null),
         };
       });
     },
@@ -1127,7 +1178,7 @@ export const useAppStore = create<AppState>((set, get) => {
     refreshArtifacts: async () => {
       const sid = get().sessionId;
       if (!sid) {
-        set({ canvasItems: [], canvasSelectedPath: null });
+        set({ canvasItems: [], canvasSelectedPath: null, canvasTurnPaths: new Set() });
         return;
       }
       try {

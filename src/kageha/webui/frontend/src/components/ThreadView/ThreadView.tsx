@@ -32,7 +32,7 @@ export function ThreadView({ onOpenLightbox, rightPanelCollapsed, onToggleRightP
     for (const item of canvasItems) {
       if (item.kind === "image") counts.images++;
       else if (item.kind === "video") counts.video++;
-      else if (item.kind === "markdown") counts.webpages++;
+      else if (item.kind === "markdown" || item.kind === "webpage") counts.webpages++;
       else if (item.kind === "code") counts.code++;
       else if (item.kind === "pdf" || item.kind === "document" || item.kind === "text" || item.kind === "spreadsheet" || item.kind === "presentation") counts.documents++;
     }

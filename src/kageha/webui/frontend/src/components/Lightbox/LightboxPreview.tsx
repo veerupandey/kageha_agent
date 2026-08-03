@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import type { CanvasItem } from "../../lib/artifactMedia";
 import { CodeBlock } from "../shared/CodeBlock";
 
@@ -53,6 +55,19 @@ export function LightboxPreview({ item }: LightboxPreviewProps) {
     );
   }
 
+  if (item.kind === "webpage" && item.url) {
+    return (
+      <div className="ka-lightbox-preview">
+        <iframe
+          src={item.url}
+          title={name}
+          sandbox="allow-scripts allow-same-origin"
+          className="h-full w-full border-0"
+        />
+      </div>
+    );
+  }
+
   if (item.kind === "code" && codeText) {
     return (
       <div className="ka-lightbox-preview overflow-auto p-4">
@@ -61,10 +76,25 @@ export function LightboxPreview({ item }: LightboxPreviewProps) {
     );
   }
 
-  if ((item.kind === "text" || item.kind === "markdown") && codeText) {
+  if (item.kind === "markdown" && codeText) {
     return (
-      <div className="ka-lightbox-preview overflow-auto p-4">
-        <pre className="rounded-lg border border-line bg-canvas p-4 font-mono text-[0.8rem] text-ink whitespace-pre-wrap">
+      <div className="ka-lightbox-preview overflow-y-auto p-6" style={{ alignItems: "flex-start" }}>
+        <div
+          className="markdown mx-auto w-full max-w-3xl"
+          dangerouslySetInnerHTML={{
+            __html: DOMPurify.sanitize(
+              marked.parse(codeText, { async: false }) as string
+            ),
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (item.kind === "text" && codeText) {
+    return (
+      <div className="ka-lightbox-preview overflow-y-auto p-4" style={{ alignItems: "flex-start" }}>
+        <pre className="w-full rounded-lg border border-line bg-canvas p-4 font-mono text-[0.8rem] text-ink whitespace-pre-wrap">
           {codeText}
         </pre>
       </div>

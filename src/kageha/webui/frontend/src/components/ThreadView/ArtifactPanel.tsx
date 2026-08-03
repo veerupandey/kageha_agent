@@ -37,7 +37,7 @@ function matchesFilter(item: CanvasItem, filter: ArtifactFilter): boolean {
       item.kind === "spreadsheet" ||
       item.kind === "presentation"
     );
-  if (filter === "webpages") return item.kind === "markdown";
+  if (filter === "webpages") return item.kind === "markdown" || item.kind === "webpage";
   return true;
 }
 
@@ -49,6 +49,7 @@ function FileIcon({ kind, ext }: { kind: CanvasItem["kind"]; ext: string }) {
     video: "bg-purple-500/15 text-purple-400",
     audio: "bg-indigo-500/15 text-indigo-400",
     pdf: "bg-red-500/15 text-red-400",
+    webpage: "bg-cyan-500/15 text-cyan-400",
     code: "bg-emerald-500/15 text-emerald-400",
     markdown: "bg-blue-500/15 text-blue-400",
     text: "bg-slate-500/15 text-slate-400",
@@ -87,7 +88,7 @@ function InlinePreview({
 
   // Fetch file content — and poll every 2s while agent is running
   useEffect(() => {
-    if (item.kind !== "code" && item.kind !== "text" && item.kind !== "markdown") {
+    if (item.kind !== "code" && item.kind !== "text" && item.kind !== "markdown" && item.kind !== "webpage") {
       setText("");
       return;
     }
@@ -131,7 +132,7 @@ function InlinePreview({
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               <p className="truncate text-xs font-medium text-ink">{item.caption}</p>
-              {runStatus === "running" && (item.kind === "code" || item.kind === "text" || item.kind === "markdown") && (
+              {runStatus === "running" && (item.kind === "code" || item.kind === "text" || item.kind === "markdown" || item.kind === "webpage") && (
                 <span className="flex items-center gap-1 rounded bg-accent/15 px-1.5 py-0.5 text-[0.55rem] font-medium text-accent">
                   <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
                   Live
@@ -181,6 +182,14 @@ function InlinePreview({
           <div className="p-4">
             <audio src={item.url} controls className="w-full" />
           </div>
+        ) : item.kind === "webpage" ? (
+          <iframe
+            src={item.url}
+            title={item.caption}
+            sandbox="allow-scripts allow-same-origin"
+            className="h-full w-full border-0"
+            style={{ minHeight: "20rem" }}
+          />
         ) : item.kind === "code" ? (
           loading ? (
             <div className="p-4 text-xs text-muted">Loading…</div>
@@ -229,10 +238,12 @@ function InlinePreview({
 function FileListItem({
   item,
   active,
+  updatedThisTurn,
   onSelect,
 }: {
   item: CanvasItem;
   active: boolean;
+  updatedThisTurn: boolean;
   onSelect: () => void;
 }) {
   const ext = fileExt(item.path);
@@ -245,13 +256,20 @@ function FileListItem({
         "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
         active
           ? "bg-[var(--color-accent-soft)] ring-1 ring-accent/30"
-          : "hover:bg-line/40",
+          : updatedThisTurn
+            ? "bg-accent/5 ring-1 ring-accent/20"
+            : "hover:bg-line/40",
       )}
       onClick={onSelect}
     >
       <FileIcon kind={item.kind} ext={ext} />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[0.8rem] font-medium text-ink">{name}</p>
+        <p className="truncate text-[0.8rem] font-medium text-ink">
+          {name}
+          {updatedThisTurn && !active && (
+            <span className="ml-1.5 inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+          )}
+        </p>
         <p className="text-[0.6rem] text-faint">
           {kindLabel(item.kind)}
           {item.size ? ` · ${formatBytes(item.size)}` : ""}
@@ -265,6 +283,7 @@ function FileListItem({
 
 export function ArtifactPanel({ filter, onOpenLightbox, onCollapse }: ArtifactPanelProps) {
   const canvasItems = useAppStore((s) => s.canvasItems);
+  const canvasTurnPaths = useAppStore((s) => s.canvasTurnPaths);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
   const filtered = useMemo(
@@ -280,10 +299,14 @@ export function ArtifactPanel({ filter, onOpenLightbox, onCollapse }: ArtifactPa
   // Auto-select the first item when filter changes, or newest item during a run
   useEffect(() => {
     if (filtered.length > 0 && !filtered.find((i) => i.path === selectedPath)) {
-      // Select the last item (most recent) when items appear
-      setSelectedPath(filtered[filtered.length - 1].path);
+      const turnItem =
+        filtered.find(
+          (i) => canvasTurnPaths.has(i.path) && (i.kind === "webpage" || i.kind === "markdown" || i.kind === "image"),
+        ) ||
+        filtered.find((i) => canvasTurnPaths.has(i.path));
+      setSelectedPath(turnItem?.path || filtered[filtered.length - 1].path);
     }
-  }, [filtered, selectedPath]);
+  }, [filtered, selectedPath, canvasTurnPaths]);
 
   const handleSelect = useCallback((path: string) => {
     setSelectedPath((prev) => (prev === path ? null : path));
@@ -354,6 +377,7 @@ export function ArtifactPanel({ filter, onOpenLightbox, onCollapse }: ArtifactPa
               key={item.path}
               item={item}
               active={item.path === selectedPath}
+              updatedThisTurn={canvasTurnPaths.has(item.path)}
               onSelect={() => handleSelect(item.path)}
             />
           ))}

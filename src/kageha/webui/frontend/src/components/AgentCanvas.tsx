@@ -8,6 +8,8 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import type { CanvasItem } from "../lib/artifactMedia";
 import { artifactDownloadUrl, fileExt, kindLabel } from "../lib/artifactMedia";
 import { cn } from "../lib/cn";
@@ -163,7 +165,7 @@ function TimelineTab() {
           <p className="text-[0.65rem] uppercase tracking-wide text-muted mb-1">
             Steps ({allSteps.length})
           </p>
-          <div className="space-y-0.5 max-h-32 overflow-y-auto">
+          <div className="space-y-0.5">
             {allSteps.slice(-20).map((step, i) => (
               <p key={i} className="text-xs text-ink truncate">
                 <span className="text-accent mr-1">▸</span>
@@ -401,6 +403,16 @@ function ArtifactPreview({ item }: { item: CanvasItem }) {
   if (item.kind === "audio") {
     return <audio src={item.url} controls className="w-full" />;
   }
+  if (item.kind === "webpage") {
+    return (
+      <iframe
+        src={item.url}
+        title={item.caption}
+        sandbox="allow-scripts allow-same-origin"
+        className="h-48 w-full rounded border border-line"
+      />
+    );
+  }
   if (item.kind === "code") {
     if (textLoading) return <p className="p-2 text-xs text-muted">Loading…</p>;
     return (
@@ -416,6 +428,18 @@ function ArtifactPreview({ item }: { item: CanvasItem }) {
   }
   if (item.kind === "markdown" || item.kind === "text") {
     if (textLoading) return <p className="p-2 text-xs text-muted">Loading…</p>;
+    if (item.kind === "markdown") {
+      return (
+        <div
+          className="markdown max-h-48 overflow-auto rounded border border-line bg-canvas p-2 text-[0.75rem]"
+          dangerouslySetInnerHTML={{
+            __html: DOMPurify.sanitize(
+              marked.parse(text, { async: false }) as string
+            ),
+          }}
+        />
+      );
+    }
     return <pre className="max-h-48 overflow-auto rounded border border-line bg-canvas p-2 font-mono text-[0.65rem] text-ink whitespace-pre-wrap">{text || "(empty)"}</pre>;
   }
   return (
@@ -513,7 +537,7 @@ export function AgentCanvas({ alwaysShow, onCollapse }: { alwaysShow?: boolean; 
 
   return (
     <aside
-      className="flex w-full min-w-0 flex-col border-l border-line bg-surface md:w-[22rem] lg:w-[26rem]"
+      className="flex w-full min-w-0 flex-1 flex-col border-l border-line bg-surface md:min-w-[22rem]"
       id="agent-canvas"
       aria-label="Agent monitoring canvas"
     >

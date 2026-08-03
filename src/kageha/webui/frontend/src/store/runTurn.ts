@@ -79,7 +79,7 @@ export async function runTurn(
       },
     ],
   }));
-  set({ error: null, draft: "" });
+  set({ error: null, draft: "", canvasTurnPaths: new Set() });
 
   const mode = opts.agentMode || get().agentMode;
   const model = get().modelOverride.trim() || undefined;

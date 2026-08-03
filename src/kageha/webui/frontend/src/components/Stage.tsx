@@ -202,7 +202,9 @@ export function Stage({ onToggleSessions }: StageProps) {
           ) : null}
           <Composer />
         </div>
-        <AgentCanvas />
+        <div className="hidden min-h-0 md:flex md:max-w-[38%] lg:max-w-[35%]">
+          <AgentCanvas />
+        </div>
       </div>
     </main>
   );

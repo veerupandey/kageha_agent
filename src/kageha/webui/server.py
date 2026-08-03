@@ -1876,6 +1876,33 @@ class WebUIApp:
                 {"ok": True, "session_id": session_id, "deleted": deleted}
             )
 
+        m_truncate = re.fullmatch(r"/api/sessions/([^/]+)/truncate", path)
+        if method == "POST" and m_truncate:
+            session_id = m_truncate.group(1)
+            if not _SAFE_SESSION_ID.fullmatch(session_id):
+                raise ValueError("invalid session_id")
+            payload = self._json_body(body)
+            msg_index = int(payload.get("message_index", -1))
+            return _json_bytes(self._truncate_session(session_id, msg_index))
+
+        if method == "POST" and path == "/api/memory/delete":
+            payload = self._json_body(body)
+            memory_id = str(payload.get("id") or payload.get("memory_id") or "")
+            content = str(payload.get("content") or "")
+            if not memory_id and not content:
+                return _error("id or content required", status=400)
+            result = self.rpc(
+                "memory/mutate",
+                {
+                    "action": "forget",
+                    "target": memory_id or content,
+                    "content": content,
+                    "session_id": str(payload.get("session_id") or ""),
+                    "project_root": str(payload.get("project_root") or self.project_root),
+                },
+            )
+            return _json_bytes({"ok": True, "forgotten": result})
+
         m_upload = re.fullmatch(r"/api/sessions/([^/]+)/upload", path)
         if method == "POST" and m_upload:
             return self._upload_session_file(m_upload.group(1), body, headers)
@@ -3008,6 +3035,57 @@ class WebUIApp:
         except Exception:  # noqa: BLE001
             pass
         return deleted_fs
+
+    def _truncate_session(self, session_id: str, message_index: int) -> dict[str, Any]:
+        """Truncate session history at the given message index (0-based).
+
+        All messages from ``message_index`` onward are removed from chat.jsonl.
+        Also drops corresponding _turns/*.json files.
+        """
+        from kageha.harness.sandbox import SessionWorkspace
+
+        sid = str(session_id or "").strip()
+        try:
+            ws = SessionWorkspace.create(sid)
+        except (FileNotFoundError, KeyError, OSError):
+            return {"ok": False, "error": "session not found"}
+        root = ws.root
+
+        # Truncate chat.jsonl
+        chat_path = root / "chat.jsonl"
+        removed = 0
+        if chat_path.is_file():
+            lines = chat_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            if 0 <= message_index < len(lines):
+                kept = lines[:message_index]
+                removed = len(lines) - message_index
+                chat_path.write_text(
+                    "\n".join(kept) + ("\n" if kept else ""),
+                    encoding="utf-8",
+                )
+
+        # Truncate _turns/*.json (each file = 1 user+assistant pair = 2 messages)
+        turns_dir = root / "_turns"
+        if turns_dir.is_dir():
+            try:
+                paths = sorted(
+                    (p for p in turns_dir.glob("*.json") if p.is_file()),
+                    key=lambda p: (p.stat().st_mtime_ns, p.name),
+                )
+                turn_index = message_index // 2
+                for p in paths[turn_index:]:
+                    p.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        # Clear in-memory thread state so reattach reloads clean history.
+        thread_id = self._load_thread_binding(sid) or f"web-{sid}"
+        if thread_id in self.server.threads:
+            st = self.server.threads[thread_id]
+            if isinstance(st, dict) and "messages" in st:
+                st["messages"] = st["messages"][:message_index]
+
+        return {"ok": True, "session_id": sid, "removed": removed}
 
     def _maybe_set_session_title(
         self,

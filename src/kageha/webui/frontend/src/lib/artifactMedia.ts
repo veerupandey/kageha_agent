@@ -5,6 +5,7 @@ export type CanvasKind =
   | "video"
   | "audio"
   | "pdf"
+  | "webpage"
   | "markdown"
   | "text"
   | "code"
@@ -88,14 +89,13 @@ const TEXT_EXT = new Set([
   ".yaml",
   ".toml",
   ".xml",
-  ".html",
-  ".htm",
   ".css",
   ".env",
   ".ini",
   ".cfg",
   ".conf",
 ]);
+const WEBPAGE_EXT = new Set([".html", ".htm"]);
 const PRESENTATION_EXT = new Set([".ppt", ".pptx", ".key"]);
 const DOCUMENT_EXT = new Set([".doc", ".docx", ".rtf", ".odt"]);
 const SPREADSHEET_EXT = new Set([".xls", ".xlsx", ".csv"]); // csv also text
@@ -120,6 +120,7 @@ export function canvasKindForPath(path: string, kindHint?: string): CanvasKind {
   if (AUDIO_EXT.has(ext) || hint === "audio") return "audio";
   if (ext === ".pdf" || hint === "pdf") return "pdf";
   if (MARKDOWN_EXT.has(ext) || hint === "markdown") return "markdown";
+  if (WEBPAGE_EXT.has(ext) || hint === "webpage") return "webpage";
   if (PRESENTATION_EXT.has(ext) || hint === "presentation") return "presentation";
   if (DOCUMENT_EXT.has(ext) || hint === "document") return "document";
   if (SPREADSHEET_EXT.has(ext) || hint === "spreadsheet") {
@@ -138,6 +139,7 @@ export function isPreviewableKind(kind: CanvasKind): boolean {
     kind === "video" ||
     kind === "audio" ||
     kind === "pdf" ||
+    kind === "webpage" ||
     kind === "markdown" ||
     kind === "text" ||
     kind === "code"
@@ -154,6 +156,8 @@ export function kindLabel(kind: CanvasKind): string {
       return "Audio";
     case "pdf":
       return "PDF";
+    case "webpage":
+      return "Webpage";
     case "markdown":
       return "Markdown";
     case "text":
@@ -208,6 +212,7 @@ export function isShowcaseArtifact(path: string): boolean {
     kind === "video" ||
     kind === "audio" ||
     kind === "pdf" ||
+    kind === "webpage" ||
     kind === "presentation" ||
     kind === "document" ||
     kind === "spreadsheet"
@@ -250,6 +255,7 @@ export function isChatMediaArtifact(path: string): boolean {
     kind === "video" ||
     kind === "audio" ||
     kind === "pdf" ||
+    kind === "webpage" ||
     kind === "presentation" ||
     kind === "markdown" ||
     kind === "document" ||

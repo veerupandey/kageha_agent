@@ -113,8 +113,10 @@ def test_router_failover_notice_on_recovery():
     assert model.model_id == "b"
     assert resp.message.content == "ok"
     drained = router.drain_failover_notices()
-    assert drained and drained[0]["from"] == "a" and drained[0]["to"] == "b"
-    line = ModelRouter.format_failover_line(drained[0])
+    # Retry notices may precede the actual failover notice
+    failover = [n for n in drained if n["from"] != n["to"]]
+    assert failover and failover[0]["from"] == "a" and failover[0]["to"] == "b"
+    line = ModelRouter.format_failover_line(failover[0])
     assert "a → b" in line
     assert notices and notices[0][0] == "a"
 

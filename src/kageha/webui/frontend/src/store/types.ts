@@ -56,6 +56,8 @@ export interface AppState {
   canvasExpanded: boolean;
   canvasItems: CanvasItem[];
   canvasSelectedPath: string | null;
+  /** Paths updated/created in the current agent turn (for highlighting). */
+  canvasTurnPaths: Set<string>;
 
   /** Live todo/milestone board from agent progress events. */
   todoBoard: { done: number; total: number; items: { id: string; text: string; done: boolean }[] } | null;
@@ -100,6 +102,10 @@ export interface AppState {
 
   sendMessage: (textOverride?: string) => Promise<void>;
   stopGeneration: () => Promise<void>;
+  /** Delete messages from the given index onward (truncate history). */
+  deleteTurn: (messageIndex: number) => Promise<void>;
+  /** Forget a memory item by ID or content. */
+  deleteMemory: (id: string, content?: string) => Promise<void>;
   resolveApproval: (
     approved: boolean,
     feedback?: string,

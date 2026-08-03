@@ -348,10 +348,12 @@ async function copyText(text: string) {
 
 const MessageRow = memo(function MessageRow({
   message: m,
+  index,
   showRetry,
   onRetry,
 }: {
   message: ChatMessage;
+  index: number;
   showRetry?: boolean;
   onRetry?: () => void;
 }) {
@@ -361,6 +363,7 @@ const MessageRow = memo(function MessageRow({
   const sessionId = useAppStore((s) => s.sessionId);
   const upsertCanvasPaths = useAppStore((s) => s.upsertCanvasPaths);
   const openCanvasItem = useAppStore((s) => s.openCanvasItem);
+  const deleteTurn = useAppStore((s) => s.deleteTurn);
 
   const artifactPaths = useMemo(() => {
     const seen = new Set<string>();
@@ -463,6 +466,18 @@ const MessageRow = memo(function MessageRow({
                 Retry
               </button>
             ) : null}
+            <button
+              type="button"
+              className="rounded px-1.5 py-0.5 text-faint hover:bg-danger-soft hover:text-danger"
+              title="Delete this turn and everything after it"
+              onClick={() => {
+                if (window.confirm("Delete this message and all messages after it?")) {
+                  void deleteTurn(index);
+                }
+              }}
+            >
+              Delete
+            </button>
           </div>
         ) : null}
       </div>
@@ -715,6 +730,7 @@ export function MessageList({ messages }: { messages: ChatMessage[] }) {
           <MessageRow
             key={m.id}
             message={m}
+            index={i}
             showRetry={canRetry && i === lastIndex}
             onRetry={() => {
               void retryLastTurn().catch((err: Error) =>
