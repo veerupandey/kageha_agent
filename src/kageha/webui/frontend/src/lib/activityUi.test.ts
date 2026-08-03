@@ -28,6 +28,6 @@ describe("activityUi", () => {
         label: "Plan ready",
         detail: ["agent=normal · stage=act"],
       }),
-    ).toContain("Planning…");
+    ).toContain("Plan ready");
   });
 });

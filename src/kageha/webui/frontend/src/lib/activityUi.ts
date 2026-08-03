@@ -49,7 +49,7 @@ export function friendlyActivityLabel(label: string): string {
   const low = compact.toLowerCase();
   if (low.includes("ask_human")) return "Waiting for your answer…";
   if (low.includes("reasoning:")) return "Thinking…";
-  if (low.includes("planning") || low.includes("plan ready")) return "Planning…";
+  if (low.includes("planning") || low.includes("plan ready")) return compact.startsWith("Plan ready") ? compact : "Planning…";
   if (low.includes("preparing task")) return "Preparing…";
   if (low.startsWith("accepted")) return "Starting…";
   if (low.includes("checking") || low.includes("verify") || low.includes("progress=")) {

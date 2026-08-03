@@ -126,70 +126,154 @@ function PlanApprovalBanner({
   onDeny: () => void;
 }) {
   const [suggestion, setSuggestion] = useState("");
+  const [expanded, setExpanded] = useState(false);
   const approveRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     requestAnimationFrame(() => approveRef.current?.focus());
   }, []);
 
+  // Parse plan steps from the detail text (format: "- [ ] `id`: description")
+  const steps: { id: string; text: string }[] = [];
+  const summaryLines: string[] = [];
+  if (detail) {
+    for (const line of detail.split("\n")) {
+      const stepMatch = line.match(/^-\s*\[[ x]]\s*`?([^`:\s]+)`?:\s*(.+)/);
+      if (stepMatch) {
+        steps.push({ id: stepMatch[1], text: stepMatch[2].trim() });
+      } else {
+        const plain = line.trim();
+        if (plain && !plain.startsWith("#") && !plain.startsWith("---")) {
+          summaryLines.push(plain);
+        }
+      }
+    }
+  }
+
+  // Extract objective and TL;DR from markdown metadata
+  let objective = "";
+  let tldr = "";
+  for (const line of summaryLines) {
+    if (line.startsWith("**Objective:**")) {
+      objective = line.replace("**Objective:**", "").trim();
+    } else if (line.startsWith("**TL;DR:**")) {
+      tldr = line.replace("**TL;DR:**", "").trim();
+    }
+  }
+
   return (
     <div
-      className="border-t border-accent/20 bg-accent-soft/30 px-4 py-4 md:px-5 animate-[slideUp_200ms_ease-out]"
+      className="border-t border-accent/20 bg-accent-soft/30 px-4 py-5 md:px-5 animate-[slideUp_200ms_ease-out]"
       role="alertdialog"
       aria-label="Plan ready for approval"
     >
       <div className="mx-auto max-w-3xl">
-        <div className="flex items-center gap-2 mb-2">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-accent shrink-0">
-            <path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          <p className="text-sm font-semibold text-ink">
-            Plan ready — approve to build
-          </p>
+        {/* Header */}
+        <div className="flex items-center gap-2.5 mb-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/15">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" className="text-accent">
+              <path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-ink">
+              Plan ready — approve to build
+            </p>
+            {(objective || tldr) && (
+              <p className="text-xs text-muted mt-0.5">
+                {tldr || objective}
+              </p>
+            )}
+          </div>
         </div>
 
-        {detail ? (
-          <pre className="mt-2 max-h-32 overflow-auto rounded-md border border-line bg-surface p-3 font-mono text-xs text-muted whitespace-pre-wrap">
-            {detail}
-          </pre>
+        {/* Plan steps — rendered as a visual checklist */}
+        {steps.length > 0 ? (
+          <div className="mb-3 rounded-lg border border-line/60 bg-surface overflow-hidden">
+            <div className="px-3 py-2 border-b border-line/40 flex items-center justify-between">
+              <span className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted">
+                {steps.length} step{steps.length === 1 ? "" : "s"}
+              </span>
+              {detail.split("\n").length > 10 && (
+                <button
+                  type="button"
+                  className="text-[0.65rem] text-accent hover:underline"
+                  onClick={() => setExpanded((v) => !v)}
+                >
+                  {expanded ? "Collapse" : "Show full plan"}
+                </button>
+              )}
+            </div>
+            <ol className="divide-y divide-line/30">
+              {steps.map((step, i) => (
+                <li key={step.id} className="flex items-start gap-2.5 px-3 py-2">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-line/60 text-[0.6rem] font-bold text-muted">
+                    {i + 1}
+                  </span>
+                  <span className="text-[0.82rem] leading-snug text-ink">{step.text}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : detail ? (
+          <div className="mb-3 rounded-lg border border-line/60 bg-surface overflow-hidden">
+            <pre className={`px-3 py-2.5 font-mono text-xs text-muted whitespace-pre-wrap overflow-auto ${expanded ? "" : "max-h-40"}`}>
+              {detail}
+            </pre>
+            {detail.split("\n").length > 8 && (
+              <button
+                type="button"
+                className="w-full border-t border-line/40 px-3 py-1.5 text-[0.65rem] text-accent hover:bg-line/20 text-center"
+                onClick={() => setExpanded((v) => !v)}
+              >
+                {expanded ? "Collapse" : "Show more"}
+              </button>
+            )}
+          </div>
         ) : null}
 
-        <div className="mt-3 flex items-center gap-2">
+        {/* Suggestion input */}
+        <div className="flex items-center gap-2">
           <input
             type="text"
-            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-sm outline-none placeholder:text-faint focus:border-accent/40"
-            placeholder="Suggest changes (optional)…"
+            className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none placeholder:text-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/10"
+            placeholder="Suggest changes to the plan…"
             value={suggestion}
             onChange={(e) => setSuggestion(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && suggestion.trim()) {
                 e.preventDefault();
                 onSuggest(suggestion.trim());
+                setSuggestion("");
               }
             }}
           />
         </div>
 
+        {/* Action buttons */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             ref={approveRef}
             type="button"
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 active:scale-[0.97]"
+            className="rounded-lg bg-accent px-5 py-2 text-sm font-medium text-white shadow-sm hover:opacity-90 active:scale-[0.97] transition-all"
             onClick={onApprove}
           >
-            Build
+            ▶ Build
           </button>
           <button
             type="button"
-            className="rounded-md border border-line bg-surface px-4 py-2 text-sm font-medium text-ink hover:bg-line/50 active:scale-[0.97] disabled:opacity-40"
+            className="rounded-lg border border-line bg-surface px-4 py-2 text-sm font-medium text-ink shadow-sm hover:bg-line/50 active:scale-[0.97] disabled:opacity-40 transition-all"
             disabled={!suggestion.trim()}
-            onClick={() => onSuggest(suggestion.trim())}
+            onClick={() => {
+              onSuggest(suggestion.trim());
+              setSuggestion("");
+            }}
           >
-            Suggest
+            ✎ Suggest
           </button>
           <button
             type="button"
-            className="rounded-md px-3 py-2 text-sm text-danger hover:bg-danger-soft"
+            className="rounded-lg px-3 py-2 text-sm text-danger hover:bg-danger-soft transition-colors"
             onClick={onDeny}
           >
             Reject
