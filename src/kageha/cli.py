@@ -15,6 +15,25 @@ from kageha.config import load_env
 
 load_env()
 
+
+def _exit_code_for_run_status(status: str | None) -> int:
+    """Map a run status to a process exit code (fail closed on unknown/empty)."""
+    value = str(status or "").strip().lower()
+    if value in {"success", "ok", "completed"}:
+        return 0
+    if value in {
+        "awaiting_plan_approval",
+        "awaiting_clarify",
+        "ask_user",
+        "waiting_approval",
+        "waiting_input",
+    }:
+        return 0
+    if value in {"cancelled", "canceled"}:
+        return 130
+    return 1
+
+
 app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
@@ -43,7 +62,6 @@ computer_app = typer.Typer(
     help="macOS computer-use (/computer in chat)",
     invoke_without_command=True,
 )
-eval_app = typer.Typer(help="Golden/adversarial evaluation harness")
 app.add_typer(models_app, name="models")
 models_app.add_typer(models_auth_app, name="auth")
 app.add_typer(skills_app, name="skills")
@@ -55,7 +73,6 @@ app.add_typer(jobs_app, name="jobs")
 app.add_typer(project_app, name="project")
 app.add_typer(browser_app, name="browser")
 app.add_typer(computer_app, name="computer")
-app.add_typer(eval_app, name="eval")
 
 
 @app.callback()
@@ -96,6 +113,12 @@ def run_cmd(
         help="Continue an existing session by run_id (same workspace). Prefer: kageha chat --resume",
     ),
     quiet: bool = typer.Option(False, "--quiet", help="Hide live step/tool progress"),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Show detailed tool/reasoning traces instead of compact progress",
+    ),
     max_steps: Optional[int] = typer.Option(
         None,
         "--max-steps",
@@ -174,31 +197,37 @@ def run_cmd(
     mode = resolve_agent_mode(task or "", explicit=agent_mode)
 
     if attach:
+        from kageha.chat.progress import TransientProgress
         from kageha.chat.remote_turn import remote_turn
+        from kageha.chat.ui import get_console
 
-        result = asyncio.run(
-            remote_turn(
-                attach=attach,
-                message=task or f"resume:{resume}",
-                session_id=resume,
-                project_root=str(project.resolve()),
-                auto_approve=auto_approve,
-                agent_mode=mode,
-                loop_mode=loop_mode_for(mode),
-                max_steps=int(max_steps or (40 if mode != "normal" else 24)),
-                auto_build=build,
-            )
-        )
+        console = get_console()
+
+        async def _attached() -> dict[str, Any]:
+            with TransientProgress(
+                enabled=not quiet,
+                detailed=verbose,
+                console=console,
+            ) as progress:
+                progress.update("[kageha] step 1/1 — thinking…")
+                return await remote_turn(
+                    attach=attach,
+                    message=task or f"resume:{resume}",
+                    session_id=resume,
+                    project_root=str(project.resolve()),
+                    auto_approve=auto_approve,
+                    agent_mode=mode,
+                    loop_mode=loop_mode_for(mode),
+                    max_steps=int(max_steps or (40 if mode != "normal" else 24)),
+                    auto_build=build,
+                    on_status=progress.update if not quiet else None,
+                )
+
+        result = asyncio.run(_attached())
         typer.echo(json.dumps(result, indent=2, default=str))
-        status = str(result.get("status") or "").lower()
-        if status and status not in {
-            "success",
-            "ok",
-            "completed",
-            "awaiting_plan_approval",
-            "awaiting_clarify",
-        }:
-            raise typer.Exit(code=1)
+        code = _exit_code_for_run_status(str(result.get("status") or ""))
+        if code:
+            raise typer.Exit(code=code)
         return
 
     selected_security = security_profile(security)
@@ -245,42 +274,50 @@ def run_cmd(
     async def _run() -> None:
         catalog = skills.catalog(limit=40)
         durable: Any = None
-        try:
-            from kageha.harness.approvals import cli_approver
-            from kageha.runtime import AgentRuntime, SecurityProfile, TurnRequest
+        from kageha.chat.progress import TransientProgress
+        from kageha.chat.ui import StreamReply, get_console, print_assistant
+        from kageha.runtime import AgentRuntime, SecurityProfile, TurnRequest
 
+        console = get_console()
+        stream_reply = StreamReply(console=console)
+        try:
             durable = AgentRuntime()
-            common = {
-                "user_id": "local",
-                "agent_id": "main",
-                "project_root": project_root,
-                "auto_approve": auto_approve,
-                "auto_build": build,
-                "security_profile": SecurityProfile(selected_security),
-                "max_steps": max_steps,
-                "skill_catalog": catalog,
-                "system_extra": memory_extra,
-                "export_dir": str(output_dir) if output_dir else "",
-                "live": not quiet,
-                "platform": "cli",
-                "agent_mode": mode,
-                "loop_mode": loop_mode_for(mode),
-                # One-shot CLI is always interactive at the terminal — wire the
-                # interactive approver explicitly (Requirement 2.2). When
-                # auto_approve is set, ApprovalGate.auto_approve short-circuits
-                # before this approver is ever invoked.
-                "approver": cli_approver,
-            }
-            if resume:
-                result = await durable.execute_resume(
-                    resume,
-                    task_text or "Continue until the remaining goals pass.",
-                    **common,
-                )
-            else:
-                result = await durable.execute(
-                    TurnRequest(objective=task_text, **common)
-                )
+            with TransientProgress(
+                enabled=not quiet,
+                detailed=verbose,
+                console=console,
+            ) as progress:
+                stream_reply.on_suspend = progress.suspend
+                stream_reply.on_resume = lambda: progress.resume("Working…")
+                common = {
+                    "user_id": "local",
+                    "agent_id": "main",
+                    "project_root": project_root,
+                    "auto_approve": auto_approve,
+                    "auto_build": build,
+                    "security_profile": SecurityProfile(selected_security),
+                    "max_steps": max_steps,
+                    "skill_catalog": catalog,
+                    "system_extra": memory_extra,
+                    "export_dir": str(output_dir) if output_dir else "",
+                    "live": not quiet,
+                    "log_handler": progress.update,
+                    "on_text_delta": stream_reply if not quiet else None,
+                    "platform": "cli",
+                    "agent_mode": mode,
+                    "loop_mode": loop_mode_for(mode),
+                }
+                if resume:
+                    handle = durable.resume(
+                        resume,
+                        task_text or "Continue until the remaining goals pass.",
+                        **common,
+                    )
+                else:
+                    handle = durable.submit(
+                        TurnRequest(objective=task_text, **common)
+                    )
+                result = await handle.result()
         except Exception as exc:
             memory.capture_turn(
                 TurnMemoryInput(
@@ -312,24 +349,40 @@ def run_cmd(
         from kageha.memory.learning_loop import maybe_prompt_skill_distill
         from kageha.config import sessions_dir
 
+        # Prefer streamed tokens → one final panel; else classic print.
+        if not quiet and stream_reply.text().strip():
+            stream_reply.finalize(result.message or "")
+        elif result.message:
+            stream_reply.close()
+            if not quiet:
+                print_assistant(result.message, console=console)
+            else:
+                typer.echo(result.message)
+        else:
+            stream_reply.close()
+
         typer.echo(
             f"\nrun_id={result.run_id} status={result.status} "
             f"steps={result.steps} usd~{result.spent_usd:.4f}"
         )
-        typer.echo(result.message)
-        typer.echo(
-            format_artifacts_report(
-                run_id=result.run_id,
-                artifacts=result.artifacts,
-                workspace_root=sessions_dir() / result.run_id,
-            )
+        from kageha.chat.linkify import linkify_text
+
+        report = format_artifacts_report(
+            run_id=result.run_id,
+            artifacts=result.artifacts,
+            workspace_root=sessions_dir() / result.run_id,
         )
+        # Print artifact report with Rich so file paths are clickable OSC-8 links.
+        console.print(linkify_text(report))
         maybe_prompt_skill_distill(
             result,
             task=task_text if not resume else (task_text or f"resume:{resume}"),
             registry=skills,
             interactive=not auto_approve,
         )
+        code = _exit_code_for_run_status(str(result.status or ""))
+        if code:
+            raise typer.Exit(code=code)
 
     asyncio.run(_run())
 
@@ -598,123 +651,6 @@ def memory_fetch(target: str = typer.Argument(..., help="memory or episode id"))
 # --- durable runtime ---
 
 
-@eval_app.command("run")
-def eval_run_cmd(
-    suite: str = typer.Option(
-        "golden", "--suite", help="Suite to run: golden|adversarial"
-    ),
-    repeat: int = typer.Option(
-        1, "--repeat", help="Repeat count (adversarial suite always uses 3 regardless)"
-    ),
-    path: Optional[str] = typer.Option(
-        None, "--path", help="Golden task JSON path (golden suite only)"
-    ),
-) -> None:
-    """Execute a golden or adversarial suite and store results."""
-    from kageha.runtime import RuntimeStore
-
-    store = RuntimeStore()
-    try:
-        if suite == "adversarial":
-            from kageha.eval.adversarial import run_adversarial_suite
-
-            summary = asyncio.run(run_adversarial_suite(store=store))
-            typer.echo(json.dumps(summary, indent=2, default=str))
-        elif suite == "golden":
-            from kageha.eval.harness import run_environment, run_suite, summary as golden_summary
-
-            if not path:
-                typer.echo("--path is required for --suite golden", err=True)
-                raise typer.Exit(code=1)
-            results = asyncio.run(run_suite(Path(path)))
-            summary_data = golden_summary(results)
-            environment = run_environment()
-            store.record_benchmark(
-                suite="golden",
-                configuration={"path": path, "repeat": repeat},
-                environment=environment,
-                metrics=summary_data,
-                status="ok" if summary_data["failed"] == 0 else "failed",
-            )
-            typer.echo(json.dumps(summary_data, indent=2, default=str))
-        else:
-            typer.echo(f"unknown suite: {suite} (expected golden|adversarial)", err=True)
-            raise typer.Exit(code=1)
-    finally:
-        store.close()
-
-
-@eval_app.command("compare")
-def eval_compare_cmd(
-    run_id_a: str = typer.Argument(..., help="First benchmark run id"),
-    run_id_b: str = typer.Argument(..., help="Second benchmark run id"),
-) -> None:
-    """Diff pass rates and false-success counts between two stored benchmark runs."""
-    from kageha.runtime import RuntimeStore
-
-    store = RuntimeStore()
-    try:
-        with store._lock:  # noqa: SLF001
-            row_a = store._conn.execute(  # noqa: SLF001
-                "SELECT * FROM benchmark_runs WHERE id=?", (run_id_a,)
-            ).fetchone()
-            row_b = store._conn.execute(  # noqa: SLF001
-                "SELECT * FROM benchmark_runs WHERE id=?", (run_id_b,)
-            ).fetchone()
-        if row_a is None or row_b is None:
-            typer.echo("one or both run ids were not found", err=True)
-            raise typer.Exit(code=1)
-        metrics_a = json.loads(row_a["metrics_json"])
-        metrics_b = json.loads(row_b["metrics_json"])
-        comparison = {
-            "run_a": run_id_a,
-            "run_b": run_id_b,
-            "metrics_a": metrics_a,
-            "metrics_b": metrics_b,
-            "false_success_delta": (
-                metrics_b.get("false_success_total", 0)
-                - metrics_a.get("false_success_total", 0)
-            ),
-        }
-        typer.echo(json.dumps(comparison, indent=2, default=str))
-    finally:
-        store.close()
-
-
-@eval_app.command("inspect")
-def eval_inspect_cmd(
-    run_id: str = typer.Argument(..., help="Benchmark run id to inspect"),
-) -> None:
-    """Print per-task reasons, evidence digests, and cost for a stored run."""
-    from kageha.runtime import RuntimeStore
-
-    store = RuntimeStore()
-    try:
-        with store._lock:  # noqa: SLF001
-            row = store._conn.execute(  # noqa: SLF001
-                "SELECT * FROM benchmark_runs WHERE id=?", (run_id,)
-            ).fetchone()
-        if row is None:
-            typer.echo(f"unknown benchmark run: {run_id}", err=True)
-            raise typer.Exit(code=1)
-        typer.echo(
-            json.dumps(
-                {
-                    "id": row["id"],
-                    "suite": row["suite"],
-                    "configuration": json.loads(row["configuration_json"]),
-                    "environment": json.loads(row["environment_json"]),
-                    "metrics": json.loads(row["metrics_json"]),
-                    "status": row["status"],
-                },
-                indent=2,
-                default=str,
-            )
-        )
-    finally:
-        store.close()
-
-
 @runtime_app.command("status")
 def runtime_status() -> None:
     from kageha.runtime import RuntimeStore
@@ -824,29 +760,6 @@ def runtime_metrics(
         store.close()
 
 
-@runtime_app.command("replay")
-def runtime_replay(
-    session_id: Optional[str] = typer.Argument(None, help="Session id (partial match OK)"),
-    last: bool = typer.Option(False, "--last", help="Replay the most recent session"),
-    step: Optional[int] = typer.Option(None, "--step", "-s", help="Show detail for one step (non-interactive)"),
-    static: bool = typer.Option(False, "--static", help="Non-interactive text output (for piping)"),
-    kinds: Optional[str] = typer.Option(None, "--kinds", "-k", help="Comma-separated event kinds to filter"),
-) -> None:
-    """Interactive session replay — browse timeline, tool calls, decisions."""
-    from kageha.obs.replay_tui import render_replay_static, run_replay_tui
-
-    kind_set = set(kinds.split(",")) if kinds else None
-
-    if static or step is not None:
-        output = render_replay_static(
-            session_id, last=last, step=step, kinds=kind_set
-        )
-        typer.echo(output)
-        return
-
-    run_replay_tui(session_id, last=last)
-
-
 @app.command("memory-worker", hidden=True)
 def memory_worker() -> None:
     """Run the persistent memory extraction worker under the supervisor."""
@@ -948,6 +861,30 @@ def sessions_cmd(
             f"[{row['turn_status'] or row['status']}]  "
             f"{label}"
         )
+
+
+@app.command("share")
+def share_cmd(
+    session_id: str = typer.Argument(help="Session ID to export (from `kageha sessions`)"),
+    output: str = typer.Option("", "--output", "-o", help="Output file path (default: session/share.html)"),
+) -> None:
+    """Export a session as a shareable standalone HTML replay.
+
+    Creates a self-contained HTML file with the conversation, artifacts
+    (images embedded), progress timeline, goals, and metadata. Share it
+    with anyone — no Kageha installation needed to view.
+    """
+    from kageha.share import export_session
+
+    try:
+        out = export_session(session_id, output or None)
+        typer.echo(f"Exported: {out}")
+        typer.echo(f"Open: file://{out.resolve()}")
+    except FileNotFoundError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1) from e
+
+
 @app.command("server")
 def server_cmd(
     listen: str = typer.Option(

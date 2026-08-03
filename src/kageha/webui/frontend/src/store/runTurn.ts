@@ -234,6 +234,24 @@ export async function runTurn(
             get().showToast(`${msg} — answering without Goal theater`);
             get().setAgentMode("normal");
           }
+          // Live todo/milestone board updates.
+          if (kind === "todo_board") {
+            const items = Array.isArray(payload.items)
+              ? (payload.items as { id?: string; text?: string; done?: boolean }[]).map(
+                  (it, i) => ({
+                    id: String(it.id || `t${i}`),
+                    text: String(it.text || ""),
+                    done: Boolean(it.done),
+                  }),
+                )
+              : [];
+            const board = {
+              done: typeof payload.done === "number" ? payload.done : items.filter((i) => i.done).length,
+              total: typeof payload.total === "number" ? payload.total : items.length,
+              items,
+            };
+            set({ todoBoard: board });
+          }
           if (kind === "approval_required") {
             const approvalId = String(
               payload.approval_id || data.approval_id || "",
@@ -370,6 +388,8 @@ export async function runTurn(
               : awaitingClarify
                 ? "Awaiting clarification"
                 : "Done",
+      turnSteps: typeof done.steps === "number" ? done.steps : undefined,
+      turnCostUsd: typeof done.spent_usd === "number" ? done.spent_usd : undefined,
     });
     updateRun(sessionId, (r) => ({
       ...r,

@@ -60,6 +60,7 @@ class FailureClass(str, Enum):
     TRANSIENT = "transient"
     PERMANENT = "permanent"
     QUOTA = "quota"
+    RATE_LIMIT = "rate_limit"
     AUTH = "auth"
     TIMEOUT = "timeout"
     POLICY_DENIAL = "policy_denial"

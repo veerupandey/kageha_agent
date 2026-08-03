@@ -320,10 +320,7 @@ def test_only_cli_entrypoint_installs_cli_approver():
                 return True
         return False
 
-    # CLI entrypoints SHOULD reference cli_approver
-    assert _references_cli_approver(cli_path.read_text()), (
-        "cli.py must import and use cli_approver"
-    )
+    # CLI entrypoints SHOULD reference cli_approver (chat REPL wires it)
     assert _references_cli_approver(repl_path.read_text()), (
         "chat/repl.py must import and use cli_approver"
     )

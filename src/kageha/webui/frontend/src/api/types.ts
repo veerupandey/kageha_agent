@@ -82,6 +82,9 @@ export interface ChatMessage {
   toolCards?: ToolCard[];
   computerFrames?: ComputerFrame[];
   approval?: PendingApproval | null;
+  /** Turn metadata — populated on completion */
+  turnSteps?: number;
+  turnCostUsd?: number;
 }
 
 export interface QueuedMessage {

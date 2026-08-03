@@ -5,6 +5,7 @@ import { ApprovalBanner } from "./ApprovalBanner";
 import { AgentCanvas } from "./AgentCanvas";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
+import { TodoBoard } from "./TodoBoard";
 
 interface StageProps {
   onToggleSessions?: () => void;
@@ -35,6 +36,7 @@ export function Stage({ onToggleSessions }: StageProps) {
   const setCanvasOpen = useAppStore((s) => s.setCanvasOpen);
   const refreshArtifacts = useAppStore((s) => s.refreshArtifacts);
   const canvasItems = useAppStore((s) => s.canvasItems);
+  const todoBoard = useAppStore((s) => s.todoBoard);
   const theme = useAppStore((s) => s.prefs.theme);
   const setPrefs = useAppStore((s) => s.setPrefs);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -148,6 +150,18 @@ export function Stage({ onToggleSessions }: StageProps) {
         >
           Canvas{canvasItems.length ? ` · ${canvasItems.length}` : ""}
         </button>
+        <button
+          type="button"
+          className="shrink-0 rounded-md px-2.5 py-1 text-xs font-medium text-muted hover:bg-line/70 hover:text-ink"
+          title="Export session as shareable HTML"
+          disabled={!sessionId}
+          onClick={() => {
+            if (!sessionId) return;
+            window.open(`/api/sessions/${sessionId}/share`, "_blank");
+          }}
+        >
+          Share
+        </button>
       </header>
 
       <div className="flex min-h-0 flex-1">
@@ -159,6 +173,17 @@ export function Stage({ onToggleSessions }: StageProps) {
           >
             <MessageList messages={messages} />
           </section>
+          {/* Live todo/milestone board — slides in while agent is running */}
+          {todoBoard && todoBoard.total > 0 && (
+            <div
+              className={cn(
+                "shrink-0 border-t border-line px-4 py-2.5 transition-all duration-300",
+                "animate-[slideUp_0.3s_ease-out]",
+              )}
+            >
+              <TodoBoard board={todoBoard} />
+            </div>
+          )}
           <ApprovalBanner />
           {error ? (
             <p

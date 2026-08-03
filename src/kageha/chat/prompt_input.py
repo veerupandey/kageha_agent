@@ -1,7 +1,10 @@
-"""prompt_toolkit input with live slash-command completion (complete while typing)."""
+"""prompt_toolkit input with multiline paste, image attach, and live slash-command completion."""
 
 from __future__ import annotations
 
+import base64
+import mimetypes
+from pathlib import Path
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -92,11 +95,16 @@ def _session() -> PromptSession[str]:
     kb = KeyBindings()
 
     @kb.add(Keys.Escape)
-    def _(event) -> None:  # noqa: ANN001
+    def _esc(event) -> None:  # noqa: ANN001
         # Esc closes the completion menu if open; otherwise ignore.
         buff = event.app.current_buffer
         if buff.complete_state:
             buff.cancel_completion()
+
+    @kb.add(Keys.Escape, Keys.Enter)
+    def _alt_enter(event) -> None:  # noqa: ANN001
+        """Alt+Enter inserts a newline (for multiline input without submitting)."""
+        event.current_buffer.insert_text("\n")
 
     return PromptSession(
         history=FileHistory(str(hist)),
@@ -107,7 +115,80 @@ def _session() -> PromptSession[str]:
         style=_STYLE,
         key_bindings=kb,
         mouse_support=False,
+        # Enable multiline for pasted text (bracketed paste mode).
+        # Enter still submits on single-line input; Alt+Enter for manual newline.
+        multiline=False,
+        # Bracketed paste: when terminal sends a paste event, accept all lines
+        # including newlines without submitting until paste ends.
+        enable_open_in_editor=True,  # Ctrl+X Ctrl+E opens $EDITOR for long input
     )
+
+
+_SESSION: PromptSession[str] | None = None
+
+
+# ─── Image/file attachment support ───────────────────────────────────────────
+
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
+
+def parse_attachments(text: str) -> tuple[str, list[dict]]:
+    """Extract @file references and /attach paths from input text.
+
+    Returns (cleaned_text, attachments) where attachments are dicts with:
+      {"type": "image", "path": str, "base64": str, "mime_type": str}
+    """
+    import re
+
+    attachments: list[dict] = []
+    cleaned = text
+
+    # Match @path/to/file.png or /attach path/to/file.png
+    attach_re = re.compile(
+        r"(?:^/attach\s+|@)((?:[~./]|/)[^\s]+)", re.MULTILINE
+    )
+
+    for match in attach_re.finditer(text):
+        raw_path = match.group(1).strip()
+        try:
+            path = Path(raw_path).expanduser().resolve()
+            if not path.is_file():
+                continue
+            suffix = path.suffix.lower()
+            if suffix not in _IMAGE_EXTS:
+                # Non-image file: read as text attachment
+                try:
+                    content = path.read_text(encoding="utf-8")[:50000]
+                    attachments.append({
+                        "type": "text_file",
+                        "path": str(path),
+                        "content": content,
+                        "name": path.name,
+                    })
+                except (UnicodeDecodeError, OSError):
+                    pass
+                continue
+            # Image file: base64 encode
+            data = path.read_bytes()
+            if len(data) > 20 * 1024 * 1024:  # 20MB limit
+                continue
+            mime = mimetypes.guess_type(str(path))[0] or "image/png"
+            b64 = base64.b64encode(data).decode("ascii")
+            attachments.append({
+                "type": "image",
+                "path": str(path),
+                "base64": b64,
+                "mime_type": mime,
+                "name": path.name,
+            })
+        except (OSError, ValueError):
+            continue
+
+    # Remove the @path and /attach tokens from the text
+    if attachments:
+        cleaned = attach_re.sub("", text).strip()
+
+    return cleaned, attachments
 
 
 _SESSION: PromptSession[str] | None = None

@@ -132,6 +132,35 @@ function PreviewBody({
     if (textLoading) {
       return <p className="p-4 text-sm text-muted">Loading…</p>;
     }
+    // Live HTML rendering — show .html files in a sandboxed iframe
+    const isHtml = item.path.endsWith(".html") || item.path.endsWith(".htm");
+    if (isHtml) {
+      return (
+        <div className="relative rounded-lg border border-line overflow-hidden bg-white">
+          <div className="flex items-center gap-2 border-b border-line bg-canvas px-3 py-1.5">
+            <span className="flex h-2 w-2 rounded-full bg-accent animate-pulse" />
+            <span className="text-[0.65rem] font-medium text-muted uppercase tracking-wide">Live Preview</span>
+            <a
+              href={item.url}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-auto text-[0.65rem] text-accent hover:underline"
+            >
+              Open in tab ↗
+            </a>
+          </div>
+          <iframe
+            title={item.caption}
+            src={item.url}
+            sandbox="allow-scripts allow-same-origin"
+            className={cn(
+              "w-full border-0 bg-white",
+              large ? "h-[min(80vh,900px)]" : "h-80",
+            )}
+          />
+        </div>
+      );
+    }
     return (
       <pre
         className={cn(
@@ -259,7 +288,7 @@ export function ArtifactCanvas() {
   return (
     <>
       <aside
-        className="flex w-full min-w-0 flex-col border-l border-line bg-surface md:w-[22rem] lg:w-[26rem]"
+        className="flex w-full min-w-0 flex-col border-l border-line bg-surface md:w-[22rem] lg:w-[26rem] animate-[slideIn_0.2s_ease-out]"
         id="artifact-canvas"
         aria-label="Artifact canvas"
       >
@@ -295,8 +324,18 @@ export function ArtifactCanvas() {
         </header>
 
         {!canvasItems.length ? (
-          <div className="flex flex-1 items-center justify-center px-4 text-center text-sm text-muted">
-            No artifacts yet. Files created in this session will show up here.
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-line/50">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-muted">
+                <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M3 15l5-5 4 4 5-6 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
+              </svg>
+            </div>
+            <p className="text-sm text-muted">No artifacts yet</p>
+            <p className="text-xs text-faint max-w-[200px]">
+              Files and images created during this session will appear here for preview and download.
+            </p>
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">

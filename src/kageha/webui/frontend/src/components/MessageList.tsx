@@ -18,6 +18,8 @@ import {
   extractArtifactPaths,
   rewriteMarkdownMediaHtml,
 } from "../lib/markdownMedia";
+import { enhanceJsonBlocks, initJsonCardHandlers } from "../lib/jsonRenderer";
+import { enhanceCodeBlocks, initCodeBlockHandlers } from "../lib/codeEnhancer";
 import { useAppStore } from "../store";
 import { TerminalActivity } from "./TerminalActivity";
 
@@ -40,7 +42,9 @@ function renderMarkdownCached(
   const hit = mdCache.get(key);
   if (hit != null) return hit;
   const raw = marked.parse(text || "", { async: false }) as string;
-  const html = rewriteMarkdownMediaHtml(DOMPurify.sanitize(raw), sessionId);
+  let html = rewriteMarkdownMediaHtml(DOMPurify.sanitize(raw), sessionId);
+  html = enhanceJsonBlocks(html);
+  html = enhanceCodeBlocks(html);
   mdCache.set(key, html);
   if (mdCache.size > MD_CACHE_MAX) {
     const first = mdCache.keys().next().value;
@@ -397,11 +401,22 @@ const MessageRow = memo(function MessageRow({
   return (
     <article
       className={cn(
-        "group relative mx-auto w-full max-w-3xl px-4 py-4 md:px-6",
+        "group relative mx-auto w-full max-w-3xl px-4 py-4 md:px-6 animate-[fadeInUp_250ms_ease-out]",
         isUser ? "bg-transparent" : "bg-transparent",
       )}
     >
       <div className="mb-1.5 flex items-center gap-2 text-xs">
+        {/* Avatar dot */}
+        <span
+          className={cn(
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.55rem] font-bold",
+            isUser
+              ? "bg-line text-muted"
+              : "bg-accent text-white",
+          )}
+        >
+          {isUser ? "Y" : "K"}
+        </span>
         <span
           className={cn(
             "font-semibold tracking-wide",
@@ -413,6 +428,14 @@ const MessageRow = memo(function MessageRow({
         {!streaming && m.statusLabel ? (
           <span className="text-faint">
             {friendlyActivityLabel(m.statusLabel) || m.statusLabel}
+          </span>
+        ) : null}
+        {/* Cost/steps badge — shown on completed assistant messages */}
+        {!isUser && !streaming && (m.turnSteps || m.turnCostUsd) ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-line/60 px-2 py-0.5 text-[0.6rem] font-medium tabular-nums text-faint">
+            {m.turnSteps ? <span>{m.turnSteps} steps</span> : null}
+            {m.turnSteps && m.turnCostUsd ? <span className="text-line-strong">·</span> : null}
+            {m.turnCostUsd ? <span>${m.turnCostUsd.toFixed(4)}</span> : null}
           </span>
         ) : null}
         {!streaming && (m.text || showRetry) ? (
@@ -463,6 +486,12 @@ const MessageRow = memo(function MessageRow({
       ) : null}
       {bodyHtml ? (
         <div
+          ref={(el) => {
+            if (el && !streaming) {
+              initJsonCardHandlers(el);
+              initCodeBlockHandlers(el);
+            }
+          }}
           className={cn(
             "markdown",
             isUser &&
@@ -520,7 +549,7 @@ const MessageRow = memo(function MessageRow({
         />
       ) : streaming ? (
         <div className="text-sm text-muted">
-          <span className="inline-block h-4 w-1 animate-pulse bg-accent/70" />
+          <span className="inline-block h-4 w-[2px] rounded-full bg-accent animate-[blink_1s_steps(2,start)_infinite]" />
         </div>
       ) : null}
     </article>
@@ -546,13 +575,43 @@ function MessageSkeletons() {
 }
 
 function EmptyState() {
+  const setDraft = useAppStore((s) => s.setDraft);
+
+  const suggestions = [
+    { label: "Create a carousel", text: "Create a 6-slide Instagram carousel for my product" },
+    { label: "Research & summarize", text: "Research the latest trends in AI agents and summarize" },
+    { label: "Build an app", text: "Build a simple todo app with React and save to artifacts/" },
+    { label: "Fix a bug", text: "Find and fix the bug in " },
+  ];
+
   return (
     <div className="flex h-full min-h-[16rem] flex-col items-center justify-center px-6 text-center">
-      <p className="text-lg font-medium text-ink">Message Kageha…</p>
+      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft">
+        <span className="text-2xl font-light text-accent">K</span>
+      </div>
+      <p className="text-lg font-medium text-ink">What can I help you build?</p>
       <p className="mt-2 max-w-sm text-sm text-muted">
-        Ask a question, start a task, or type{" "}
-        <span className="font-mono text-ink">/</span> for commands.
+        I can create files, research the web, write code, generate images, and
+        handle complex multi-step tasks. Type{" "}
+        <span className="font-mono text-accent">/</span> for commands.
       </p>
+      <div className="mt-5 flex flex-wrap justify-center gap-2 max-w-md">
+        {suggestions.map((s) => (
+          <button
+            key={s.label}
+            type="button"
+            className="rounded-full border border-line px-3 py-1.5 text-xs font-medium text-muted hover:border-accent/40 hover:text-ink hover:bg-accent-soft/50"
+            onClick={() => {
+              setDraft(s.text);
+              // Focus the composer
+              const el = document.getElementById("composer-input") as HTMLTextAreaElement | null;
+              el?.focus();
+            }}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

@@ -72,10 +72,28 @@ def test_hitl_telemetry_becomes_one_human_status():
     )
     assert _friendly_status("[kageha] step 2/40 — thinking…") == "Thinking…"
     assert _friendly_status("[kageha] workspace=/tmp/session") == ""
-    assert _friendly_status("[kageha]   tools: skill_run") == "Running skill_run…"
+    assert _friendly_status("[kageha]   tools: skill_run") == "Running skill…"
     assert (
         _friendly_status("[kageha] spawn_subagents: 4 tasks, parallel≤4")
         == "Spawning 4 subagents…"
+    )
+    assert (
+        _friendly_status(
+            '[kageha] action: read_file {"path":"src/kageha/cli.py"}'
+        )
+        == "Reading file · src/kageha/cli.py"
+    )
+    assert (
+        _friendly_status(
+            "[kageha] model: retrying glm-5.2-zai in 1.2s (retry 1/3: HTTP 429)"
+        )
+        == "Retrying model…"
+    )
+    assert (
+        _friendly_status(
+            "[kageha] planning degraded — using objective-derived fallback plan"
+        )
+        == "Planning (fallback)…"
     )
 
 
@@ -128,11 +146,14 @@ def test_detailed_progress_shows_reasoning_and_todo_checks():
             "- [ ] p2: Write report"
         )
     text = output.getvalue()
-    assert "Reasoning:" in text
-    assert "scan the LAN" in text
-    assert "Todos 1/2" in text
-    assert "✓" in text
-    assert "○" in text
+    # Strip ANSI escape codes for plain-text assertions
+    import re
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    assert "Reasoning:" in plain
+    assert "scan the LAN" in plain
+    assert "Todos 1/2" in plain
+    assert "✓" in plain
+    assert "○" in plain
 
 
 def test_render_helpers():
@@ -167,7 +188,7 @@ def test_controller_logs_todo_board(tmp_path):
 def test_live_progress_releases_cursor_for_human_input():
     output = StringIO()
     console = Console(file=output, force_terminal=True, width=120)
-    with TransientProgress(console=console) as progress:
+    with TransientProgress(console=console, heartbeat_interval=0) as progress:
         assert progress._live is True
         progress.update("[kageha] tools: ask_human (parallel≤8)")
         assert progress._waiting_for_input is True
@@ -180,3 +201,32 @@ def test_live_progress_releases_cursor_for_human_input():
         progress.update('[kageha] ← ask_human: {"answer":"professional"}')
         assert progress._waiting_for_input is False
         assert progress._live is True
+
+
+def test_compact_progress_leaves_sticky_tool_activity():
+    output = StringIO()
+    console = Console(file=output, force_terminal=True, width=120)
+    with TransientProgress(
+        console=console, heartbeat_interval=0, show_elapsed=False
+    ) as progress:
+        progress.update("[kageha] step 1/40 — thinking…")
+        progress.update(
+            '[kageha] action: read_file {"path":"README.md"}'
+        )
+        progress.update('[kageha] ← read_file: {"ok": true, "bytes": 12}')
+        progress.update("[kageha] step 2/40 — thinking…")
+    text = output.getvalue()
+    assert "Reading file" in text
+    assert "✓" in text
+    assert "README.md" in text
+
+
+def test_status_line_includes_elapsed_marker():
+    output = StringIO()
+    console = Console(file=output, force_terminal=True, width=100)
+    with TransientProgress(
+        console=console, heartbeat_interval=0, show_elapsed=True
+    ) as progress:
+        progress.update("[kageha] step 1/40 — thinking…")
+        assert " · " in progress._last_status
+        assert progress._last_status.endswith("s") or "s" in progress._last_status.split(" · ")[-1]

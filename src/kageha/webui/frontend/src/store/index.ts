@@ -272,6 +272,7 @@ export const useAppStore = create<AppState>((set, get) => {
     canvasExpanded: false,
     canvasItems: [],
     canvasSelectedPath: null,
+    todoBoard: null,
     slashCatalog: SLASH_COMMANDS.slice(),
     capabilities: {
       projectFiles: null,
@@ -1072,6 +1073,7 @@ export const useAppStore = create<AppState>((set, get) => {
     upsertCanvasPaths: (paths) => {
       const sid = get().sessionId;
       if (!sid || !paths.length) return;
+      const hadItems = get().canvasItems.length > 0;
       set((s) => {
         const byPath = new Map(s.canvasItems.map((i) => [i.path, i]));
         for (const raw of paths) {
@@ -1085,8 +1087,11 @@ export const useAppStore = create<AppState>((set, get) => {
           const [rb, pb] = showcaseSortKey(b.path);
           return ra - rb || pa.localeCompare(pb);
         });
+        // Auto-open canvas when first artifacts appear.
+        const shouldAutoOpen = !hadItems && canvasItems.length > 0 && !s.canvasOpen;
         return {
           canvasItems,
+          canvasOpen: shouldAutoOpen ? true : s.canvasOpen,
           canvasSelectedPath:
             s.canvasSelectedPath && byPath.has(s.canvasSelectedPath)
               ? s.canvasSelectedPath

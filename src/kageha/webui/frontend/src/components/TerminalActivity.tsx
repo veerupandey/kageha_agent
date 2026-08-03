@@ -51,15 +51,15 @@ export const TerminalActivity = memo(function TerminalActivity({
 
   if (!streaming) {
     return (
-      <details className="terminal-activity mb-2 overflow-hidden rounded-md border border-line">
+      <details className="terminal-activity group mb-2 overflow-hidden rounded-md border border-line">
         <summary className="cursor-pointer list-none px-3 py-1.5 font-mono text-sm text-faint">
-          <span className="text-teal-700">{"▸"}</span>
+          <span className="inline-block transition-transform duration-200 group-open:rotate-90 text-accent">{"▸"}</span>
           {" Activity · "}
           {steps.length}
         </summary>
         <div className="terminal-activity-body max-h-48 space-y-0.5 overflow-y-auto border-t border-line px-3 py-2 font-mono text-sm">
           {lines.map((line) => (
-            <div key={line.key} className="flex gap-2 leading-5">
+            <div key={line.key} className="flex gap-2 leading-5 animate-[fadeInUp_100ms_ease-out]">
               <span className={cn("w-4 shrink-0 text-center", line.glyphClass)}>
                 {line.glyph}
               </span>
@@ -91,7 +91,7 @@ export const TerminalActivity = memo(function TerminalActivity({
               <div
                 key={line.key}
                 className={cn(
-                  "flex gap-2 leading-5",
+                  "flex gap-2 leading-5 animate-[fadeInUp_100ms_ease-out]",
                   current ? "text-ink" : "text-faint",
                 )}
               >
@@ -109,7 +109,7 @@ export const TerminalActivity = memo(function TerminalActivity({
           })
         ) : (
           <div className="flex gap-2 leading-5 text-ink">
-            <span className="w-4 shrink-0 text-center text-sky-600">{"✦"}</span>
+            <span className="w-4 shrink-0 text-center text-accent">{"✦"}</span>
             <span>Working…</span>
           </div>
         )}
