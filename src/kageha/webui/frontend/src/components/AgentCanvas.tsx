@@ -828,8 +828,7 @@ export function AgentCanvas({ alwaysShow, onCollapse }: { alwaysShow?: boolean; 
         {activeTab === "stats" && <StatsTab />}
       </div>
 
-      {/* TodoBoard — shown whenever there's progress data (except on Plan tab) */}
-      {activeTab !== "plan" && <TodoBoardSection />}
+      {/* TodoBoard lives exclusively in the Plan tab now */}
     </aside>
   );
 }
