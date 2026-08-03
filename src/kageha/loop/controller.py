@@ -1619,10 +1619,17 @@ class LoopController:
                 ],
             }, indent=2))
         events.emit(
-            "plan",
+            "planned",
             {
                 "source": plan.source,
-                "steps": len(plan.steps),
+                "steps": [
+                    {"id": s.id, "description": s.description, "tools": s.tools}
+                    for s in plan.steps
+                ],
+                "goals": [
+                    {"id": i.id, "description": i.description}
+                    for i in (goal.items if goal else [])
+                ],
                 "agent_mode": resolved_agent_mode,
             },
         )
@@ -1763,6 +1770,23 @@ class LoopController:
                         task=turn_objective,
                         tldr=plan.summary,
                         explore_notes=explore_notes,
+                    )
+                    # Re-emit detailed plan so the UI updates with revised steps.
+                    events.emit(
+                        "planned",
+                        {
+                            "source": plan.source,
+                            "steps": [
+                                {"id": s.id, "description": s.description, "tools": s.tools}
+                                for s in plan.steps
+                            ],
+                            "goals": [
+                                {"id": i.id, "description": i.description}
+                                for i in (goal.items if goal else [])
+                            ],
+                            "agent_mode": resolved_agent_mode,
+                            "plan_md": plan_md_text[:4000] if plan_md_text else "",
+                        },
                     )
 
             if not approved:
