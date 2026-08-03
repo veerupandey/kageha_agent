@@ -589,7 +589,19 @@ def render_plan_markdown(
         ) or ""
         lines.append(f"- [ ] `{sid}`: {desc}")
     if (explore_notes or "").strip():
-        lines.extend(["", "## Explore notes", "", explore_notes.strip()[:2500]])
+        # Clean up any raw tool output noise from explore notes
+        clean_notes = explore_notes.strip()
+        # Remove raw tool output markers and URLs
+        import re as _re
+        clean_notes = _re.sub(
+            r"\[(?:list_dir|read_file|web_search|bash)\]\s*", "", clean_notes
+        )
+        clean_notes = _re.sub(
+            r"https?://vertexaisearch\.cloud\.google\.com/\S+", "", clean_notes
+        )
+        clean_notes = clean_notes.strip()
+        if clean_notes and len(clean_notes) > 20:
+            lines.extend(["", "## Research Notes", "", clean_notes[:2500]])
     lines.append("")
     lines.append(
         "_Approve / Build to execute, or reply with changes / Suggest to revise. "

@@ -178,25 +178,43 @@ async def explore_before_plan(
         if log:
             log(msg)
 
+    # Detect if this is a code/project task or a general creative/research task
+    task_low = (task or "").lower()
+    is_code_task = any(cue in task_low for cue in (
+        ".py", ".ts", ".js", ".go", ".rs", "src/", "tests/", "refactor",
+        "implement", "fix ", "debug", "module", "api ", "endpoint",
+    ))
+
+    if is_code_task:
+        system_msg = (
+            f"You are in {agent_mode} DESIGN (explore-then-plan).\n"
+            "HARD RULE: read-only research only — list_dir, read_file, "
+            "web_search, skill_list, memory_recall, etc. "
+            "Do NOT write files, edit, bash, spawn agents, or mutate anything.\n"
+            "Gather just enough context to draft a solid plan, then stop with a "
+            "short bullet summary of findings (no plan JSON yet)."
+        )
+        user_msg = (
+            f"Explore the workspace/project for this objective, then summarize "
+            f"what matters for the plan:\n\n{task}"
+        )
+    else:
+        system_msg = (
+            f"You are in {agent_mode} DESIGN (research phase).\n"
+            "HARD RULE: read-only research only — web_search, memory_recall. "
+            "Do NOT list directories, read project files, write files, or mutate anything.\n"
+            "Do NOT explore the workspace — this is not a code task.\n"
+            "Research the topic using web_search to gather current, relevant information. "
+            "Then stop with a concise bullet summary of key findings."
+        )
+        user_msg = (
+            f"Research this topic using web search, then summarize the key findings "
+            f"needed to produce a great result:\n\n{task}"
+        )
+
     history: list[ChatMessage] = [
-        ChatMessage(
-            role="system",
-            content=(
-                f"You are in {agent_mode} DESIGN (explore-then-plan).\n"
-                "HARD RULE: read-only research only — list_dir, read_file, "
-                "web_search, skill_list, memory_recall, etc. "
-                "Do NOT write files, edit, bash, spawn agents, or mutate anything.\n"
-                "Gather just enough context to draft a solid plan, then stop with a "
-                "short bullet summary of findings (no plan JSON yet)."
-            ),
-        ),
-        ChatMessage(
-            role="user",
-            content=(
-                f"Explore the workspace/project for this objective, then summarize "
-                f"what matters for the plan:\n\n{task}"
-            ),
-        ),
+        ChatMessage(role="system", content=system_msg),
+        ChatMessage(role="user", content=user_msg),
     ]
 
     notes_parts: list[str] = []
@@ -257,10 +275,8 @@ async def explore_before_plan(
         _log(f"[kageha]   design explore tools: {names}")
         results = await execute_tools(safe_calls)
         history.extend(results)
-        for r in results:
-            preview = (r.content or "")[:400]
-            if preview:
-                notes_parts.append(f"[{r.name}] {preview}")
+        # Don't include raw tool output in the notes — only the model's
+        # synthesized summary matters for plan.md quality.
 
         _emit(
             events,
