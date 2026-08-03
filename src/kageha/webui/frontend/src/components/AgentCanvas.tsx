@@ -21,7 +21,7 @@ import { TodoBoard } from "./TodoBoard";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
-type CanvasTab = "timeline" | "artifacts" | "stats";
+type CanvasTab = "timeline" | "plan" | "artifacts" | "stats";
 
 interface SessionStats {
   steps: number;
@@ -184,6 +184,85 @@ function TimelineTab() {
           <ToolCallRow key={card.id} card={card} />
         ))}
       </div>
+    </div>
+  );
+}
+
+
+// ── Plan Tab ───────────────────────────────────────────────────────────
+
+function PlanTab() {
+  const todoBoard = useAppStore((s) => s.todoBoard);
+  const messages = useAppStore((s) => s.messages);
+  const runStatus = useAppStore((s) => s.runStatus);
+
+  // Extract plan summary from activity steps (the "planned" event)
+  const planInfo = useMemo(() => {
+    for (const m of [...messages].reverse()) {
+      if (m.role !== "assistant") continue;
+      for (const step of [...(m.steps || [])].reverse()) {
+        if (step.label?.toLowerCase().includes("plan ready") && step.detail?.length) {
+          return { label: step.label, details: step.detail };
+        }
+      }
+    }
+    return null;
+  }, [messages]);
+
+  const hasBoard = todoBoard && todoBoard.total > 0;
+  const isEmpty = !hasBoard && !planInfo;
+
+  if (isEmpty) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-8 text-center">
+        <span className="text-2xl text-faint mb-2">☑</span>
+        <p className="text-sm text-muted">No plan yet</p>
+        <p className="mt-1 text-xs text-faint leading-relaxed max-w-[200px]">
+          Use <span className="font-mono text-accent">/plan</span> to create a plan with steps that appear here
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-3">
+      {/* Plan summary from activity */}
+      {planInfo && (
+        <div className="rounded-lg border border-line bg-canvas p-3">
+          <p className="text-[0.65rem] uppercase tracking-wide text-muted mb-2">Plan</p>
+          <p className="text-xs font-medium text-ink mb-1.5">{planInfo.label}</p>
+          {planInfo.details.map((d, i) => (
+            <p key={i} className="text-[0.72rem] text-muted leading-relaxed">{d}</p>
+          ))}
+        </div>
+      )}
+
+      {/* Live progress — TodoBoard */}
+      {hasBoard && (
+        <div>
+          <p className="text-[0.65rem] uppercase tracking-wide text-muted mb-2">Progress</p>
+          <TodoBoard board={todoBoard} />
+        </div>
+      )}
+
+      {/* Status indicator */}
+      {runStatus === "running" && hasBoard && (
+        <div className="flex items-center gap-2 rounded-md bg-accent-soft/50 px-3 py-2">
+          <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
+          <span className="text-xs text-accent font-medium">Working…</span>
+          <span className="text-xs text-muted ml-auto tabular-nums">
+            {todoBoard!.done}/{todoBoard!.total} done
+          </span>
+        </div>
+      )}
+
+      {/* Completion state */}
+      {hasBoard && todoBoard!.done === todoBoard!.total && runStatus !== "running" && (
+        <div className="flex items-center gap-2 rounded-md bg-accent-soft/50 px-3 py-2">
+          <span className="text-accent">✓</span>
+          <span className="text-xs text-accent font-medium">All steps complete</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -509,6 +588,7 @@ function ArtifactsTab() {
 
 const TAB_CONFIG: { id: CanvasTab; label: string; icon: string }[] = [
   { id: "timeline", label: "Timeline", icon: "⚡" },
+  { id: "plan", label: "Plan", icon: "☑" },
   { id: "artifacts", label: "Artifacts", icon: "📎" },
   { id: "stats", label: "Stats", icon: "📊" },
 ];
@@ -519,6 +599,7 @@ export function AgentCanvas({ alwaysShow, onCollapse }: { alwaysShow?: boolean; 
   const setCanvasOpen = useAppStore((s) => s.setCanvasOpen);
   const canvasItems = useAppStore((s) => s.canvasItems);
   const runStatus = useAppStore((s) => s.runStatus);
+  const todoBoard = useAppStore((s) => s.todoBoard);
   const [activeTab, setActiveTab] = useState<CanvasTab>("timeline");
 
   // Auto-switch to timeline when a run starts
@@ -526,7 +607,14 @@ export function AgentCanvas({ alwaysShow, onCollapse }: { alwaysShow?: boolean; 
     if (runStatus === "running") setActiveTab("timeline");
   }, [runStatus]);
 
-  // Auto-switch to artifacts when new ones appear
+  // Auto-switch to plan tab when todo items appear (plan approved)
+  useEffect(() => {
+    if (todoBoard && todoBoard.total > 0 && activeTab === "timeline") {
+      setActiveTab("plan");
+    }
+  }, [todoBoard?.total]);
+
+  // Auto-switch to artifacts when new ones appear (after run completes)
   useEffect(() => {
     if (canvasItems.length > 0 && activeTab === "timeline" && runStatus !== "running") {
       setActiveTab("artifacts");
@@ -594,12 +682,13 @@ export function AgentCanvas({ alwaysShow, onCollapse }: { alwaysShow?: boolean; 
       {/* Tab Content */}
       <div className="flex min-h-0 flex-1 flex-col">
         {activeTab === "timeline" && <TimelineTab />}
+        {activeTab === "plan" && <PlanTab />}
         {activeTab === "artifacts" && <ArtifactsTab />}
         {activeTab === "stats" && <StatsTab />}
       </div>
 
-      {/* TodoBoard — shown whenever there's progress data */}
-      {<TodoBoardSection />}
+      {/* TodoBoard — shown whenever there's progress data (except on Plan tab) */}
+      {activeTab !== "plan" && <TodoBoardSection />}
     </aside>
   );
 }
