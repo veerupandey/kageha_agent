@@ -384,9 +384,14 @@ const MessageRow = memo(function MessageRow({
   }, [m.toolCards, m.role, throttledText, streaming]);
 
   useEffect(() => {
-    if (!artifactPaths.length || streaming) return;
-    upsertCanvasPaths(artifactPaths);
-  }, [artifactPaths, streaming, upsertCanvasPaths]);
+    if (!artifactPaths.length) return;
+    // During live streaming, upsert as new artifacts are produced.
+    // For loaded history, refreshArtifacts (server-side session-scoped listing)
+    // handles populating the canvas — prevents cross-session artifact leaks.
+    if (m.streaming) {
+      upsertCanvasPaths(artifactPaths);
+    }
+  }, [artifactPaths, m.streaming, upsertCanvasPaths]);
 
   const bodyHtml = useMemo(() => {
     if (!throttledText) return "";
