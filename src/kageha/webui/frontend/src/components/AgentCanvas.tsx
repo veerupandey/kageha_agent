@@ -16,7 +16,6 @@ import { cn } from "../lib/cn";
 import { useAppStore } from "../store";
 import type { ActivityStep, ToolCard } from "../api/types";
 import { CodeBlock, CodeThumbnail } from "./shared/CodeBlock";
-import { TodoBoard } from "./TodoBoard";
 
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -830,16 +829,5 @@ export function AgentCanvas({ alwaysShow, onCollapse }: { alwaysShow?: boolean; 
 
       {/* TodoBoard lives exclusively in the Plan tab now */}
     </aside>
-  );
-}
-
-/** Live todo/goal progress during a run — uses the store's todoBoard data. */
-function TodoBoardSection() {
-  const todoBoard = useAppStore((s) => s.todoBoard);
-  if (!todoBoard || todoBoard.total === 0) return null;
-  return (
-    <div className="shrink-0 border-t border-line px-3 py-2">
-      <TodoBoard board={todoBoard} />
-    </div>
   );
 }

@@ -1637,13 +1637,6 @@ class LoopController:
                     for i in goal.items
                 ],
             }, indent=2))
-            workspace.write_text(
-                "todo.md",
-                "# Plan\n\n"
-                + "\n".join(f"- [ ] {s.id}: {s.description}" for s in plan.steps)
-                + "\n\n"
-                + goal.to_markdown(),
-            )
             workspace.write_text("plan.json", json.dumps({
                 "summary": plan.summary,
                 "source": plan.source,
@@ -1652,6 +1645,23 @@ class LoopController:
                     for s in plan.steps
                 ],
             }, indent=2))
+            # Only write todo.md if it doesn't already have more items
+            # (the agent may have written a more detailed todo via todo_write)
+            existing_todo = workspace.path("todo.md")
+            existing_item_count = 0
+            if existing_todo.is_file():
+                existing_item_count = sum(
+                    1 for line in existing_todo.read_text(errors="replace").splitlines()
+                    if line.strip().startswith("- [")
+                )
+            if existing_item_count <= len(plan.steps):
+                workspace.write_text(
+                    "todo.md",
+                    "# Plan\n\n"
+                    + "\n".join(f"- [ ] {s.id}: {s.description}" for s in plan.steps)
+                    + "\n\n"
+                    + goal.to_markdown(),
+                )
         events.emit(
             "planned",
             {
