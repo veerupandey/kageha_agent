@@ -203,6 +203,8 @@ function PlanTab() {
   const sessionId = useAppStore((s) => s.sessionId);
   const [planMd, setPlanMd] = useState("");
   const [planLoading, setPlanLoading] = useState(false);
+  const [planExpanded, setPlanExpanded] = useState(false);
+  const [stepsExpanded, setStepsExpanded] = useState(true);
 
   // Fetch plan.md content from the session
   useEffect(() => {
@@ -220,7 +222,7 @@ function PlanTab() {
     return () => { cancelled = true; };
   }, [sessionId, todoBoard?.total]);
 
-  // Extract plan summary from activity steps (the "planned" event)
+  // Extract plan summary from activity steps
   const planInfo = useMemo(() => {
     for (const m of [...messages].reverse()) {
       if (m.role !== "assistant") continue;
@@ -239,65 +241,169 @@ function PlanTab() {
   if (isEmpty) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-8 text-center">
-        <span className="text-2xl text-faint mb-2">☑</span>
-        <p className="text-sm text-muted">No plan yet</p>
-        <p className="mt-1 text-xs text-faint leading-relaxed max-w-[200px]">
-          Use <span className="font-mono text-accent">/plan</span> to create a plan with steps that appear here
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-line/30 mb-3">
+          <span className="text-xl text-faint">☑</span>
+        </div>
+        <p className="text-sm font-medium text-muted">No plan yet</p>
+        <p className="mt-1.5 text-xs text-faint leading-relaxed max-w-[220px]">
+          Use <span className="font-mono text-accent">/plan</span> to create an execution plan with tracked steps
         </p>
       </div>
     );
   }
 
+  const progress = hasBoard ? (todoBoard!.done / todoBoard!.total) * 100 : 0;
+  const allDone = hasBoard && todoBoard!.done === todoBoard!.total;
+
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-3">
-      {/* Live progress — TodoBoard */}
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* Progress header */}
       {hasBoard && (
-        <div>
-          <p className="text-[0.65rem] uppercase tracking-wide text-muted mb-2">Progress</p>
-          <TodoBoard board={todoBoard} />
-        </div>
-      )}
-
-      {/* Status indicator */}
-      {runStatus === "running" && hasBoard && (
-        <div className="flex items-center gap-2 rounded-md bg-accent-soft/50 px-3 py-2">
-          <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
-          <span className="text-xs text-accent font-medium">Working…</span>
-          <span className="text-xs text-muted ml-auto tabular-nums">
-            {todoBoard!.done}/{todoBoard!.total} done
-          </span>
-        </div>
-      )}
-
-      {/* Completion state */}
-      {hasBoard && todoBoard!.done === todoBoard!.total && runStatus !== "running" && (
-        <div className="flex items-center gap-2 rounded-md bg-accent-soft/50 px-3 py-2">
-          <span className="text-accent">✓</span>
-          <span className="text-xs text-accent font-medium">All steps complete</span>
-        </div>
-      )}
-
-      {/* Plan.md rendered as markdown */}
-      {planMd && (
-        <div className="rounded-lg border border-line bg-canvas overflow-hidden">
-          <div className="px-3 py-1.5 border-b border-line/50 flex items-center gap-2">
-            <span className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted">plan.md</span>
+        <div className="sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur-sm px-3 py-2.5">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[0.7rem] font-semibold text-ink">
+              {allDone ? "Complete" : "In Progress"}
+            </span>
+            <span className={cn(
+              "text-[0.7rem] font-bold tabular-nums",
+              allDone ? "text-accent" : "text-muted",
+            )}>
+              {todoBoard!.done}/{todoBoard!.total}
+            </span>
           </div>
-          <div
-            className="markdown px-3 py-3 text-[0.8rem] overflow-auto max-h-[60vh]"
-            dangerouslySetInnerHTML={{
-              __html: DOMPurify.sanitize(
-                marked.parse(planMd, { async: false }) as string
-              ),
-            }}
-          />
+          <div className="relative h-1.5 rounded-full bg-line overflow-hidden">
+            <div
+              className={cn(
+                "absolute inset-y-0 left-0 rounded-full transition-all duration-700 ease-out",
+                allDone ? "bg-accent" : "bg-accent/80",
+              )}
+              style={{ width: `${progress}%` }}
+            />
+            {runStatus === "running" && !allDone && (
+              <div
+                className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-transparent via-white/25 to-transparent animate-[shimmer_2s_ease-in-out_infinite]"
+                style={{ width: `${Math.min(100, progress + 10)}%` }}
+              />
+            )}
+          </div>
         </div>
       )}
 
-      {/* Loading state */}
-      {planLoading && !planMd && (
-        <p className="text-xs text-muted px-1">Loading plan…</p>
-      )}
+      <div className="p-3 space-y-2">
+        {/* Steps — vertical stepper */}
+        {hasBoard && (
+          <div className="rounded-xl border border-line bg-canvas overflow-hidden">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-line/20 transition-colors"
+              onClick={() => setStepsExpanded((v) => !v)}
+            >
+              <svg
+                width="10" height="10" viewBox="0 0 10 10"
+                className={cn("shrink-0 text-muted transition-transform duration-200", stepsExpanded ? "rotate-0" : "-rotate-90")}
+              >
+                <path d="M2 3.5L5 6.5L8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+              <span className="text-[0.7rem] font-semibold text-ink flex-1">Steps</span>
+              {allDone && <span className="text-[0.6rem] text-accent font-medium">✓ Done</span>}
+            </button>
+            <div className={cn(
+              "grid transition-all duration-300 ease-out",
+              stepsExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+            )}>
+              <div className="overflow-hidden">
+                <div className="px-3 pb-2.5">
+                  {todoBoard!.items.map((item, i) => {
+                    const isLast = i === todoBoard!.items.length - 1;
+                    const isCurrent = !item.done && (i === 0 || todoBoard!.items[i - 1]?.done);
+                    return (
+                      <div key={item.id} className="flex gap-3 relative">
+                        {/* Vertical connector line */}
+                        {!isLast && (
+                          <div className={cn(
+                            "absolute left-[9px] top-[22px] bottom-0 w-[2px] rounded-full",
+                            item.done ? "bg-accent/40" : "bg-line",
+                          )} />
+                        )}
+                        {/* Step indicator */}
+                        <div className="relative z-10 mt-[5px] shrink-0">
+                          {item.done ? (
+                            <div className="flex h-[20px] w-[20px] items-center justify-center rounded-full bg-accent text-white">
+                              <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                <path d="M2 6.5L4.5 9L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            </div>
+                          ) : isCurrent ? (
+                            <div className="flex h-[20px] w-[20px] items-center justify-center rounded-full border-2 border-accent bg-accent/10">
+                              <div className="h-2 w-2 rounded-full bg-accent animate-pulse" />
+                            </div>
+                          ) : (
+                            <div className="flex h-[20px] w-[20px] items-center justify-center rounded-full border-2 border-line bg-surface">
+                              <span className="text-[0.5rem] font-bold text-faint">{i + 1}</span>
+                            </div>
+                          )}
+                        </div>
+                        {/* Step text */}
+                        <div className={cn(
+                          "flex-1 pb-3 pt-[3px]",
+                          item.done ? "opacity-60" : isCurrent ? "opacity-100" : "opacity-50",
+                        )}>
+                          <p className={cn(
+                            "text-[0.78rem] leading-snug",
+                            item.done ? "text-muted line-through decoration-muted/40" : "text-ink",
+                            isCurrent && "font-medium",
+                          )}>
+                            {item.text}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Plan.md — collapsible rendered markdown */}
+        {(planMd || planLoading) && (
+          <div className="rounded-xl border border-line bg-canvas overflow-hidden">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-line/20 transition-colors"
+              onClick={() => setPlanExpanded((v) => !v)}
+            >
+              <svg
+                width="10" height="10" viewBox="0 0 10 10"
+                className={cn("shrink-0 text-muted transition-transform duration-200", planExpanded ? "rotate-0" : "-rotate-90")}
+              >
+                <path d="M2 3.5L5 6.5L8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+              <span className="text-[0.7rem] font-semibold text-ink flex-1">Plan Details</span>
+              <span className="text-[0.55rem] text-faint font-mono">plan.md</span>
+            </button>
+            <div className={cn(
+              "grid transition-all duration-300 ease-out",
+              planExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+            )}>
+              <div className="overflow-hidden">
+                {planLoading && !planMd ? (
+                  <p className="px-3 py-2 text-xs text-muted">Loading…</p>
+                ) : planMd ? (
+                  <div
+                    className="markdown px-3 py-3 text-[0.78rem] border-t border-line/40 overflow-auto max-h-[50vh]"
+                    dangerouslySetInnerHTML={{
+                      __html: DOMPurify.sanitize(
+                        marked.parse(planMd, { async: false }) as string
+                      ),
+                    }}
+                  />
+                ) : null}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
