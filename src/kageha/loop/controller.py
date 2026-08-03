@@ -657,6 +657,7 @@ class LoopController:
             clear_clarify_pending,
             clear_plan_approved,
             fold_clarify_answer,
+            generate_followup_question,
             goal_qa_misfit,
             is_mode_only_message,
             is_plan_build_prompt,
@@ -671,6 +672,7 @@ class LoopController:
             plan_already_approved,
             plan_clarify_question,
             plan_needs_clarify,
+            plan_needs_more_info,
             read_clarify_pending,
             requires_plan_approval,
             resolve_agent_mode,
@@ -1410,7 +1412,39 @@ class LoopController:
                 )
                 clear_clarify_pending(workspace.root)
                 events.emit("clarify", {"status": "answered", "chars": len(answer)})
-                self._log("[kageha] plan clarify answered — continuing design")
+                self._log("[kageha] plan clarify answered — checking if more needed")
+                # Multi-turn: check if we need more info or can proceed
+                if (
+                    not is_plan_build_prompt(answer)
+                    and plan_needs_more_info(turn_objective, router, self._log)
+                ):
+                    question = await generate_followup_question(
+                        turn_objective, router, self._log
+                    )
+                    if question:
+                        events.emit(
+                            "clarify", {"status": "asking", "question": question[:500]}
+                        )
+                        if self.defer_human_input:
+                            try:
+                                write_clarify_pending(
+                                    workspace.root,
+                                    objective=turn_objective,
+                                    question=question,
+                                )
+                            except OSError:
+                                pass
+                            return RunResult(
+                                run_id=workspace.run_id,
+                                status="awaiting_clarify",
+                                message=question,
+                                goal=GoalCard.from_task(turn_objective),
+                                steps=0,
+                                spent_usd=0.0,
+                                artifacts=[],
+                                turn_id=turn_id,
+                                active_skills=list(auto_skill_names),
+                            )
             elif (
                 requires_plan_approval(resolved_agent_mode)
                 and not plan_already_approved(workspace.root)

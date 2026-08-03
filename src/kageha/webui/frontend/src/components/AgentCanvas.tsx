@@ -598,8 +598,8 @@ export function AgentCanvas({ alwaysShow, onCollapse }: { alwaysShow?: boolean; 
         {activeTab === "stats" && <StatsTab />}
       </div>
 
-      {/* TodoBoard — shown at bottom during active runs */}
-      {runStatus === "running" && <TodoBoardSection />}
+      {/* TodoBoard — shown whenever there's progress data */}
+      {<TodoBoardSection />}
     </aside>
   );
 }

@@ -393,6 +393,73 @@ def fold_clarify_answer(objective: str, answer: str) -> str:
     return f"{base}\n\nClarification from user: {ans}".strip()
 
 
+def plan_needs_more_info(objective: str, router: "Any", log: "Any" = None) -> bool:
+    """Quick heuristic: does the accumulated objective still lack key details?
+
+    Uses keyword density rather than an LLM call to stay fast.
+    Returns True if the objective is still sparse after user answers.
+    """
+    text = (objective or "").lower()
+    # If user explicitly said proceed, skip
+    lines = text.split("\n")
+    last_answer = ""
+    for line in reversed(lines):
+        if "clarification from user:" in line:
+            last_answer = line.split("clarification from user:")[-1].strip()
+            break
+    if last_answer in ("go", "just go", "proceed", "ok", "sure", "defaults", "no preference"):
+        return False
+    # If user gave a substantive answer (>10 chars), they've clarified enough
+    if len(last_answer) >= 10:
+        return False
+    # Count how much info we have (rough: number of meaningful tokens)
+    words = len(text.split())
+    # If accumulated text is substantial, we have enough
+    if words >= 40:
+        return False
+    # Still very sparse — might need more
+    return words < 20
+
+
+async def generate_followup_question(
+    objective: str, router: "Any", log: "Any" = None
+) -> str | None:
+    """Use the LLM to generate a contextual follow-up question.
+
+    Returns None if the LLM decides it has enough info to proceed.
+    """
+    from kageha.models.base import ChatMessage as CM
+
+    prompt = (
+        "You are helping plan a task. Based on the conversation so far, "
+        "decide: do you have enough information to proceed, or do you need "
+        "one more clarifying question?\n\n"
+        "Rules:\n"
+        "- If you have enough info (or the user said 'go'/'proceed'/gave reasonable detail), "
+        "respond with EXACTLY: READY\n"
+        "- If you need one more question, respond with ONLY the question (1-3 sentences, "
+        "friendly and specific). Do NOT ask about things the user already answered.\n"
+        "- Never ask more than 2-3 questions total across a conversation.\n"
+        "- Make reasonable assumptions for anything minor.\n\n"
+        f"Conversation so far:\n{objective[:2000]}"
+    )
+    try:
+        _, resp = await router.chat(
+            [CM(role="user", content=prompt)],
+            role="planning",
+            max_tokens=200,
+            effort="low",
+        )
+        answer = (resp.message.content or "").strip()
+        if not answer or answer.upper().startswith("READY"):
+            return None
+        return answer
+    except Exception as exc:  # noqa: BLE001
+        if log:
+            log(f"[kageha] followup question LLM failed: {exc}")
+        return None
+
+
 def is_plan_revise_turn(
     workspace_root: Path,
     agent_mode: AgentMode | str,
