@@ -239,6 +239,16 @@ def _loads_json_lenient(blob: str) -> object:
         return json.loads(repaired)
 
 
+def _is_ask_user_step(description: str) -> bool:
+    """Detect plan steps that try to ask the user for input (not executable)."""
+    low = (description or "").strip().lower()
+    return any(cue in low for cue in (
+        "ask the user", "ask user", "clarify with user", "request from user",
+        "wait for user", "get user input", "confirm with user",
+        "ask the client", "check with the user", "inquire",
+    ))
+
+
 def _parse_plan_json(
     text: str, *, task: str, allowed_tools: set[str]
 ) -> TaskPlan:
@@ -268,6 +278,11 @@ def _parse_plan_json(
         for i, s in enumerate(data.get("steps") or [])
     ]
     steps = [s for s in steps if (s.description or "").strip()]
+    # Filter out steps that ask the user for input — the agent must be autonomous.
+    steps = [
+        s for s in steps
+        if not _is_ask_user_step(s.description)
+    ]
     if not steps:
         raise ValueError("empty steps")
     # Deduplicate ids while preserving order.
@@ -340,6 +355,11 @@ async def make_plan(
         "For simple Q&A, plan a chat answer — do not invent "
         ".md file deliverables the user did not ask for. Never invent tools or "
         "capability names.\n"
+        "CRITICAL RULES:\n"
+        "- NEVER include steps that ask the user questions, request clarification, or wait for input. "
+        "The user has already provided all the info. If details are missing, make reasonable assumptions.\n"
+        "- Every step must be something the agent can execute autonomously with tools.\n"
+        "- Start with research/information gathering (web_search, read_file), then produce deliverables.\n"
         "Guidelines for complex tasks:\n"
         "- Start with a step to read/explore relevant existing code (conventions, patterns, imports).\n"
         "- Group related changes together (don't make one step per file).\n"

@@ -223,7 +223,20 @@ def is_plan_build_prompt(text: str) -> bool:
 _FILE_CUES = (".py", ".ts", ".tsx", ".js", ".go", ".rs", "src/", "tests/", "`", "file ")
 _ACTION_CUES = (
     "create ", "write ", "add ", "implement ", "fix ", "refactor ",
-    "build ", "make ", "ship ", "research ",
+    "build ", "make ", "ship ", "research ", "plan ", "design ",
+    "generate ", "find ", "search ", "compare ", "analyze ", "summarize ",
+    "book ", "schedule ", "organize ", "list ", "recommend ",
+)
+_CLEAR_TASK_CUES = (
+    # Non-code tasks that are self-explanatory and don't need clarification.
+    "trip", "travel", "itinerary", "vacation", "flight",
+    "recipe", "meal", "dinner", "restaurant",
+    "presentation", "slide", "deck", "report",
+    "email", "letter", "message", "draft",
+    "image", "logo", "poster", "banner", "video",
+    "budget", "cost", "price", "estimate",
+    "summary", "review", "article", "blog",
+    "map", "route", "directions",
 )
 _AMBIGUOUS_CUES = (
     " or ", "either ", "maybe ", "best way", "how should", "what should",
@@ -233,25 +246,75 @@ _AMBIGUOUS_CUES = (
 
 
 def plan_needs_clarify(text: str) -> bool:
-    """Pause when the objective is underspecified."""
+    """Pause when the objective is genuinely underspecified.
+
+    Skip clarification when:
+    - Task mentions specific files/code targets
+    - Task has a clear action verb
+    - Task is a recognizable non-code deliverable (trip, report, image, etc.)
+    - Task is long enough to be self-explanatory (>= 40 chars with context)
+    """
     q = (text or "").strip().lower()
-    if len(q) < 24:
+    if len(q) < 12:
         return True
     has_file = any(m in q for m in _FILE_CUES)
     action = any(v in q for v in _ACTION_CUES)
+    clear_task = any(c in q for c in _CLEAR_TASK_CUES)
+    # Clear enough — skip clarification
     if has_file and (action or len(q) >= 40):
         return False
-    if any(c in q for c in _AMBIGUOUS_CUES) and not has_file:
+    if clear_task and len(q) >= 20:
+        return False
+    if action and len(q) >= 40:
+        return False
+    # Ambiguous language present and no clear signals
+    if any(c in q for c in _AMBIGUOUS_CUES) and not has_file and not clear_task:
         return True
-    return not has_file and not action and len(q) < 120
+    # Very short with no signals at all
+    return not has_file and not action and not clear_task and len(q) < 60
 
 
 def plan_clarify_question(objective: str) -> str:
+    """Generate a contextual clarification question for the objective.
+
+    Uses a lightweight heuristic to ask task-relevant questions rather than
+    a one-size-fits-all 'stack/scope/must-haves' template.
+    """
+    obj = (objective or "").strip()
+    low = obj.lower()
+
+    # Detect task category and ask relevant questions
+    if any(w in low for w in ("trip", "travel", "itinerary", "vacation", "flight")):
+        return (
+            f"Before I plan this:\n\n"
+            f"**{obj[:400]}**\n\n"
+            "A few quick details — dates/duration, budget range, "
+            "travel style (luxury/budget/adventure), and any must-see places or constraints?"
+        )
+    if any(w in low for w in ("presentation", "slide", "deck")):
+        return (
+            f"Before I create this:\n\n"
+            f"**{obj[:400]}**\n\n"
+            "Who's the audience, how many slides roughly, and what's the key message or takeaway?"
+        )
+    if any(w in low for w in ("report", "article", "blog", "summary")):
+        return (
+            f"Before I draft this:\n\n"
+            f"**{obj[:400]}**\n\n"
+            "Target length, audience, and any specific angle or sources to prioritize?"
+        )
+    if any(w in low for w in ("image", "logo", "poster", "banner", "design")):
+        return (
+            f"Before I create this:\n\n"
+            f"**{obj[:400]}**\n\n"
+            "Style/mood, dimensions, any brand colors or reference images?"
+        )
+    # Default: software/general task
     return (
-        "Before I draft the plan, one clarification:\n\n"
-        f"Objective: {(objective or '')[:600]}\n\n"
-        "What constraints or preferred approach should I lock in "
-        "(stack, scope, must-haves, or out-of-scope)? Reply with one short answer."
+        f"Before I draft the plan:\n\n"
+        f"**{obj[:400]}**\n\n"
+        "Any constraints I should lock in — scope boundaries, "
+        "tech preferences, or must-have requirements? (Reply briefly or just say 'go')"
     )
 
 
