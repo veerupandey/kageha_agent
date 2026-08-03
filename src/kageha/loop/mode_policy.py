@@ -246,39 +246,53 @@ _AMBIGUOUS_CUES = (
 
 
 def plan_needs_clarify(text: str) -> bool:
-    """Pause when the objective is genuinely underspecified.
+    """Pause when the objective would benefit from user input.
 
-    Skip clarification when:
-    - Task mentions specific files/code targets
-    - Task has a clear action verb
-    - Task is a recognizable non-code deliverable (trip, report, image, etc.)
-    - Task is long enough to be self-explanatory (>= 40 chars with context)
+    The agent should ask questions when:
+    - The task is creative/planning-heavy and user preferences matter
+    - The objective is genuinely short/ambiguous
+
+    Skip when:
+    - Task mentions specific files/code targets (clear technical scope)
+    - Task has explicit enough context (long with action verbs + specifics)
+    - User said 'go' or similar
     """
     q = (text or "").strip().lower()
+    # "go", "just do it", "proceed" = skip clarification
+    if q in ("go", "just go", "proceed", "do it", "yes", "ok", "sure"):
+        return False
     if len(q) < 12:
         return True
     has_file = any(m in q for m in _FILE_CUES)
     action = any(v in q for v in _ACTION_CUES)
-    clear_task = any(c in q for c in _CLEAR_TASK_CUES)
-    # Clear enough — skip clarification
+    clear_deliverable = any(c in q for c in _CLEAR_TASK_CUES)
+    # Code tasks with file targets don't need clarification
     if has_file and (action or len(q) >= 40):
         return False
-    if clear_task and len(q) >= 20:
-        return False
-    if action and len(q) >= 40:
-        return False
-    # Ambiguous language present and no clear signals
-    if any(c in q for c in _AMBIGUOUS_CUES) and not has_file and not clear_task:
+    # Creative/planning tasks benefit from clarification (trip, event, etc.)
+    # unless the user already gave enough detail (>100 chars with specifics)
+    if clear_deliverable:
+        # Already detailed enough — user gave preferences inline
+        if len(q) >= 100:
+            return False
+        # Short creative task — ask questions
         return True
-    # Very short with no signals at all
-    return not has_file and not action and not clear_task and len(q) < 60
+    # Action + enough detail = clear
+    if action and len(q) >= 60:
+        return False
+    # Ambiguous language present
+    if any(c in q for c in _AMBIGUOUS_CUES) and not has_file:
+        return True
+    # Short with no signals
+    return not has_file and not action and len(q) < 60
 
 
 def plan_clarify_question(objective: str) -> str:
     """Generate a contextual clarification question for the objective.
 
     Uses a lightweight heuristic to ask task-relevant questions rather than
-    a one-size-fits-all 'stack/scope/must-haves' template.
+    a one-size-fits-all template. The questions should be things the agent
+    genuinely needs to know to produce a good deliverable.
     """
     obj = (objective or "").strip()
     low = obj.lower()
@@ -286,35 +300,60 @@ def plan_clarify_question(objective: str) -> str:
     # Detect task category and ask relevant questions
     if any(w in low for w in ("trip", "travel", "itinerary", "vacation", "flight")):
         return (
-            f"Before I plan this:\n\n"
+            f"Quick questions before I plan this:\n\n"
             f"**{obj[:400]}**\n\n"
-            "A few quick details — dates/duration, budget range, "
-            "travel style (luxury/budget/adventure), and any must-see places or constraints?"
+            "1. How many people? (solo / couple / family / group)\n"
+            "2. Interests? (food, nature, history, nightlife, art, adventure…)\n"
+            "3. Budget range? (budget / mid-range / luxury)\n"
+            "4. Any must-do's or places to avoid?\n\n"
+            "Reply with whatever you know — I'll fill in reasonable defaults for the rest."
         )
     if any(w in low for w in ("presentation", "slide", "deck")):
         return (
             f"Before I create this:\n\n"
             f"**{obj[:400]}**\n\n"
-            "Who's the audience, how many slides roughly, and what's the key message or takeaway?"
+            "1. Who's the audience?\n"
+            "2. Roughly how many slides?\n"
+            "3. Key message or takeaway?\n"
+            "4. Any specific data/examples to include?\n\n"
+            "Brief answers are fine — I'll handle the rest."
         )
     if any(w in low for w in ("report", "article", "blog", "summary")):
         return (
-            f"Before I draft this:\n\n"
+            f"Before I write this:\n\n"
             f"**{obj[:400]}**\n\n"
-            "Target length, audience, and any specific angle or sources to prioritize?"
+            "1. Target audience?\n"
+            "2. Desired length?\n"
+            "3. Tone — formal / casual / technical?\n"
+            "4. Any specific sources or angles?\n\n"
+            "Reply briefly or say 'go' for defaults."
         )
     if any(w in low for w in ("image", "logo", "poster", "banner", "design")):
         return (
             f"Before I create this:\n\n"
             f"**{obj[:400]}**\n\n"
-            "Style/mood, dimensions, any brand colors or reference images?"
+            "1. Style/mood? (minimalist, playful, corporate, retro…)\n"
+            "2. Dimensions / format?\n"
+            "3. Brand colors or reference images?\n\n"
+            "Brief answers are fine."
+        )
+    if any(w in low for w in ("event", "party", "wedding", "conference")):
+        return (
+            f"Before I plan this:\n\n"
+            f"**{obj[:400]}**\n\n"
+            "1. How many guests?\n"
+            "2. Budget range?\n"
+            "3. Venue preference? (indoor/outdoor/specific location)\n"
+            "4. Any theme or must-haves?\n\n"
+            "Reply with what you know."
         )
     # Default: software/general task
     return (
-        f"Before I draft the plan:\n\n"
+        f"Before I start:\n\n"
         f"**{obj[:400]}**\n\n"
-        "Any constraints I should lock in — scope boundaries, "
-        "tech preferences, or must-have requirements? (Reply briefly or just say 'go')"
+        "Any constraints — scope boundaries, tech preferences, "
+        "or must-have requirements?\n\n"
+        "(Reply briefly, or say 'go' and I'll use reasonable defaults.)"
     )
 
 
