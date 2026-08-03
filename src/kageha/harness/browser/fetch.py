@@ -128,7 +128,12 @@ async def fetch_url(
     ctype = (resp.headers.get("content-type") or "").lower()
     body = resp.text or ""
     if resp.status_code >= 400:
-        return f"ERROR: HTTP {resp.status_code} for {final}\ncontent-type: {ctype}\n{body[:500]}"
+        hint = ""
+        if resp.status_code == 404:
+            hint = "\nHint: This URL does not exist. Use web_search to find the correct URL instead of guessing paths."
+        elif resp.status_code == 403:
+            hint = "\nHint: Access denied. Try a different URL or use web_search to find public pages."
+        return f"ERROR: HTTP {resp.status_code} for {final}\ncontent-type: {ctype}{hint}\n{body[:300]}"
 
     if "html" not in ctype and not body.lstrip().lower().startswith("<!doctype") and "<html" not in body[:500].lower():
         # Plain text / markdown / json — return as-is.
