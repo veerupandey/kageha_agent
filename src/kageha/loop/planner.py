@@ -37,9 +37,9 @@ class TaskPlan:
 
 
 TEMPLATE_STEPS = [
-    PlanStep("p1", "Inspect the workspace and gather inputs", ["list_dir", "read_file", "bash"]),
-    PlanStep("p2", "Execute the core work toward the deliverable", ["bash", "write_file", "edit_file"]),
-    PlanStep("p3", "Verify the result and write a short summary", ["read_file", "todo_write"]),
+    PlanStep("p1", "Research and gather context for the task", ["list_dir", "read_file", "bash", "web_search"]),
+    PlanStep("p2", "Execute the primary work and produce deliverables", ["bash", "write_file", "edit_file"]),
+    PlanStep("p3", "Verify the result and summarize in chat", ["read_file", "todo_write"]),
 ]
 
 
@@ -181,12 +181,21 @@ def make_moderate_plan(
 
 
 def _objective_fallback_plan(task: str, allowed_tools: set[str]) -> TaskPlan:
-    """Better than a generic template when the planner LLM fails."""
+    """Better than a generic template when the planner LLM fails.
+
+    Embeds the actual task into each step description so the executor
+    knows what it's supposed to do (not just 'execute the core work').
+    """
     text = (task or "").strip() or "Complete the requested work"
     clip = text if len(text) <= 240 else text[:237].rstrip() + "…"
+    tools_research = [
+        name
+        for name in ("web_search", "read_file", "list_dir", "bash", "memory_recall")
+        if name in allowed_tools
+    ]
     tools_impl = [
         name
-        for name in ("write_file", "edit_file", "bash", "read_file", "todo_write")
+        for name in ("write_file", "edit_file", "bash", "web_search", "todo_write")
         if name in allowed_tools
     ]
     tools_verify = [
@@ -197,24 +206,23 @@ def _objective_fallback_plan(task: str, allowed_tools: set[str]) -> TaskPlan:
         steps=[
             PlanStep(
                 "p1",
-                f"Implement the requested work for: {clip}",
-                tools_impl,
+                f"Research: gather the information needed for — {clip}",
+                tools_research,
             ),
             PlanStep(
                 "p2",
-                "Run the requested verification (tests/commands) and fix failures until green",
-                tools_verify,
+                f"Execute: produce the deliverable(s) for — {clip}",
+                tools_impl,
             ),
             PlanStep(
                 "p3",
-                "Confirm every explicitly requested deliverable exists and summarize results",
-                [name for name in ("read_file", "todo_write", "bash") if name in allowed_tools],
+                "Verify: run tests/verification and confirm deliverables exist, summarize in chat",
+                tools_verify,
             ),
         ],
         milestones=[
-            "Primary deliverable produced as requested",
-            "Verification commands/tests pass",
-            "Requested artifacts/docs are present",
+            f"Deliverable produced for: {clip[:100]}",
+            "Verification passed",
         ],
         source="template",
     )
