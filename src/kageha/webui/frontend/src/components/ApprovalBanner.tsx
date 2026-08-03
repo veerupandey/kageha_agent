@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import { useAppStore } from "../store";
 
 function detailText(detail: string | string[] | undefined): string {
@@ -133,31 +135,32 @@ function PlanApprovalBanner({
     requestAnimationFrame(() => approveRef.current?.focus());
   }, []);
 
-  // Parse plan steps from the detail text (format: "- [ ] `id`: description")
+  // Parse plan steps from the detail text — handles multiple formats:
+  // "- [ ] `id`: description" OR "- [ ] `id` description" OR "- [ ] description"
   const steps: { id: string; text: string }[] = [];
-  const summaryLines: string[] = [];
+  let tldr = "";
+  let objective = "";
   if (detail) {
     for (const line of detail.split("\n")) {
-      const stepMatch = line.match(/^-\s*\[[ x]]\s*`?([^`:\s]+)`?:\s*(.+)/);
-      if (stepMatch) {
-        steps.push({ id: stepMatch[1], text: stepMatch[2].trim() });
-      } else {
-        const plain = line.trim();
-        if (plain && !plain.startsWith("#") && !plain.startsWith("---")) {
-          summaryLines.push(plain);
+      // Try: - [ ] `id`: description
+      let stepMatch = line.match(/^-\s*\[[ x]]\s*`([^`]+)`[:\s]+(.+)/);
+      if (!stepMatch) {
+        // Try: - [ ] description (no id)
+        stepMatch = line.match(/^-\s*\[[ x]]\s+(.{3,})/);
+        if (stepMatch) {
+          steps.push({ id: String(steps.length + 1), text: stepMatch[1].trim() });
+          continue;
         }
       }
-    }
-  }
-
-  // Extract objective and TL;DR from markdown metadata
-  let objective = "";
-  let tldr = "";
-  for (const line of summaryLines) {
-    if (line.startsWith("**Objective:**")) {
-      objective = line.replace("**Objective:**", "").trim();
-    } else if (line.startsWith("**TL;DR:**")) {
-      tldr = line.replace("**TL;DR:**", "").trim();
+      if (stepMatch) {
+        steps.push({ id: stepMatch[1], text: (stepMatch[2] || stepMatch[1]).trim() });
+      }
+      // Extract metadata
+      if (line.includes("**Objective:**")) {
+        objective = line.replace(/.*\*\*Objective:\*\*\s*/, "").trim();
+      } else if (line.includes("**TL;DR:**")) {
+        tldr = line.replace(/.*\*\*TL;DR:\*\*\s*/, "").trim();
+      }
     }
   }
 
@@ -194,15 +197,13 @@ function PlanApprovalBanner({
               <span className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted">
                 {steps.length} step{steps.length === 1 ? "" : "s"}
               </span>
-              {detail.split("\n").length > 10 && (
-                <button
-                  type="button"
-                  className="text-[0.65rem] text-accent hover:underline"
-                  onClick={() => setExpanded((v) => !v)}
-                >
-                  {expanded ? "Collapse" : "Show full plan"}
-                </button>
-              )}
+              <button
+                type="button"
+                className="text-[0.65rem] text-accent hover:underline"
+                onClick={() => setExpanded((v) => !v)}
+              >
+                {expanded ? "Collapse" : "Show full plan"}
+              </button>
             </div>
             <ol className="divide-y divide-line/30">
               {steps.map((step, i) => (
@@ -214,21 +215,39 @@ function PlanApprovalBanner({
                 </li>
               ))}
             </ol>
+            {expanded && detail && (
+              <div
+                className="markdown border-t border-line/40 px-3 py-3 text-[0.8rem] overflow-auto max-h-[50vh]"
+                dangerouslySetInnerHTML={{
+                  __html: DOMPurify.sanitize(
+                    marked.parse(detail, { async: false }) as string
+                  ),
+                }}
+              />
+            )}
           </div>
         ) : detail ? (
           <div className="mb-3 rounded-lg border border-line/60 bg-surface overflow-hidden">
-            <pre className={`px-3 py-2.5 font-mono text-xs text-muted whitespace-pre-wrap overflow-auto ${expanded ? "" : "max-h-40"}`}>
-              {detail}
-            </pre>
-            {detail.split("\n").length > 8 && (
+            <div className="px-3 py-2 border-b border-line/40 flex items-center justify-between">
+              <span className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted">
+                Plan
+              </span>
               <button
                 type="button"
-                className="w-full border-t border-line/40 px-3 py-1.5 text-[0.65rem] text-accent hover:bg-line/20 text-center"
+                className="text-[0.65rem] text-accent hover:underline"
                 onClick={() => setExpanded((v) => !v)}
               >
-                {expanded ? "Collapse" : "Show more"}
+                {expanded ? "Collapse" : "Expand"}
               </button>
-            )}
+            </div>
+            <div
+              className={`markdown px-3 py-3 text-[0.8rem] overflow-auto ${expanded ? "max-h-[50vh]" : "max-h-48"}`}
+              dangerouslySetInnerHTML={{
+                __html: DOMPurify.sanitize(
+                  marked.parse(detail, { async: false }) as string
+                ),
+              }}
+            />
           </div>
         ) : null}
 
