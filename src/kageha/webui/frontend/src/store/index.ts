@@ -679,7 +679,31 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     newChat: async () => {
-      await get().newSession({ parallel: false });
+      // Show the CommandCenter hero input — session is created on first send
+      const previousId = get().sessionId;
+      if (previousId) {
+        const prevRun = get().runs[previousId];
+        if (prevRun?.sending) {
+          // Keep active run in background tab
+          await get().newSession({ parallel: true });
+          return;
+        }
+      }
+      set({
+        sessionId: null,
+        threadId: null,
+        sessionTitle: null,
+        messages: [],
+        pendingFiles: [],
+        pendingApproval: null,
+        sending: false,
+        abort: null,
+        runStatus: "idle",
+        statusLabel: "Ready",
+        error: null,
+        canvasItems: [],
+        canvasSelectedPath: null,
+      });
     },
 
     newSession: async (opts = {}) => {

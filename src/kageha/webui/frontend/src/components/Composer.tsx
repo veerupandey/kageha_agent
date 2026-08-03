@@ -231,7 +231,7 @@ export function Composer() {
       id="composer"
       onSubmit={(e) => {
         e.preventDefault();
-        void sendMessage();
+        // Only send via button click — keyboard Enter is handled in onKeyDown
       }}
     >
       <div className="mx-auto max-w-3xl">
@@ -531,10 +531,11 @@ export function Composer() {
                       return;
                     }
                   }
-                  if (e.key === "Enter" && !e.shiftKey) {
+                  if (e.key === "Enter" && !e.shiftKey && !e.altKey) {
                     e.preventDefault();
                     void sendMessage();
                   }
+                  // Shift+Enter or Alt+Enter = new line (let browser handle naturally)
                 }}
               />
             </div>
@@ -542,10 +543,11 @@ export function Composer() {
               {sending ? (
                 <>
                   <button
-                    type="submit"
+                    type="button"
                     className="rounded-lg px-2.5 py-1.5 text-sm text-muted hover:bg-line/50 transition-colors"
                     id="btn-queue"
                     title="Queue while sending"
+                    onClick={() => void sendMessage()}
                   >
                     Queue
                   </button>
@@ -562,7 +564,7 @@ export function Composer() {
                 </>
               ) : (
                 <button
-                  type="submit"
+                  type="button"
                   className={cn(
                     "rounded-lg bg-accent px-3.5 py-1.5 text-sm font-medium text-white shadow-sm",
                     "hover:opacity-90 active:scale-[0.97] transition-all",
@@ -570,6 +572,7 @@ export function Composer() {
                   )}
                   id="btn-send"
                   disabled={!draft.trim() && !pendingFiles.length}
+                  onClick={() => void sendMessage()}
                 >
                   Send
                 </button>

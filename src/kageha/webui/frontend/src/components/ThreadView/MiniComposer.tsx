@@ -117,7 +117,7 @@ export function MiniComposer() {
           value={localDraft}
           onChange={(e) => setLocalDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
+            if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               handleSend();
             }
