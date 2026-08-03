@@ -138,12 +138,17 @@ function TimelineTab() {
     return cards;
   }, [messages]);
 
-  // Also collect activity steps for context
+  // Also collect activity steps for context (exclude todo/plan items — those go in Plan tab)
   const allSteps = useMemo(() => {
     const steps: ActivityStep[] = [];
     for (const m of messages) {
       if (m.role === "assistant" && m.steps) {
-        steps.push(...m.steps);
+        for (const step of m.steps) {
+          const low = (step.label || "").toLowerCase();
+          // Filter out todo board and plan-related steps
+          if (low.startsWith("todos") || low.includes("todo_board")) continue;
+          steps.push(step);
+        }
       }
     }
     return steps;
@@ -195,6 +200,25 @@ function PlanTab() {
   const todoBoard = useAppStore((s) => s.todoBoard);
   const messages = useAppStore((s) => s.messages);
   const runStatus = useAppStore((s) => s.runStatus);
+  const sessionId = useAppStore((s) => s.sessionId);
+  const [planMd, setPlanMd] = useState("");
+  const [planLoading, setPlanLoading] = useState(false);
+
+  // Fetch plan.md content from the session
+  useEffect(() => {
+    if (!sessionId) { setPlanMd(""); return; }
+    let cancelled = false;
+    setPlanLoading(true);
+    void fetch(`/api/sessions/${encodeURIComponent(sessionId)}/files/plan.md`)
+      .then((r) => {
+        if (!r.ok) throw new Error("not found");
+        return r.text();
+      })
+      .then((text) => { if (!cancelled) setPlanMd(text); })
+      .catch(() => { if (!cancelled) setPlanMd(""); })
+      .finally(() => { if (!cancelled) setPlanLoading(false); });
+    return () => { cancelled = true; };
+  }, [sessionId, todoBoard?.total]);
 
   // Extract plan summary from activity steps (the "planned" event)
   const planInfo = useMemo(() => {
@@ -210,7 +234,7 @@ function PlanTab() {
   }, [messages]);
 
   const hasBoard = todoBoard && todoBoard.total > 0;
-  const isEmpty = !hasBoard && !planInfo;
+  const isEmpty = !hasBoard && !planInfo && !planMd;
 
   if (isEmpty) {
     return (
@@ -226,17 +250,6 @@ function PlanTab() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-3">
-      {/* Plan summary from activity */}
-      {planInfo && (
-        <div className="rounded-lg border border-line bg-canvas p-3">
-          <p className="text-[0.65rem] uppercase tracking-wide text-muted mb-2">Plan</p>
-          <p className="text-xs font-medium text-ink mb-1.5">{planInfo.label}</p>
-          {planInfo.details.map((d, i) => (
-            <p key={i} className="text-[0.72rem] text-muted leading-relaxed">{d}</p>
-          ))}
-        </div>
-      )}
-
       {/* Live progress — TodoBoard */}
       {hasBoard && (
         <div>
@@ -262,6 +275,28 @@ function PlanTab() {
           <span className="text-accent">✓</span>
           <span className="text-xs text-accent font-medium">All steps complete</span>
         </div>
+      )}
+
+      {/* Plan.md rendered as markdown */}
+      {planMd && (
+        <div className="rounded-lg border border-line bg-canvas overflow-hidden">
+          <div className="px-3 py-1.5 border-b border-line/50 flex items-center gap-2">
+            <span className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted">plan.md</span>
+          </div>
+          <div
+            className="markdown px-3 py-3 text-[0.8rem] overflow-auto max-h-[60vh]"
+            dangerouslySetInnerHTML={{
+              __html: DOMPurify.sanitize(
+                marked.parse(planMd, { async: false }) as string
+              ),
+            }}
+          />
+        </div>
+      )}
+
+      {/* Loading state */}
+      {planLoading && !planMd && (
+        <p className="text-xs text-muted px-1">Loading plan…</p>
       )}
     </div>
   );
