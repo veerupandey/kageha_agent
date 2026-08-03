@@ -30,6 +30,52 @@ class ValidationCheck:
     defect: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    def to_evidence(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        criterion_id: str = "",
+    ) -> Any:
+        """Convert this check into an EvidenceRecord (REL-021.1).
+
+        Captures a sha256 digest of the artifact (when available in
+        metadata) plus the structural fields already computed by the
+        validator (page/slide counts, dimensions, etc).
+        """
+        from kageha.verification.evidence import (
+            EvidenceCertainty,
+            EvidenceRecord,
+            EvidenceSource,
+        )
+
+        digest = str(self.metadata.get("sha256") or "")
+        if not digest and self.evidence:
+            import hashlib
+
+            digest = hashlib.sha256(self.evidence.encode("utf-8", errors="replace")).hexdigest()
+        certainty = (
+            EvidenceCertainty.VERIFIED
+            if self.status == "pass"
+            else (
+                EvidenceCertainty.UNVERIFIABLE
+                if self.status == "unresolved"
+                else EvidenceCertainty.PROBABLE
+            )
+        )
+        return EvidenceRecord.new(
+            session_id=session_id,
+            turn_id=turn_id,
+            criterion_id=criterion_id,
+            source=EvidenceSource.ARTIFACT_DIGEST,
+            source_ref=self.target,
+            digest=digest,
+            certainty=certainty,
+            producer=self.validator,
+            artifact_path=self.target,
+            metadata=dict(self.metadata),
+        )
+
 
 @dataclass(frozen=True)
 class ValidationContext:
@@ -577,29 +623,36 @@ class ValidatorRegistry:
 
 
 def compile_requirements(objective: str) -> dict[str, Any]:
-    """Compile unambiguous numeric/media requirements from the user objective."""
+    """Compile unambiguous numeric/media requirements from the user objective.
+
+    Thin compatibility adapter (REL-011.2): delegates to
+    ``Deterministic_Extractor.extract()`` and projects the typed
+    ``Requirement`` list back into the pre-migration flat dict shape so any
+    caller still depending on that dict contract keeps working unchanged.
+    """
+    from kageha.contract.extractor import DeterministicExtractor
+    from kageha.contract.models import RequirementKind
+
     text = objective.lower()
+    result = DeterministicExtractor().extract(objective)
     requirements: dict[str, Any] = {}
-    slide = re.search(r"\b(?:create|make|build|produce)?\s*(\d+)\s+slides?\b", text)
-    if slide:
-        requirements["slides"] = int(slide.group(1))
-    pdf_pages = re.search(r"\b(\d+)\s+(?:page|pages)\s+(?:pdf|document)\b", text)
-    if pdf_pages:
-        requirements["pdf_pages"] = int(pdf_pages.group(1))
+    for req in result.requirements:
+        # First match wins per key, matching the original single-match
+        # re.search() semantics this adapter replaces.
+        if req.kind == RequirementKind.SLIDE_COUNT and "slides" not in requirements:
+            requirements["slides"] = req.value
+        elif req.kind == RequirementKind.PAGE_COUNT and "pdf_pages" not in requirements:
+            requirements["pdf_pages"] = req.value
+        elif req.kind == RequirementKind.CITATION:
+            requirements["citations"] = True
+        elif req.kind == RequirementKind.BROWSER_OUTCOME:
+            requirements["browser_outcome"] = True
     if re.search(
         r"\b(create|make|generate|build|write|produce|save|export|diagram|"
         r"slides?|pdf|image|video|code|file)\b",
         text,
     ):
         requirements["minimum_artifacts"] = 1
-    if re.search(r"\b(citations?|cited|sources?|sourced|research)\b", text):
-        requirements["citations"] = True
-    if re.search(
-        r"\b(capture|take|save|create)\b.{0,30}\bscreenshot\b|"
-        r"\bnavigate\b.{0,30}\b(browser|site|page)\b",
-        text,
-    ):
-        requirements["browser_outcome"] = True
     return requirements
 
 

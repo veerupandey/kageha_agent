@@ -397,52 +397,122 @@ class AgentRuntime:
                 payload={"source": "deterministic_registry"},
                 idempotency_key=f"deterministic:start:{handle.turn_id}",
             )
-            deterministic = validate_result(
-                objective=safe_objective,
-                workspace=workspace.root,
-                artifacts=validation_artifacts,
-            )
-            semantic_passed = bool(result.validated)
-            result.validated = bool(
-                semantic_passed and deterministic.deterministic_passed
-            )
-            if semantic_passed and not deterministic.deterministic_passed:
-                self.telemetry.metric(
-                    "turn.false_success_prevented",
-                    1,
-                    session_id=handle.session_id,
-                    turn_id=handle.turn_id,
+            # Reliability spine (REL-033.2): when the controller attached a
+            # final VerificationReport for this turn (a TaskContract was
+            # compiled and verified), that report is the sole authority —
+            # no second independent pass/fail computation runs on top of it.
+            # Turns without a contract (the common case while ContractCompiler
+            # is not yet wired into turn intake) keep the pre-existing
+            # deterministic-registry double-check unchanged.
+            if result.report is not None:
+                result.validated = bool(result.report.success)
+                deterministic = validate_result(
+                    objective=safe_objective,
+                    workspace=workspace.root,
+                    artifacts=validation_artifacts,
                 )
-            if deterministic.evidence:
-                result.verification_evidence = "\n".join(
-                    [
-                        result.verification_evidence,
-                        *deterministic.evidence,
-                    ]
-                ).strip()
-            self.store.append_event(
-                session_id=handle.session_id,
-                turn_id=handle.turn_id,
-                kind=RunEventKind.VERIFICATION,
-                payload={
-                    "status": (
-                        "pass"
-                        if result.validated
-                        else (
-                            deterministic.status
-                            if not deterministic.deterministic_passed
-                            else "semantic_unresolved"
-                        )
-                    ),
+                semantic_passed = bool(result.validated)
+                if deterministic.evidence:
+                    result.verification_evidence = "\n".join(
+                        [
+                            result.verification_evidence,
+                            *deterministic.evidence,
+                        ]
+                    ).strip()
+                verification_payload = {
+                    "status": "pass" if result.validated else "fail",
                     "validated": result.validated,
                     "semantic_status": "pass" if semantic_passed else "unresolved",
-                    "deterministic_passed": deterministic.deterministic_passed,
+                    "deterministic_passed": result.validated,
                     "checks": deterministic.checks,
-                    "defects": deterministic.defects,
+                    "defects": [
+                        {
+                            "criterion_id": v.defect.criterion_id,
+                            "severity": v.defect.severity,
+                            "problem": v.defect.problem,
+                        }
+                        for v in result.report.verdicts
+                        if v.defect is not None
+                    ],
                     "artifacts": validation_artifacts,
-                },
-                idempotency_key=f"deterministic:result:{handle.turn_id}",
-            )
+                    "report": {
+                        "scope": result.report.scope,
+                        "success": result.report.success,
+                        "verdicts": [
+                            {
+                                "criterion_id": v.criterion_id,
+                                "status": v.status,
+                                "stage_results": v.stage_results,
+                            }
+                            for v in result.report.verdicts
+                        ],
+                    },
+                    "evidence": [
+                        {
+                            "criterion_id": e.criterion_id,
+                            "source": e.source.value,
+                            "certainty": e.certainty.value,
+                            "digest": e.digest,
+                        }
+                        for e in result.evidence
+                    ],
+                }
+                self.store.append_event(
+                    session_id=handle.session_id,
+                    turn_id=handle.turn_id,
+                    kind=RunEventKind.VERIFICATION,
+                    payload=verification_payload,
+                    idempotency_key=(
+                        f"verification:{result.report.report_id}"
+                    ),
+                )
+            else:
+                deterministic = validate_result(
+                    objective=safe_objective,
+                    workspace=workspace.root,
+                    artifacts=validation_artifacts,
+                )
+                semantic_passed = bool(result.validated)
+                result.validated = bool(
+                    semantic_passed and deterministic.deterministic_passed
+                )
+                if semantic_passed and not deterministic.deterministic_passed:
+                    self.telemetry.metric(
+                        "turn.false_success_prevented",
+                        1,
+                        session_id=handle.session_id,
+                        turn_id=handle.turn_id,
+                    )
+                if deterministic.evidence:
+                    result.verification_evidence = "\n".join(
+                        [
+                            result.verification_evidence,
+                            *deterministic.evidence,
+                        ]
+                    ).strip()
+                self.store.append_event(
+                    session_id=handle.session_id,
+                    turn_id=handle.turn_id,
+                    kind=RunEventKind.VERIFICATION,
+                    payload={
+                        "status": (
+                            "pass"
+                            if result.validated
+                            else (
+                                deterministic.status
+                                if not deterministic.deterministic_passed
+                                else "semantic_unresolved"
+                            )
+                        ),
+                        "validated": result.validated,
+                        "semantic_status": "pass" if semantic_passed else "unresolved",
+                        "deterministic_passed": deterministic.deterministic_passed,
+                        "checks": deterministic.checks,
+                        "defects": deterministic.defects,
+                        "artifacts": validation_artifacts,
+                    },
+                    idempotency_key=f"deterministic:result:{handle.turn_id}",
+                )
             snapshot = self.store.get_snapshot(handle.turn_id)
             if not snapshot.terminal:
                 if result.status == "success" and result.validated:

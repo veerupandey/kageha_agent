@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from kageha.chat.line_edit import (
     completion_matches,

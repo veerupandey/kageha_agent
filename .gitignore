@@ -3,6 +3,11 @@
 !.env.example
 .venv/
 .uv-cache/
+# IDE / editor config — never commit
+.kiro/
+.vscode/
+.idea/
+.cursor/
 # Local experiments — never commit
 experiments/
 venv/

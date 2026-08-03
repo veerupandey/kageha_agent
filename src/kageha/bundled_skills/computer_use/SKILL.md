@@ -115,3 +115,10 @@ Use `cua-driver` for macOS desktop interaction (AX snapshot + AX/CG input events
 ### 2026-07-27
 
 When interacting with native macOS apps like Messages, ensure the app window is focused by using computer_get_state or clicking a UI ref before sending hotkeys or typing. If computer_hotkey is unverifiable, click the target input/compose area first.
+- (2026-08-03) Pitfall: computer_launch(app=TextEdit) returns {"ok":true} but the app opens with no AX-accessible window (computer_get_state → "ERROR: no windows for pid=..."). This happened even with launch_if_needed=true. Workaround: prefer Calculator or Notes for verified-interaction needs; TextEdit on this host does not expose a window to the AX driver.
+- (2026-08-03) Pitfall: using bash `curl`/`wget` to download images/binaries into artifacts/ triggers a sandbox error ("Prefer download_file(url=..., path='artifacts/…')"). Use the first-class `download_file` tool for binary downloads; only fall back to bash if download_file itself returns a tool_error.
+- (2026-08-03) Pitfall: computer_hotkey returns `effect=unverifiable` / tool_error in this environment, especially command+shift+g and other multi-key combos. Repeated retries of the same hotkey keep failing (seen 2x). Fix: prefer computer_screenshot (no HITL, always returns an image) to capture state, or computer_click on a known ref. For file/media verification tasks, fall back to programmatic checks (ffprobe, PIL pixel diff) which are deterministic and don't depend on GUI focus.
+
+### 2026-08-03
+
+OLD<<<When an action must be verified, prefer computer_hotkey (command+shift+g, command+o, etc.) for shortcuts like Go to Folder / Open dialogs, then computer_click refs to navigate.>>>NEW<<<computer_hotkey (esp. multi-key combos like command+shift+g) is unreliable in this harness and returns effect=unverifiable — do NOT retry it. For state verification use computer_screenshot (always returns verified bytes, no HITL) and computer_get_state (verified readings). For file/media output verification, combine a verified screenshot with a deterministic programmatic check (PIL/ffprobe pixel/color diff) rather than relying on GUI focus.>>>

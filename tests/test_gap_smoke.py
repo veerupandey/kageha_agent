@@ -80,7 +80,15 @@ def test_fal_client_allowlist_and_health():
 
 @pytest.mark.live_provider
 def test_fal_live_auth_and_schnell_image(tmp_path: Path, monkeypatch):
-    """Live Fal auth + cheap flux-schnell still (needs FAL_KEY / FAL_API_KEY)."""
+    """Genuinely live: billed Fal auth + cheap flux-schnell still (REL-002, Req 3.3).
+
+    Requires an explicit opt-in (KAGEHA_LIVE_TESTS=1) in addition to configured
+    credentials, so ambient FAL_KEY/FAL_API_KEY env vars never trigger an
+    implicit billed call during an ordinary test run.
+    """
+    if os.environ.get("KAGEHA_LIVE_TESTS") != "1":
+        pytest.skip("set KAGEHA_LIVE_TESTS=1 for billed provider checks")
+
     from dotenv import load_dotenv
 
     load_dotenv(Path(__file__).resolve().parents[1] / ".env")

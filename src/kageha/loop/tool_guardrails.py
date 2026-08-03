@@ -84,6 +84,11 @@ _VOLATILE_ARG_KEYS = frozenset(
     }
 )
 
+# Tools that accept a URL argument — used for URL-level dedup detection.
+_URL_BEARING_TOOLS = frozenset(
+    {"web_fetch", "web_search", "headless_fetch", "parallel_web_fetch", "http_get"}
+)
+
 
 @dataclass(frozen=True)
 class ToolCallGuardrailConfig:
@@ -107,6 +112,9 @@ class ToolCallGuardrailConfig:
     unknown_tool_block_after: int = 4
     stagnant_tools_warn_after: int = 6
     stagnant_tools_halt_after: int = 10
+    # URL-level dedup — tighter thresholds for same-URL repeated fetches.
+    url_dedup_warn_after: int = 2
+    url_dedup_block_after: int = 3
     idempotent_tools: frozenset[str] = field(default_factory=lambda: IDEMPOTENT_TOOL_NAMES)
     mutating_tools: frozenset[str] = field(default_factory=lambda: MUTATING_TOOL_NAMES)
 
@@ -294,6 +302,126 @@ class _HistoryEntry:
         return f"{self.tool_name}|{self.args_hash}"
 
 
+# ── URL Extraction ──────────────────────────────────────────────────────
+
+
+def _extract_url_from_args(tool_name: str, args: Mapping[str, Any]) -> str | None:
+    """Extract the primary URL from tool call arguments (ignoring params)."""
+    if tool_name not in _URL_BEARING_TOOLS:
+        return None
+    raw = str(args.get("url") or args.get("query") or args.get("href") or "").strip()
+    if not raw or not raw.startswith(("http://", "https://")):
+        return None
+    # Normalize: strip fragment, lowercase scheme+host, keep path.
+    # This ensures same-page fetches with different query params collapse.
+    from urllib.parse import urlparse, urlunparse
+
+    parsed = urlparse(raw)
+    # Keep scheme + netloc + path (strip query and fragment for dedup purposes)
+    normalized = urlunparse((
+        parsed.scheme.lower(),
+        parsed.netloc.lower(),
+        parsed.path.rstrip("/") or "/",
+        "",  # params
+        "",  # query stripped for dedup — same page regardless of params
+        "",  # fragment
+    ))
+    return normalized
+
+
+# ── Tool Capability Metadata ────────────────────────────────────────────
+
+
+TOOL_CAPABILITIES: dict[str, dict[str, Any]] = {
+    "web_fetch": {
+        "can_do": [
+            "extract page text",
+            "extract hyperlinks",
+            "search within page text",
+            "get page title and metadata",
+        ],
+        "cannot_do": [
+            "extract image URLs or <img> tags",
+            "render JavaScript / SPA content",
+            "interact with forms or buttons",
+            "see visual layout or styling",
+            "download binary files (images, PDFs)",
+        ],
+        "alternatives": {
+            "extract_images": (
+                "- browser_snapshot: renders the page visually (sees image elements)\n"
+                "- web_fetch(mode='full') then parse raw HTML for <img src='...'> tags\n"
+                "- web_search 'site:domain.com filetype:jpg' for direct image URLs\n"
+                "- download_file with a known/guessed CDN URL"
+            ),
+            "render_javascript": (
+                "- browser_connect + browser_open: full JS rendering\n"
+                "- headless_fetch: JS-capable extraction"
+            ),
+            "interact_with_page": (
+                "- browser_click / browser_type / browser_fill\n"
+                "- browser_scroll for pagination"
+            ),
+        },
+    },
+    "web_search": {
+        "can_do": ["find URLs", "get search snippets", "discover sources"],
+        "cannot_do": [
+            "read full page content (use web_fetch for that)",
+            "interact with results",
+        ],
+        "alternatives": {
+            "full_content": "- web_fetch(url) for complete page text",
+        },
+    },
+    "browser_snapshot": {
+        "can_do": [
+            "render full page visually",
+            "see images and layout",
+            "inspect DOM elements",
+            "capture AX tree refs for interaction",
+        ],
+        "cannot_do": [
+            "extract structured data (parse manually from snapshot)",
+            "download files directly",
+        ],
+        "alternatives": {},
+    },
+}
+
+
+def suggest_alternatives_for_tool(
+    tool_name: str,
+    *,
+    goal_hint: str = "",
+) -> str:
+    """Return capability-aware alternative suggestions for a stuck tool."""
+    caps = TOOL_CAPABILITIES.get(tool_name)
+    if not caps:
+        return ""
+
+    lines = [f"\n{tool_name} CANNOT: {', '.join(caps.get('cannot_do', []))}"]
+    lines.append(f"{tool_name} CAN: {', '.join(caps.get('can_do', []))}")
+
+    # Pick the best alternative based on goal hint keywords
+    alts = caps.get("alternatives", {})
+    if goal_hint:
+        goal_lower = goal_hint.lower()
+        for key, suggestion in alts.items():
+            if any(word in goal_lower for word in key.split("_")):
+                lines.append(f"\nFor {key.replace('_', ' ')}, use instead:")
+                lines.append(str(suggestion))
+                return "\n".join(lines)
+
+    # Fallback: show first alternative
+    if alts:
+        first_key = next(iter(alts))
+        lines.append(f"\nAlternatives ({first_key.replace('_', ' ')}):")
+        lines.append(str(alts[first_key]))
+
+    return "\n".join(lines)
+
+
 class ToolCallGuardrailController:
     """Per-turn controller for repeated failed / non-progressing tool calls."""
 
@@ -311,6 +439,8 @@ class ToolCallGuardrailController:
         self._seen_triples: set[str] = set()
         self._stagnant_tools_streak: int = 0
         self._pending_steer: str = ""
+        # URL-level dedup tracker: normalized_url → call_count
+        self._url_fetch_counts: dict[str, int] = {}
 
     @property
     def halt_decision(self) -> ToolGuardrailDecision | None:
@@ -383,6 +513,30 @@ class ToolCallGuardrailController:
                 signature=signature,
             )
             self._halt_decision = decision
+            return decision
+
+        # URL-level pre-check: block before execution if URL already hit threshold.
+        url = _extract_url_from_args(tool_name, args or {})
+        if url and self._url_fetch_counts.get(url, 0) >= self.config.url_dedup_block_after:
+            count = self._url_fetch_counts[url]
+            alt_hint = suggest_alternatives_for_tool(
+                tool_name, goal_hint="extract_images render_javascript"
+            )
+            decision = ToolGuardrailDecision(
+                action="block",
+                code="same_url_repeated_block",
+                message=(
+                    f"BLOCKED: URL '{url}' already fetched {count} times. "
+                    f"Text extraction is deterministic — repeating will not "
+                    f"yield new information. Use a different tool.\n{alt_hint}"
+                ),
+                tool_name=tool_name,
+                count=count,
+                signature=signature,
+                steer="switch_tool",
+            )
+            self._halt_decision = decision
+            self._pending_steer = "switch_tool"
             return decision
 
         if self._is_idempotent(tool_name):
@@ -610,6 +764,11 @@ class ToolCallGuardrailController:
         if primary.steer:
             self._pending_steer = primary.steer
 
+        # URL-level dedup: detect same-URL repeated fetches regardless of params.
+        url_decision = self._check_url_dedup(tool_name, args or {}, failed=failed)
+        if url_decision is not None:
+            primary = self._merge_decisions(primary, url_decision)
+
         # OpenClaw-style rolling history: ping-pong + global + stagnant-with-tools.
         history_decision = self._observe_history(
             tool_name=tool_name,
@@ -618,6 +777,72 @@ class ToolCallGuardrailController:
             is_progress=is_progress,
         )
         return self._merge_decisions(primary, history_decision)
+
+    def _check_url_dedup(
+        self,
+        tool_name: str,
+        args: Mapping[str, Any],
+        *,
+        failed: bool = False,
+    ) -> ToolGuardrailDecision | None:
+        """Detect same-URL repeated fetches (tighter than generic idempotent check).
+
+        Fires faster (warn=2, block=3) because for the same URL, text extraction
+        content is deterministic regardless of mode/params. The agent varying
+        max_chars, mode, or search_phrase on the same page will never yield
+        fundamentally different information.
+        """
+        url = _extract_url_from_args(tool_name, args)
+        if url is None:
+            return None
+
+        count = self._url_fetch_counts.get(url, 0) + 1
+        self._url_fetch_counts[url] = count
+
+        if (
+            self.config.hard_stop_enabled
+            and count >= self.config.url_dedup_block_after
+        ):
+            alt_hint = suggest_alternatives_for_tool(
+                tool_name, goal_hint="extract_images render_javascript"
+            )
+            decision = ToolGuardrailDecision(
+                action="block",
+                code="same_url_repeated_block",
+                message=(
+                    f"BLOCKED: URL '{url}' fetched {count} times with no new "
+                    f"information gained. The text extraction result is deterministic "
+                    f"for a given URL regardless of parameters.\n"
+                    f"Do NOT call {tool_name} on this URL again.\n"
+                    f"{alt_hint}"
+                ),
+                tool_name=tool_name,
+                count=count,
+                steer="switch_tool",
+            )
+            self._halt_decision = decision
+            self._pending_steer = "switch_tool"
+            return decision
+
+        if count >= self.config.url_dedup_warn_after:
+            alt_hint = suggest_alternatives_for_tool(
+                tool_name, goal_hint="extract_images"
+            )
+            return ToolGuardrailDecision(
+                action="warn",
+                code="same_url_repeated_warning",
+                message=(
+                    f"This URL was already fetched ({count} times). The text content "
+                    f"will not change with different parameters. If you need image "
+                    f"URLs, visual content, or JS-rendered data, {tool_name} text "
+                    f"extraction cannot provide them.\n{alt_hint}"
+                ),
+                tool_name=tool_name,
+                count=count,
+                steer="switch_tool",
+            )
+
+        return None
 
     def _observe_history(
         self,

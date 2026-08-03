@@ -6,6 +6,7 @@ import asyncio
 import json
 from typing import TYPE_CHECKING, Any
 
+from kageha.harness.tool_deadlines import tool_deadline_s
 from kageha.harness.tools.base import ToolRegistry
 from kageha.models.base import ChatMessage, ToolCall
 from kageha.obs.events import EventLog
@@ -250,7 +251,7 @@ async def execute_tool_calls(
                                 else ""
                             ),
                             cancel_event=cancel_event,
-                            deadline_s=deadline_s,
+                            deadline_s=tool_deadline_s(tool.name, deadline_s),
                             output_limit=output_limit,
                         )
                         tool_ms = (_time.perf_counter() - _t0) * 1000.0
@@ -267,7 +268,7 @@ async def execute_tool_calls(
                             else ""
                         ),
                         cancel_event=cancel_event,
-                        deadline_s=deadline_s,
+                        deadline_s=tool_deadline_s(tool.name, deadline_s),
                         output_limit=output_limit,
                     )
                     tool_ms = (_time.perf_counter() - _t0) * 1000.0

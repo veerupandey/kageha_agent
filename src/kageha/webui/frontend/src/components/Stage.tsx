@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 import { useAppStore } from "../store";
 import { ApprovalBanner } from "./ApprovalBanner";
-import { ArtifactCanvas } from "./ArtifactCanvas";
+import { AgentCanvas } from "./AgentCanvas";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
 import { TodoBoard } from "./TodoBoard";
@@ -202,7 +202,7 @@ export function Stage({ onToggleSessions }: StageProps) {
           ) : null}
           <Composer />
         </div>
-        <ArtifactCanvas />
+        <AgentCanvas />
       </div>
     </main>
   );

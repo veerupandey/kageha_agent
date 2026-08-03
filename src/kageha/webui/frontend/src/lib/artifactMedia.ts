@@ -7,6 +7,7 @@ export type CanvasKind =
   | "pdf"
   | "markdown"
   | "text"
+  | "code"
   | "presentation"
   | "document"
   | "spreadsheet"
@@ -33,6 +34,51 @@ const IMAGE_EXT = new Set([
 const VIDEO_EXT = new Set([".mp4", ".webm", ".mov", ".m4v"]);
 const AUDIO_EXT = new Set([".wav", ".mp3", ".m4a", ".ogg", ".aac", ".flac"]);
 const MARKDOWN_EXT = new Set([".md", ".markdown"]);
+const CODE_EXT = new Set([
+  ".py",
+  ".js",
+  ".ts",
+  ".tsx",
+  ".jsx",
+  ".rs",
+  ".go",
+  ".java",
+  ".rb",
+  ".swift",
+  ".kt",
+  ".c",
+  ".cpp",
+  ".h",
+  ".hpp",
+  ".cs",
+  ".php",
+  ".lua",
+  ".r",
+  ".jl",
+  ".scala",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".fish",
+  ".sql",
+  ".graphql",
+  ".gql",
+  ".proto",
+  ".zig",
+  ".nim",
+  ".ex",
+  ".exs",
+  ".erl",
+  ".hrl",
+  ".clj",
+  ".cljs",
+  ".hs",
+  ".ml",
+  ".mli",
+  ".v",
+  ".sv",
+  ".vhdl",
+]);
 const TEXT_EXT = new Set([
   ".txt",
   ".json",
@@ -45,12 +91,10 @@ const TEXT_EXT = new Set([
   ".html",
   ".htm",
   ".css",
-  ".js",
-  ".ts",
-  ".tsx",
-  ".jsx",
-  ".py",
-  ".sh",
+  ".env",
+  ".ini",
+  ".cfg",
+  ".conf",
 ]);
 const PRESENTATION_EXT = new Set([".ppt", ".pptx", ".key"]);
 const DOCUMENT_EXT = new Set([".doc", ".docx", ".rtf", ".odt"]);
@@ -83,6 +127,7 @@ export function canvasKindForPath(path: string, kindHint?: string): CanvasKind {
     if (ext === ".csv") return "text";
     return "spreadsheet";
   }
+  if (CODE_EXT.has(ext) || hint === "code") return "code";
   if (TEXT_EXT.has(ext) || hint === "text") return "text";
   return "download";
 }
@@ -94,7 +139,8 @@ export function isPreviewableKind(kind: CanvasKind): boolean {
     kind === "audio" ||
     kind === "pdf" ||
     kind === "markdown" ||
-    kind === "text"
+    kind === "text" ||
+    kind === "code"
   );
 }
 
@@ -112,6 +158,8 @@ export function kindLabel(kind: CanvasKind): string {
       return "Markdown";
     case "text":
       return "Text";
+    case "code":
+      return "Code";
     case "presentation":
       return "Slides";
     case "document":
@@ -149,7 +197,7 @@ export function isArtifactNoise(path: string): boolean {
 
 /**
  * User-facing deliverables for Canvas / chat strip.
- * Keeps media + docs; drops scripts, skills, and computer captures.
+ * Keeps media, docs, and code files in artifact folders.
  */
 export function isShowcaseArtifact(path: string): boolean {
   const p = String(path || "").replace(/\\/g, "/").replace(/^\/+/, "");
@@ -166,10 +214,24 @@ export function isShowcaseArtifact(path: string): boolean {
   ) {
     return true;
   }
+  // Code files in deliverable folders are showcased.
+  if (
+    kind === "code" &&
+    /^(artifacts|outputs|src|scripts)\//i.test(p)
+  ) {
+    return true;
+  }
   // Markdown only when it lives in a deliverable folder and isn't a skill file.
   if (
     kind === "markdown" &&
     /^(artifacts|outputs|slides|research|carousel|diagrams)\//i.test(p)
+  ) {
+    return true;
+  }
+  // Text/config in artifacts folder.
+  if (
+    kind === "text" &&
+    /^(artifacts|outputs)\//i.test(p)
   ) {
     return true;
   }
@@ -178,7 +240,7 @@ export function isShowcaseArtifact(path: string): boolean {
 
 /**
  * Chat strip + canvas from transcript mentions.
- * Includes markdown/docs deliverables (e.g. artifacts/market_research.md).
+ * Includes markdown/docs/code deliverables (e.g. artifacts/icbc_reranker_time_decay.py).
  */
 export function isChatMediaArtifact(path: string): boolean {
   if (!isShowcaseArtifact(path)) return false;
@@ -191,7 +253,9 @@ export function isChatMediaArtifact(path: string): boolean {
     kind === "presentation" ||
     kind === "markdown" ||
     kind === "document" ||
-    kind === "spreadsheet"
+    kind === "spreadsheet" ||
+    kind === "code" ||
+    kind === "text"
   );
 }
 
@@ -204,9 +268,11 @@ export function showcaseSortKey(path: string): [number, string] {
         ? 1
         : kind === "pdf" || kind === "presentation"
           ? 2
-          : kind === "markdown" || kind === "document" || kind === "spreadsheet"
+          : kind === "code"
             ? 3
-            : 4;
+            : kind === "markdown" || kind === "document" || kind === "spreadsheet"
+              ? 4
+              : 5;
   return [rank, path.toLowerCase()];
 }
 

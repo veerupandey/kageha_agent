@@ -108,7 +108,6 @@ async def serve_unix(path: str) -> None:
 
 async def serve_ws(url: str) -> None:
     try:
-        import websockets
         from websockets.asyncio.server import serve as ws_serve
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError(

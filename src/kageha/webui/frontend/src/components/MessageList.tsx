@@ -501,6 +501,25 @@ const MessageRow = memo(function MessageRow({
           onClick={(e) => {
             const target = e.target as HTMLElement | null;
             if (!target) return;
+
+            // Copy code block when clicking near the top-right (pseudo "Copy" button area)
+            const pre = target.closest("pre") as HTMLPreElement | null;
+            if (pre && target.tagName !== "A") {
+              const rect = pre.getBoundingClientRect();
+              const clickX = e.clientX - rect.left;
+              const clickY = e.clientY - rect.top;
+              // Click in top-right corner (where the "Copy" label appears)
+              if (clickX > rect.width - 60 && clickY < 32) {
+                e.preventDefault();
+                const code = pre.querySelector("code")?.textContent || pre.textContent || "";
+                void copyText(code);
+                // Visual feedback
+                pre.style.outline = "2px solid var(--color-accent)";
+                setTimeout(() => { pre.style.outline = ""; }, 600);
+                return;
+              }
+            }
+
             const link = target.closest("a.artifact-path") as HTMLAnchorElement | null;
             if (link) {
               const path = link.getAttribute("data-artifact") || "";
@@ -606,6 +625,8 @@ export function MessageList({ messages }: { messages: ChatMessage[] }) {
 
   const stickToBottom = useRef(true);
   const [showJump, setShowJump] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const initialScrollDone = useRef(false);
 
   const getScroller = () =>
     document.getElementById("conversation") as HTMLElement | null;
@@ -640,10 +661,30 @@ export function MessageList({ messages }: { messages: ChatMessage[] }) {
       const stuck = dist < 80;
       stickToBottom.current = stuck;
       setShowJump(!stuck && messages.length > 0);
+      setShowScrollTop(el.scrollTop > 300);
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
   }, [messages.length]);
+
+  // Scroll to bottom on initial session load
+  useEffect(() => {
+    if (messages.length > 0 && !initialScrollDone.current) {
+      initialScrollDone.current = true;
+      const el = getScroller();
+      if (el) {
+        // Use requestAnimationFrame to ensure DOM is rendered
+        requestAnimationFrame(() => {
+          el.scrollTop = el.scrollHeight;
+        });
+      }
+    }
+  }, [messages.length]);
+
+  // Reset initial scroll flag when session changes
+  useEffect(() => {
+    initialScrollDone.current = false;
+  }, [sessionLoading]);
 
   useEffect(() => {
     if (!stickToBottom.current) return;
@@ -686,10 +727,25 @@ export function MessageList({ messages }: { messages: ChatMessage[] }) {
       {showJump ? (
         <button
           type="button"
-          className="sticky bottom-3 left-1/2 z-10 mx-auto -translate-x-1/2 rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium shadow-md"
+          className="sticky bottom-3 left-1/2 z-10 mx-auto -translate-x-1/2 rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium shadow-md hover:bg-line/50 transition-colors"
           onClick={jumpToLatest}
         >
-          Jump to latest
+          ↓ Jump to latest
+        </button>
+      ) : null}
+      {showScrollTop ? (
+        <button
+          type="button"
+          className="sticky top-3 left-1/2 z-10 mx-auto -translate-x-1/2 rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium shadow-md hover:bg-line/50 transition-colors"
+          onClick={() => {
+            const el = getScroller();
+            if (el) {
+              el.scrollTo({ top: 0, behavior: "smooth" });
+              stickToBottom.current = false;
+            }
+          }}
+        >
+          ↑ Go to top
         </button>
       ) : null}
     </>

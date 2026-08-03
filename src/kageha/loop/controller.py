@@ -22,7 +22,7 @@ from kageha.config import (
     post_checkpoint_guard_enabled,
 )
 from kageha.context.assembler import ContextAssembler
-from kageha.harness.approvals import ApprovalGate, cli_approver
+from kageha.harness.approvals import ApprovalGate
 from kageha.harness.router import execute_tool_calls
 from kageha.harness.runtime import HarnessContext
 from kageha.harness.sandbox import SessionWorkspace
@@ -377,6 +377,11 @@ class RunResult:
     recovered_failures: list[str] = field(default_factory=list)
     active_skills: list[str] = field(default_factory=list)
     sources: list[dict[str, Any]] = field(default_factory=list)
+    # Additive reliability-spine fields (REL-031/Requirement 1.4) — never
+    # remove or repurpose the fields above; these three are new only.
+    contract: Any = None  # TaskContract | None
+    evidence: tuple[Any, ...] = ()  # tuple[EvidenceRecord, ...]
+    report: Any = None  # VerificationReport | None
 
 
 class LoopController:
@@ -415,9 +420,11 @@ class LoopController:
         self.auto_approve = auto_approve
         # Plan Build gate — independent of tool auto_approve.
         self.auto_build = auto_build
-        # Always keep an approver so elevated / Codex-style Once|Session|Full can ask
-        # even when tool auto_approve is on (require() short-circuits; require_explicit does not).
-        self.approver = approver or cli_approver
+        # Fail closed by default: no construction path silently installs the
+        # interactive CLI approver. Only an explicitly injected approver (e.g.
+        # cli_approver wired in at CLI/REPL entrypoints) can grant approvals;
+        # ApprovalGate._ask() denies (denied_no_approver) when this is None.
+        self.approver = approver
         self.attached_kbs = attached_kbs or []
         self.skill_catalog = skill_catalog
         self.kb_pins = kb_pins
@@ -1890,6 +1897,56 @@ class LoopController:
         task_state.save(state_path)
         events.emit("task_state", {"stages": len(task_state.stages), "goals": len(task_state.goals)})
 
+        # Reliability spine (REL-013.5 / Requirement 1.7): compile and persist
+        # a TaskContract for this turn's executable objective. Trivial/lookup
+        # turns are skipped by ContractCompiler.compile() itself (returns
+        # None) — this call is additive and never blocks the turn on
+        # failure. A contract compiled here is what makes the final
+        # VerificationEngine pass (later in this method) and the mid-loop
+        # milestone/completion-claim/post-repair checks actually activate.
+        turn_contract = None
+        if self.runtime_journal is not None:
+            try:
+                from kageha.contract.compiler import ContractCompiler
+                from kageha.contract.models import ResourceBudget
+
+                existing_contract = self.runtime_journal.store.get_task_contract(
+                    workspace.run_id, turn_id
+                )
+                if existing_contract is not None:
+                    turn_contract = existing_contract
+                elif mode != "followup":
+                    compiler = ContractCompiler(router)
+                    default_budget = ResourceBudget(
+                        max_steps=step_cap,
+                        max_usd=float(max_usd()),
+                        max_time_s=3600.0,
+                    )
+                    turn_contract = await compiler.compile(
+                        objective=turn_objective,
+                        session_id=workspace.run_id,
+                        turn_id=turn_id,
+                        default_budget=default_budget,
+                    )
+                    if turn_contract is not None:
+                        self.runtime_journal.store.put_task_contract(turn_contract)
+                        events.emit(
+                            "contract_compiled",
+                            {
+                                "contract_id": turn_contract.contract_id,
+                                "compiler_source": turn_contract.compiler_source,
+                                "criteria": len(turn_contract.success_criteria),
+                            },
+                        )
+                        self._log(
+                            "[kageha] contract compiled "
+                            f"({turn_contract.compiler_source}, "
+                            f"{len(turn_contract.success_criteria)} criteria)"
+                        )
+            except Exception as exc:  # noqa: BLE001
+                events.emit("contract_compile_error", {"error": str(exc)[:400]})
+                turn_contract = None
+
         # Bring prior chat turns into context — without this, every fresh_turn
         # starts amnesiac even though chat.jsonl exists on disk.
         chat_extra = ""
@@ -1970,6 +2027,11 @@ class LoopController:
         stop_rules = StopRules(max_steps=step_cap, max_usd=max_usd())
         stagnant = 0
         last_progress = goal.progress()
+        # Reliability spine (REL-031): running VerificationReport used to
+        # scope mid-loop VerificationEngine checks to not-yet-passed
+        # criteria only, avoiding re-verifying settled criteria every gate
+        # and naturally implementing post-repair re-check scoping.
+        last_contract_report: Any = None
         final = StopDecision(StopReason.SUCCESS, "init")
         tool_parallel = max_tool_parallel()
         ask_user = False
@@ -2812,6 +2874,118 @@ class LoopController:
                         in verify.snapshot.notes
                     ):
                         self._log("[kageha]   lookup verify — deterministic pass")
+                    # Reliability spine (REL-031.1/.2): when a TaskContract
+                    # exists for this turn, additionally run the
+                    # VerificationEngine — scoped to milestone criteria on a
+                    # stage-complete gate, or to all required criteria on a
+                    # completion claim. Failing required criteria are fed
+                    # into task_state.validation.defects exactly like
+                    # verify.snapshot.defects, so the EXISTING
+                    # REPAIR/REPLAN_STAGE control path handles them without
+                    # any change to decide_control(). Never replaces
+                    # verify_with_defects — additive only, and any error is
+                    # swallowed so a broken contract never blocks the turn.
+                    try:
+                        if turn_contract is not None:
+                            from kageha.verification.engine import (
+                                VerificationContext,
+                                VerificationEngine,
+                            )
+                            from kageha.verification.evidence import EvidenceLedger
+
+                            mid_ledger = EvidenceLedger(self.runtime_journal.store)
+                            mid_engine = VerificationEngine(mid_ledger)
+                            mid_scope = (
+                                "completion_claim" if model_said_done else "milestone"
+                            )
+                            mid_ctx = VerificationContext(
+                                session_id=workspace.run_id,
+                                turn_id=turn_id,
+                                workspace=workspace.root,
+                                objective=turn_objective,
+                                workspace_summary=files,
+                                transcript_tail=tail,
+                                task_state_projection=task_state.projection(),
+                                router=router,
+                                execution_provider=router.last_provider.get(
+                                    workspace.run_id, ""
+                                ),
+                                model_said_done=model_said_done,
+                                successful_tools=successful_tools,
+                                turn_artifacts=turn_deliverables,
+                                answer_text=answer_text,
+                            )
+                            # Completion claims verify every required
+                            # criterion (Requirement 13.2). Mid-run gates
+                            # (no per-milestone -> criterion mapping exists
+                            # in this codebase) instead scope to whatever
+                            # criteria the last VerificationReport did not
+                            # already mark PASS, approximating incremental
+                            # milestone-style checking without re-verifying
+                            # settled criteria every gate.
+                            if model_said_done:
+                                mid_criteria_ids = None
+                            elif last_contract_report is not None:
+                                passed_ids = {
+                                    v.criterion_id
+                                    for v in last_contract_report.verdicts
+                                    if v.status == "pass"
+                                }
+                                mid_criteria_ids = {
+                                    sc.id
+                                    for sc in turn_contract.success_criteria
+                                    if sc.id not in passed_ids
+                                } or None
+                            else:
+                                mid_criteria_ids = None
+                            mid_report = await mid_engine.verify(
+                                turn_contract,
+                                criterion_ids=mid_criteria_ids,
+                                ctx=mid_ctx,
+                                scope=mid_scope,
+                            )
+                            last_contract_report = mid_report
+                            for verdict in mid_report.verdicts:
+                                if (
+                                    verdict.status
+                                    not in {"pass", "skip_not_applicable"}
+                                    and verdict.defect is not None
+                                ):
+                                    is_required = any(
+                                        sc.id == verdict.criterion_id and sc.required
+                                        for sc in turn_contract.success_criteria
+                                    )
+                                    if not is_required:
+                                        continue
+                                    already_present = any(
+                                        d.artifact == verdict.defect.criterion_id
+                                        for d in verify.snapshot.defects
+                                    )
+                                    if already_present:
+                                        continue
+                                    verify.snapshot.defects.append(
+                                        Defect(
+                                            artifact=verdict.defect.criterion_id,
+                                            severity=verdict.defect.severity,
+                                            problem=verdict.defect.problem,
+                                            repair=verdict.defect.repair_hint,
+                                        )
+                                    )
+                                    if verify.snapshot.status not in {"fail"}:
+                                        verify.snapshot.status = "repair"
+                            events.emit(
+                                "contract_verification",
+                                {
+                                    "scope": mid_report.scope,
+                                    "success": mid_report.success,
+                                    "verdicts": len(mid_report.verdicts),
+                                },
+                            )
+                    except Exception as exc:  # noqa: BLE001
+                        events.emit(
+                            "contract_verification_error",
+                            {"error": str(exc)[:400]},
+                        )
                 goal = verify.goal
                 # When the LLM verifier returns unknown (common empty/JSON blip)
                 # but the agent already checked todo.md and wrote turn
@@ -3402,6 +3576,52 @@ class LoopController:
                 await hub.close()
             except Exception:  # noqa: BLE001
                 pass
+
+        # Reliability spine: one final full VerificationEngine pass before
+        # reporting completion (Requirement 13.5). Additive — never replaces
+        # the existing `validated`/`verification_evidence` computation above;
+        # RunResult.validated is still set from task_state.validated_ok() by
+        # this point, but when a TaskContract exists for this turn, `report`
+        # is attached so AgentRuntime._execute can consume it as the sole
+        # authority (REL-033.2) instead of re-running deterministic checks.
+        contract_obj = None
+        evidence_tuple: tuple[Any, ...] = ()
+        report_obj = None
+        try:
+            stored_contract = None
+            if self.runtime_journal is not None:
+                stored_contract = self.runtime_journal.store.get_task_contract(
+                    workspace.run_id, turn_id
+                )
+            if stored_contract is not None:
+                from kageha.verification.engine import (
+                    VerificationContext,
+                    VerificationEngine,
+                )
+                from kageha.verification.evidence import EvidenceLedger
+
+                ledger = EvidenceLedger(self.runtime_journal.store)
+                engine = VerificationEngine(ledger)
+                verify_ctx = VerificationContext(
+                    session_id=workspace.run_id,
+                    turn_id=turn_id,
+                    workspace=workspace.root,
+                    objective=turn_objective,
+                    workspace_summary=art_report,
+                    router=router,
+                    model_said_done=True,
+                    successful_tools=[],
+                    turn_artifacts=turn_user_artifacts,
+                    answer_text=summary,
+                )
+                report_obj = await engine.verify(
+                    stored_contract, criterion_ids=None, ctx=verify_ctx, scope="final"
+                )
+                contract_obj = stored_contract
+                evidence_tuple = tuple(ledger.for_turn(workspace.run_id, turn_id))
+        except Exception as exc:  # noqa: BLE001
+            events.emit("final_verification_error", {"error": str(exc)[:400]})
+
         return RunResult(
             run_id=workspace.run_id,
             status=final.reason.value,
@@ -3418,6 +3638,9 @@ class LoopController:
             recovered_failures=recovered_failures,
             active_skills=list(ctx.meta.get("active_skills") or []),
             sources=list(turn_citations[:20]),
+            contract=contract_obj,
+            evidence=evidence_tuple,
+            report=report_obj,
         )
 
 

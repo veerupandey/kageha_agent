@@ -1,0 +1,269 @@
+/* Canvas UI color tokens & design utilities */
+
+/* Dark mode is default for the new UI */
+[data-theme="dark"][data-ui="kageha"] {
+  --color-canvas: #0c0c0c;
+  --color-surface: #161616;
+  --color-surface-hover: #1f1f1f;
+  --color-ink: #fafafa;
+  --color-muted: #999;
+  --color-faint: #666;
+  --color-line: #2a2a2a;
+  --color-line-strong: #3a3a3a;
+  --color-accent: #f5a623;
+  --color-accent-soft: rgba(245, 166, 35, 0.12);
+  --color-danger: #ef4444;
+  --color-danger-soft: rgba(239, 68, 68, 0.1);
+  --color-warn: #fbbf24;
+  --color-warn-soft: rgba(251, 191, 36, 0.1);
+  --color-success: #34d399;
+  --color-sidebar: #111111;
+  --color-sidebar-hover: #1a1a1a;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+}
+
+[data-theme="light"][data-ui="kageha"] {
+  --color-canvas: #fafafa;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f5f5f5;
+  --color-ink: #1a1a1a;
+  --color-muted: #666;
+  --color-faint: #999;
+  --color-line: #e5e5e5;
+  --color-line-strong: #d4d4d4;
+  --color-accent: #d4850a;
+  --color-accent-soft: rgba(212, 133, 10, 0.08);
+  --color-danger: #dc2626;
+  --color-danger-soft: rgba(220, 38, 38, 0.06);
+  --color-warn: #d97706;
+  --color-warn-soft: rgba(217, 119, 6, 0.06);
+  --color-success: #059669;
+  --color-sidebar: #f0f0f0;
+  --color-sidebar-hover: #e8e8e8;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+}
+
+/* Transition utilities — respect prefers-reduced-motion */
+[data-ui="kageha"] * {
+  transition-duration: 150ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ui="kageha"] * {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}
+
+[data-reduce-motion="true"][data-ui="kageha"] * {
+  transition-duration: 0ms !important;
+  animation-duration: 0ms !important;
+}
+
+/* Sidebar */
+.ka-sidebar {
+  background: var(--color-sidebar);
+  border-right: 1px solid var(--color-line);
+}
+
+.ka-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+  color: var(--color-muted);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 150ms, color 150ms;
+}
+
+.ka-sidebar-item:hover {
+  background: var(--color-sidebar-hover);
+  color: var(--color-ink);
+}
+
+.ka-sidebar-item.active {
+  background: var(--color-surface-hover);
+  color: var(--color-ink);
+}
+
+/* Status dot */
+.ka-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.ka-dot--active { background: var(--color-success); }
+.ka-dot--waiting { background: var(--color-accent); }
+.ka-dot--idle { background: var(--color-faint); }
+.ka-dot--error { background: var(--color-danger); }
+
+/* Pills */
+.ka-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  border: 1px solid var(--color-line);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms, color 150ms;
+}
+
+.ka-pill:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-line-strong);
+  color: var(--color-ink);
+}
+
+.ka-pill--active {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* Cards */
+.ka-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+  transition: border-color 150ms, box-shadow 150ms;
+}
+
+.ka-card:hover {
+  border-color: var(--color-line-strong);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Artifact grid */
+.ka-artifact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.75rem;
+}
+
+.ka-artifact-thumb {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  cursor: pointer;
+  transition: border-color 150ms, transform 150ms;
+}
+
+.ka-artifact-thumb:hover {
+  border-color: var(--color-accent);
+  transform: scale(1.02);
+}
+
+.ka-artifact-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ka-artifact-thumb .ka-artifact-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0.375rem 0.5rem;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+  color: #fff;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Lightbox */
+.ka-lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ka-lightbox {
+  width: 90vw;
+  max-width: 1200px;
+  height: 85vh;
+  max-height: 800px;
+  display: flex;
+  background: var(--color-surface);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+}
+
+.ka-lightbox-preview {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  position: relative;
+}
+
+.ka-lightbox-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.ka-lightbox-sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--color-line);
+  padding: 1.25rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* Suggested follow-ups */
+.ka-followup {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  font-size: 0.875rem;
+  color: var(--color-ink);
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms;
+}
+
+.ka-followup:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-line-strong);
+}
+
+.ka-followup .ka-followup-arrow {
+  margin-left: auto;
+  color: var(--color-faint);
+}

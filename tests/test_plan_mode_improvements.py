@@ -1,6 +1,6 @@
 """Tests for plan-mode improvements: parallel stages, estimates, anti-loop exhaustion."""
 from kageha.loop.task_state import (
-    TaskState, PlanStage, StageStatus, FailureRecord, ClaimCertainty, Fact,
+    TaskState, PlanStage, StageStatus, FailureRecord, Fact,
 )
 
 

@@ -1,0 +1,34 @@
+[
+  {
+    "id": "write_text_file",
+    "prompt": "Write a file at artifacts/hello.txt containing exactly the text 'hello from kageha' and nothing else.",
+    "expect_files": ["artifacts/hello.txt"],
+    "expect_file_contains": {"artifacts/hello.txt": "hello from kageha"},
+    "min_file_bytes": {"artifacts/hello.txt": 5},
+    "max_usd": 0.3,
+    "max_steps": 8
+  },
+  {
+    "id": "write_valid_json",
+    "prompt": "Write a file at artifacts/config.json containing a valid JSON object with at least one key.",
+    "expect_files": ["artifacts/config.json"],
+    "max_usd": 0.3,
+    "max_steps": 8
+  },
+  {
+    "id": "python_script_syntax",
+    "prompt": "Write a Python script at artifacts/add.py that defines a function add(a, b) returning a + b. Do not run it, just create the file.",
+    "expect_files": ["artifacts/add.py"],
+    "expect_file_contains": {"artifacts/add.py": "def add"},
+    "max_usd": 0.3,
+    "max_steps": 8
+  },
+  {
+    "id": "three_files_created",
+    "prompt": "Create exactly three empty text files: artifacts/one.txt, artifacts/two.txt, artifacts/three.txt.",
+    "expect_files": ["artifacts/one.txt", "artifacts/two.txt", "artifacts/three.txt"],
+    "expect_glob_counts": {"artifacts/*.txt": 3},
+    "max_usd": 0.4,
+    "max_steps": 10
+  }
+]

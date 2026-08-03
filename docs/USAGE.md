@@ -252,3 +252,36 @@ uv run pytest
 uv run ruff check src tests
 cd src/kageha/webui/frontend && npm test && npm run build
 ```
+
+### Qualification commands
+
+- `scripts/qualify_core.sh` — Core_Qualification_Command: fast,
+  representative subset (lint + Python tests). Use this for quick local
+  iteration.
+- `scripts/qualify.sh [runs]` — Full_Qualification_Command: Python lint,
+  Python type checking, the Python test suite, and the frontend test suite
+  (lint, build/type-check, `npm test`), run together non-interactively. Pass
+  a run count (default 1) to repeat the full sequence, e.g.
+  `scripts/qualify.sh 3` for a release-gate stability check.
+
+
+See `docs/ARCHITECTURE.md` for the current component-status picture (integrated
+vs. experimental) and `docs/MIGRATION.md` for upgrading an existing deployment
+past the reliability-spine schema migration.
+
+
+### WebUI: new UI flag
+
+The WebUI ships two layouts side by side:
+
+- **New UI (Canvas)** — sidebar with agents/threads, a centered command-center home
+  view, and a split thread view (conversation + artifact canvas with a lightbox). This is
+  the default.
+- **Old UI** — the original `SessionsRail` + `Stage` layout, kept fully functional as a
+  fallback.
+
+The active layout is controlled by `prefs.newUi` (a boolean in the persisted WebUI
+preferences, default `true`). Toggle it from the gear icon at the bottom of the sidebar in
+the new UI, or by clearing/setting `newUi` directly in the browser's stored preferences.
+`App.tsx` branches on this flag; both layouts read from the same Zustand store, so
+switching between them does not lose session state.

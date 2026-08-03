@@ -1287,7 +1287,7 @@ def test_stream_frame_approval_required_keeps_approval_id():
 
 
 def test_jobs_list_attach_cancel_routes(webui_app: WebUIApp, monkeypatch: pytest.MonkeyPatch):
-    from kageha.project.async_jobs import enqueue_job, save_job
+    from kageha.project.async_jobs import save_job
 
     # Avoid spawning a real worker process during create.
     monkeypatch.setattr(
@@ -1374,7 +1374,7 @@ def test_non_dict_thread_state_prevents_attribute_error(webui_app: WebUIApp):
     status, payload = _call(
         webui_app,
         "GET",
-        f"/api/sessions/testnondict01/events",
+        "/api/sessions/testnondict01/events",
         query={"thread_id": [thread_id]},
     )
     assert status == 200

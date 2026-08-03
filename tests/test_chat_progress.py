@@ -146,11 +146,14 @@ def test_detailed_progress_shows_reasoning_and_todo_checks():
             "- [ ] p2: Write report"
         )
     text = output.getvalue()
-    assert "Reasoning:" in text
-    assert "scan the LAN" in text
-    assert "Todos 1/2" in text
-    assert "✓" in text
-    assert "○" in text
+    # Strip ANSI escape codes for plain-text assertions
+    import re
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    assert "Reasoning:" in plain
+    assert "scan the LAN" in plain
+    assert "Todos 1/2" in plain
+    assert "✓" in plain
+    assert "○" in plain
 
 
 def test_render_helpers():

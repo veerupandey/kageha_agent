@@ -1,5 +1,10 @@
 # Kageha
 
+[![CI](https://github.com/AgenDev/kageha_agent/actions/workflows/ci.yml/badge.svg)](https://github.com/AgenDev/kageha_agent/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://python.org)
+[![License](https://img.shields.io/badge/license-proprietary-lightgrey.svg)]()
+[![uv](https://img.shields.io/badge/pkg-uv-blueviolet.svg)](https://docs.astral.sh/uv/)
+
 Thin agent kernel: chat, plan, goal, tools — grown through MCP and Agent Skills.
 
 ## Docs
@@ -8,6 +13,7 @@ Thin agent kernel: chat, plan, goal, tools — grown through MCP and Agent Skill
 |-----|---------|
 | **[Setup](docs/SETUP.md)** | Install and first run |
 | **[Usage](docs/USAGE.md)** | Modes, CLI, WebUI, packs, skills, MCP |
+| **[Architecture](docs/ARCHITECTURE.md)** | System design, data flows, component map |
 
 ## Quick start
 

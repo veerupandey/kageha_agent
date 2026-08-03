@@ -17,13 +17,15 @@ def test_load_models_yaml():
 def test_primary_and_worker_role_ladders():
     # Pin to repo models.yaml so ~/.kageha overrides do not hide defaults.
     reg = ModelRegistry.load(_REPO_MODELS)
-    # Prefer Azure when configured; Antigravity is text-only fallback.
-    assert reg.roles["default"][0] == "azure-mini"
+    # glm-5.2 leads the default/planning/tool_calling ladders; Azure is the
+    # first API fallback. Antigravity is text-only fallback further down.
+    assert reg.roles["default"][0] == "glm-5.2"
+    assert "azure-mini" in reg.roles["default"]
     assert "azure" in reg.providers
     assert "antigravity" in reg.roles["default"] or "antigravity-flash" in reg.roles["default"]
-    assert reg.roles["planning"][0] == "azure-mini"
+    assert reg.roles["planning"][0] == "glm-5.2"
     # Tool loops must lead with API models that declare tool_calling.
-    assert reg.roles["tool_calling"][0] == "azure-mini"
+    assert reg.roles["tool_calling"][0] == "glm-5.2"
     assert "tool_calling" not in (reg.models["antigravity-flash"].capabilities or [])
     assert reg.roles["fast_worker"][0] == "azure-mini"
 

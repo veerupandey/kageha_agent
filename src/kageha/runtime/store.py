@@ -25,7 +25,7 @@ from kageha.runtime.types import (
 )
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def default_runtime_db() -> Path:
@@ -78,8 +78,12 @@ class RuntimeStore:
                     f"runtime database schema {version} is newer than supported "
                     f"{SCHEMA_VERSION}"
                 )
-            if version not in (0, SCHEMA_VERSION):
-                # Early development: rebuild when the on-disk schema diverges.
+            if version not in (0, 1, SCHEMA_VERSION):
+                # Early development: rebuild only when the on-disk schema is
+                # neither empty (0) nor a known upgradeable version (1) nor
+                # current. Real upgrades from a released SCHEMA_VERSION=1
+                # database take the additive, non-destructive path below
+                # instead of ever reaching this destructive branch.
                 tables = self._conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' "
                     "AND name NOT LIKE 'sqlite_%'"
@@ -283,6 +287,45 @@ class RuntimeStore:
                     );
                     CREATE INDEX trace_spans_trace ON trace_spans(trace_id, started_at);
                     PRAGMA user_version=1;
+                    COMMIT;
+                    """
+                )
+                version = 1
+            if version == 1:
+                # Additive upgrade only (REL-013.1/.4, REL-020.1, REL-051.1):
+                # new tables for TaskContract + EvidenceRecord persistence.
+                # Never touches sessions/turns/events or any existing table.
+                self._conn.executescript(
+                    """
+                    BEGIN IMMEDIATE;
+                    CREATE TABLE IF NOT EXISTS task_contracts (
+                        id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        turn_id TEXT NOT NULL,
+                        schema_version INTEGER NOT NULL,
+                        contract_json TEXT NOT NULL,
+                        created_at REAL NOT NULL,
+                        UNIQUE(session_id, turn_id)
+                    );
+                    CREATE TABLE IF NOT EXISTS evidence_records (
+                        id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        turn_id TEXT NOT NULL,
+                        criterion_id TEXT NOT NULL,
+                        tool_attempt_id TEXT NOT NULL,
+                        artifact_path TEXT NOT NULL,
+                        source TEXT NOT NULL,
+                        source_ref TEXT NOT NULL,
+                        certainty TEXT NOT NULL,
+                        producer TEXT NOT NULL,
+                        digest TEXT NOT NULL,
+                        probe TEXT NOT NULL,
+                        metadata_json TEXT NOT NULL,
+                        created_at REAL NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS evidence_records_criterion
+                        ON evidence_records(session_id, turn_id, criterion_id);
+                    PRAGMA user_version=2;
                     COMMIT;
                     """
                 )
@@ -546,6 +589,142 @@ class RuntimeStore:
                 ),
             )
 
+    def put_task_contract(self, contract: Any) -> None:
+        """Persist a TaskContract keyed by (session_id, turn_id) — additive.
+
+        A missing contract row means "no contract for this turn", not an
+        error (Requirement 1.5) — older sessions simply have no row here.
+        """
+        from kageha.contract.models import TaskContract
+
+        if not isinstance(contract, TaskContract):
+            raise TypeError("put_task_contract expects a TaskContract instance")
+        now = time.time()
+        row_id = hashlib.sha256(
+            f"{contract.session_id}:{contract.turn_id}".encode()
+        ).hexdigest()[:32]
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO task_contracts
+                    (id, session_id, turn_id, schema_version, contract_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id, turn_id) DO UPDATE SET
+                    schema_version=excluded.schema_version,
+                    contract_json=excluded.contract_json,
+                    created_at=excluded.created_at
+                """,
+                (
+                    row_id,
+                    contract.session_id,
+                    contract.turn_id,
+                    contract.schema_version,
+                    _json(contract.to_dict()),
+                    now,
+                ),
+            )
+
+    def get_task_contract(self, session_id: str, turn_id: str) -> Any | None:
+        """Return the TaskContract for (session_id, turn_id), or None.
+
+        A missing row is treated as "no contract" — never an error — so
+        pre-milestone sessions and replay/resume paths keep working
+        (Requirement 1.5, 8.3).
+        """
+        from kageha.contract.models import TaskContract
+
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT contract_json FROM task_contracts WHERE session_id=? AND turn_id=?",
+                (session_id, turn_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return TaskContract.from_dict(json.loads(row["contract_json"]))
+
+    def append_evidence(self, record: Any) -> None:
+        """Append an EvidenceRecord — immutable by construction (no UPDATE/DELETE path)."""
+        from kageha.verification.evidence import EvidenceRecord
+
+        if not isinstance(record, EvidenceRecord):
+            raise TypeError("append_evidence expects an EvidenceRecord instance")
+        with self._lock:
+            existing = self._conn.execute(
+                "SELECT id FROM evidence_records WHERE id=?", (record.id,)
+            ).fetchone()
+            if existing is not None:
+                raise ValueError(f"evidence record already exists: {record.id}")
+            self._conn.execute(
+                """
+                INSERT INTO evidence_records
+                    (id, session_id, turn_id, criterion_id, tool_attempt_id,
+                     artifact_path, source, source_ref, certainty, producer,
+                     digest, probe, metadata_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.id,
+                    record.session_id,
+                    record.turn_id,
+                    record.criterion_id,
+                    record.tool_attempt_id,
+                    record.artifact_path,
+                    record.source.value,
+                    record.source_ref,
+                    record.certainty.value,
+                    record.producer,
+                    record.digest,
+                    record.probe,
+                    _json(record.metadata),
+                    record.timestamp,
+                ),
+            )
+
+    def evidence_for_turn(self, session_id: str, turn_id: str) -> list[Any]:
+        from kageha.verification.evidence import (
+            EvidenceCertainty,
+            EvidenceRecord,
+            EvidenceSource,
+        )
+
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM evidence_records
+                WHERE session_id=? AND turn_id=?
+                ORDER BY created_at
+                """,
+                (session_id, turn_id),
+            ).fetchall()
+        return [
+            EvidenceRecord(
+                id=row["id"],
+                session_id=row["session_id"],
+                turn_id=row["turn_id"],
+                criterion_id=row["criterion_id"],
+                tool_attempt_id=row["tool_attempt_id"],
+                artifact_path=row["artifact_path"],
+                source=EvidenceSource(row["source"]),
+                source_ref=row["source_ref"],
+                timestamp=float(row["created_at"]),
+                digest=row["digest"],
+                certainty=EvidenceCertainty(row["certainty"]),
+                producer=row["producer"],
+                metadata=json.loads(row["metadata_json"] or "{}"),
+                probe=row["probe"],
+            )
+            for row in rows
+        ]
+
+    def evidence_for_criterion(
+        self, session_id: str, turn_id: str, criterion_id: str
+    ) -> list[Any]:
+        return [
+            record
+            for record in self.evidence_for_turn(session_id, turn_id)
+            if record.criterion_id == criterion_id
+        ]
+
     def get_snapshot(
         self,
         turn_id: str,
@@ -807,6 +986,55 @@ class RuntimeStore:
                 ).fetchone()
                 out.append(self._row_tool_attempt(refreshed))
             return out
+
+    def find_expired_in_progress(
+        self, *, now: float | None = None
+    ) -> list[ToolAttempt]:
+        """Tool attempts still IN_PROGRESS whose deadline has passed.
+
+        Scans across *all* sessions — the watchdog's job is to catch attempts
+        orphaned by a crashed/restarted process, which can belong to any
+        session, not just the one currently resuming.
+        """
+        cutoff = now if now is not None else time.time()
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM tool_attempts
+                WHERE state=? AND deadline_at IS NOT NULL AND deadline_at < ?
+                """,
+                (ToolReconciliation.IN_PROGRESS.value, cutoff),
+            ).fetchall()
+            return [self._row_tool_attempt(row) for row in rows]
+
+    def reap_expired_tool_attempt(self, attempt: ToolAttempt) -> ToolAttempt:
+        """Resolve one expired IN_PROGRESS attempt: reads → RETRYABLE, mutations
+        → UNCERTAIN (mirrors ``reconcile_inflight``'s crash-recovery semantics).
+
+        Idempotent against races with a live process: only transitions rows
+        still IN_PROGRESS at the time of update.
+        """
+        state = (
+            ToolReconciliation.RETRYABLE
+            if attempt.side_effect == "read"
+            else ToolReconciliation.UNCERTAIN
+        )
+        now = time.time()
+        with self._lock:
+            self._conn.execute(
+                """
+                UPDATE tool_attempts SET state=?, updated_at=?
+                WHERE id=? AND state=?
+                """,
+                (state.value, now, attempt.id, ToolReconciliation.IN_PROGRESS.value),
+            )
+            row = self._conn.execute(
+                "SELECT * FROM tool_attempts WHERE id=?",
+                (attempt.id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown tool attempt: {attempt.id}")
+            return self._row_tool_attempt(row)
 
     def _row_tool_attempt(self, row: sqlite3.Row) -> ToolAttempt:
         return ToolAttempt(
