@@ -242,7 +242,10 @@ def _loads_json_lenient(blob: str) -> object:
 def _parse_plan_json(
     text: str, *, task: str, allowed_tools: set[str]
 ) -> TaskPlan:
-    match = re.search(r"\{.*\}", text or "", flags=re.S)
+    # Strip markdown code fences if present.
+    clean = re.sub(r"```(?:json)?\s*", "", text or "")
+    clean = re.sub(r"```\s*$", "", clean)
+    match = re.search(r"\{.*\}", clean, flags=re.S)
     if not match:
         raise ValueError("no json")
     data = _loads_json_lenient(match.group(0))
@@ -351,7 +354,7 @@ async def make_plan(
     raw_text = ""
     parse_error = ""
     try:
-        _, resp = await router.chat(
+        model, resp = await router.chat(
             [ChatMessage(role="user", content=prompt)],
             role=role,
             max_tokens=1024,
@@ -361,6 +364,12 @@ async def make_plan(
         return _parse_plan_json(raw_text, task=task, allowed_tools=allowed_tools)
     except Exception as first_exc:  # noqa: BLE001
         parse_error = str(first_exc)
+        import sys
+        print(
+            f"[kageha-planner] LLM plan failed ({parse_error[:200]})"
+            f"\n  raw_text (first 500): {(raw_text or '(empty)')[:500]}",
+            file=sys.stderr,
+        )
         # One repair pass for malformed JSON / truncated planner output.
         if raw_text.strip():
             try:
@@ -382,8 +391,15 @@ async def make_plan(
                     task=task,
                     allowed_tools=allowed_tools,
                 )
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as repair_exc:  # noqa: BLE001
+                print(
+                    f"[kageha-planner] repair pass also failed: {repair_exc}",
+                    file=sys.stderr,
+                )
+        print(
+            f"[kageha-planner] FALLING BACK to template plan for: {task[:120]}",
+            file=sys.stderr,
+        )
         return _objective_fallback_plan(task, allowed_tools)
 
 
