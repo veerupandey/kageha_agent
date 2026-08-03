@@ -1645,16 +1645,11 @@ class LoopController:
                     for s in plan.steps
                 ],
             }, indent=2))
-            # Only write todo.md if it doesn't already have more items
-            # (the agent may have written a more detailed todo via todo_write)
-            existing_todo = workspace.path("todo.md")
-            existing_item_count = 0
-            if existing_todo.is_file():
-                existing_item_count = sum(
-                    1 for line in existing_todo.read_text(errors="replace").splitlines()
-                    if line.strip().startswith("- [")
-                )
-            if existing_item_count <= len(plan.steps):
+            # Write todo.md ONLY if it doesn't exist yet (first plan for this session).
+            # Once written, execution only checks items off — the agent's todo_write
+            # can refine but the planner never stomps a richer existing todo.
+            todo_path = workspace.path("todo.md")
+            if not todo_path.is_file():
                 workspace.write_text(
                     "todo.md",
                     "# Plan\n\n"
