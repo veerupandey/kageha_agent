@@ -1,9 +1,9 @@
 import { useAppStore } from "../../store";
 
 const SUGGESTIONS = [
-  { label: "Research a topic", icon: "🔍", prompt: "/browser research " },
+  { label: "Research a topic", icon: "🔍", prompt: "Research " },
   { label: "Write code", icon: "💻", prompt: "Write code for " },
-  { label: "Browse the web", icon: "🌐", prompt: "/browser " },
+  { label: "Browse the web", icon: "🌐", prompt: "Go to " },
   { label: "Analyze files", icon: "📊", prompt: "Analyze " },
   { label: "Generate images", icon: "🎨", prompt: "Generate an image of " },
   { label: "More...", icon: "⊕", prompt: "/" },

@@ -28,7 +28,7 @@ export interface SessionSummary {
   turn_status?: string;
   turn_phase?: string | null;
   active?: boolean;
-  updated_at?: string | null;
+  updated_at?: string | number | null;
   objective?: string | null;
   pinned?: boolean;
   archived?: boolean;

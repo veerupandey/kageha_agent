@@ -1,8 +1,9 @@
 interface SidebarHeaderProps {
   onNewThread: () => void;
+  onCollapse?: () => void;
 }
 
-export function SidebarHeader({ onNewThread }: SidebarHeaderProps) {
+export function SidebarHeader({ onNewThread, onCollapse }: SidebarHeaderProps) {
   return (
     <div className="flex flex-col gap-3 px-3 pt-4 pb-2">
       <div className="flex items-center justify-between">
@@ -11,9 +12,10 @@ export function SidebarHeader({ onNewThread }: SidebarHeaderProps) {
         </span>
         <button
           type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-faint hover:bg-[var(--color-sidebar-hover)] hover:text-ink"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-faint hover:bg-line/50 hover:text-ink transition-colors"
           aria-label="Collapse sidebar"
           title="Collapse sidebar"
+          onClick={onCollapse}
         >
           ⊟
         </button>

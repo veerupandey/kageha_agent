@@ -1,20 +1,62 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { cn } from "../lib/cn";
 import { useAppStore } from "../store";
 import { CommandCenter } from "./CommandCenter/CommandCenter";
 import { ArtifactLightbox } from "./Lightbox/ArtifactLightbox";
+import { HooksPanel } from "./Sidebar/HooksPanel";
+import { JobsPanel } from "./Sidebar/JobsPanel";
 import { Sidebar } from "./Sidebar/Sidebar";
 import { ThreadView } from "./ThreadView/ThreadView";
 
+type ActivePanel = null | "jobs" | "hooks";
+
 /**
- * AppShell — 3-panel layout.
+ * AppShell — 3-panel layout with collapsible sidebars.
  * Switches between CommandCenter (home) and ThreadView (active session).
  */
 export function AppShell() {
   const sessionId = useAppStore((s) => s.sessionId);
   const canvasItems = useAppStore((s) => s.canvasItems);
+  const newChat = useAppStore((s) => s.newChat);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  const [activePanel, setActivePanel] = useState<ActivePanel>(null);
   const [lightboxPath, setLightboxPath] = useState<string | null>(null);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey;
+      // Cmd+N: new thread
+      if (meta && e.key === "n" && !e.shiftKey) {
+        e.preventDefault();
+        void newChat();
+        return;
+      }
+      // Cmd+K: focus command palette / input
+      if (meta && e.key === "k") {
+        e.preventDefault();
+        const input = document.getElementById("message-input") as HTMLTextAreaElement | null;
+        input?.focus();
+        return;
+      }
+      // Cmd+B: toggle sidebar
+      if (meta && e.key === "b") {
+        e.preventDefault();
+        setSidebarCollapsed((v) => !v);
+        return;
+      }
+      // Cmd+\\: toggle right panel
+      if (meta && e.key === "\\") {
+        e.preventDefault();
+        setRightPanelCollapsed((v) => !v);
+        return;
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [newChat]);
 
   const handleOpenLightbox = useCallback((path: string) => {
     setLightboxPath(path);
@@ -38,13 +80,25 @@ export function AppShell() {
     [lightboxPath, canvasItems],
   );
 
-  const isHome = !sessionId;
+  const handleAgentSelect = useCallback((agentId: string) => {
+    if (agentId === "jobs") setActivePanel("jobs");
+    else if (agentId === "hooks") setActivePanel("hooks");
+    else setActivePanel(null);
+  }, []);
+
+  const isHome = !sessionId && !activePanel;
 
   return (
     <>
       <div className="flex h-full min-h-0 bg-canvas text-ink" data-ui="kageha">
         {/* Sidebar */}
-        <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <Sidebar
+          open={sidebarOpen}
+          collapsed={sidebarCollapsed}
+          onClose={() => setSidebarOpen(false)}
+          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          onAgentSelect={handleAgentSelect}
+        />
 
         {/* Mobile sidebar backdrop */}
         <div
@@ -72,10 +126,18 @@ export function AppShell() {
           </div>
 
           {/* Content area */}
-          {isHome ? (
+          {activePanel === "jobs" ? (
+            <JobsPanel onClose={() => setActivePanel(null)} />
+          ) : activePanel === "hooks" ? (
+            <HooksPanel onClose={() => setActivePanel(null)} />
+          ) : isHome ? (
             <CommandCenter />
           ) : (
-            <ThreadView onOpenLightbox={handleOpenLightbox} />
+            <ThreadView
+              onOpenLightbox={handleOpenLightbox}
+              rightPanelCollapsed={rightPanelCollapsed}
+              onToggleRightPanel={() => setRightPanelCollapsed(!rightPanelCollapsed)}
+            />
           )}
         </div>
       </div>

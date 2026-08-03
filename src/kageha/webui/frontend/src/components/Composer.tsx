@@ -285,7 +285,7 @@ export function Composer() {
           </div>
         ) : null}
 
-        <div className="relative rounded-xl border border-line bg-surface shadow-[0_1px_2px_rgba(28,27,25,0.04)]">
+        <div className="relative rounded-2xl border border-line/80 bg-surface shadow-[0_2px_12px_rgba(0,0,0,0.08)] ring-1 ring-line/20 focus-within:border-accent/50 focus-within:ring-accent/20 transition-all">
           {slashCtx && slashItems.length > 0 ? (
             <div
               className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-56 overflow-auto rounded-lg border border-line bg-surface p-1 shadow-lg"
@@ -356,24 +356,24 @@ export function Composer() {
             </div>
           ) : null}
 
-          <div className="flex items-end gap-1 px-2 pt-2">
+          <div className="flex items-end gap-1.5 px-3 pt-2.5">
             <button
               type="button"
-              className="mb-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-line/70 hover:text-ink"
+              className="mb-1.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-line/50 hover:text-ink transition-colors"
               id="btn-attach"
-              title="Attach files"
+              title="Attach files (drag & drop also works)"
               aria-label="Attach files"
               onClick={() => fileInputRef.current?.click()}
             >
-              +
+              <span className="text-lg">+</span>
             </button>
             <button
               type="button"
               className={cn(
-                "mb-1 inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2 text-xs font-medium",
+                "mb-1.5 inline-flex h-8 shrink-0 items-center justify-center rounded-lg px-2.5 text-xs font-medium transition-colors",
                 recording
                   ? "bg-danger/15 text-danger"
-                  : "text-muted hover:bg-line/70 hover:text-ink",
+                  : "text-muted hover:bg-line/50 hover:text-ink",
               )}
               id="btn-mic"
               title={
@@ -463,9 +463,9 @@ export function Composer() {
               <textarea
                 ref={textareaRef}
                 id="message-input"
-                className="max-h-[200px] min-h-[44px] w-full resize-none bg-transparent px-1 py-2 text-[0.95rem] leading-relaxed outline-none placeholder:text-faint"
+                className="max-h-[200px] min-h-[48px] w-full resize-none bg-transparent px-2 py-2.5 text-[0.92rem] leading-relaxed outline-none placeholder:text-faint/70"
                 rows={1}
-                placeholder="Message Kageha…  / commands · @ files"
+                placeholder="Ask anything or describe a task…"
                 autoComplete="off"
                 value={draft}
                 onChange={(e) => {
@@ -538,12 +538,12 @@ export function Composer() {
                 }}
               />
             </div>
-            <div className="mb-1 flex shrink-0 items-center gap-1">
+            <div className="mb-1.5 flex shrink-0 items-center gap-1.5">
               {sending ? (
                 <>
                   <button
                     type="submit"
-                    className="rounded-md px-2.5 py-1.5 text-sm text-muted hover:bg-line/70"
+                    className="rounded-lg px-2.5 py-1.5 text-sm text-muted hover:bg-line/50 transition-colors"
                     id="btn-queue"
                     title="Queue while sending"
                   >
@@ -551,7 +551,7 @@ export function Composer() {
                   </button>
                   <button
                     type="button"
-                    className="rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-white"
+                    className="rounded-lg bg-danger px-3.5 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-danger/90 transition-colors"
                     id="btn-stop"
                     onClick={() => {
                       void stopGeneration();
@@ -563,7 +563,7 @@ export function Composer() {
               ) : (
                 <button
                   type="submit"
-                  className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-95"
+                  className="rounded-lg bg-accent px-3.5 py-1.5 text-sm font-medium text-white shadow-sm hover:opacity-90 transition-opacity"
                   id="btn-send"
                 >
                   Send
@@ -572,7 +572,8 @@ export function Composer() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1 border-t border-line/80 px-2 py-1.5">
+          <div className="flex flex-wrap items-center gap-1.5 border-t border-line/50 px-3 py-1.5">
+            <span className="text-[0.6rem] text-faint/60 mr-1">⇧↵ newline</span>
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
                 <button

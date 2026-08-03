@@ -185,6 +185,29 @@
   color: #f3f1ea;
   padding: 0.85rem 1rem;
   border-radius: 0.5rem;
+  position: relative;
+}
+
+.markdown pre::after {
+  content: "Copy";
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  font-size: 0.6rem;
+  font-family: var(--font-sans);
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.3rem;
+  background: rgba(255,255,255,0.1);
+  color: #94a3b8;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 150ms;
+  pointer-events: none;
+}
+
+.markdown pre:hover::after {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .markdown pre code {
@@ -273,4 +296,90 @@
   text-align: center;
   color: var(--color-muted);
   font-size: 0.9rem;
+}
+
+
+/* highlight.js GitHub Dark theme (minimal) */
+.hljs {
+  color: #c9d1d9;
+  background: #0d1117;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #8b949e;
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-meta .hljs-keyword {
+  color: #ff7b72;
+}
+
+.hljs-string,
+.hljs-attr,
+.hljs-template-tag,
+.hljs-template-variable {
+  color: #a5d6ff;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-regexp {
+  color: #79c0ff;
+}
+
+.hljs-title,
+.hljs-title.function_,
+.hljs-section {
+  color: #d2a8ff;
+}
+
+.hljs-built_in,
+.hljs-type {
+  color: #ffa657;
+}
+
+.hljs-params {
+  color: #c9d1d9;
+}
+
+.hljs-name,
+.hljs-tag {
+  color: #7ee787;
+}
+
+.hljs-attribute {
+  color: #79c0ff;
+}
+
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: #ffa657;
+}
+
+.hljs-meta,
+.hljs-meta .hljs-string {
+  color: #a5d6ff;
+}
+
+.hljs-deletion {
+  color: #ffa198;
+  background: #490202;
+}
+
+.hljs-addition {
+  color: #aff5b4;
+  background: #04260f;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: bold;
 }

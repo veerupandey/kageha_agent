@@ -5,9 +5,22 @@ interface ThreadCardProps {
   onClick: () => void;
 }
 
-function timeAgo(dateStr?: string | null): string {
-  if (!dateStr) return "";
-  const diff = Date.now() - new Date(dateStr).getTime();
+function timeAgo(dateStr?: string | number | null): string {
+  if (!dateStr && dateStr !== 0) return "";
+  let ts: number;
+  if (typeof dateStr === "number") {
+    ts = dateStr > 1e12 ? dateStr : dateStr * 1000;
+  } else {
+    const parsed = Number(dateStr);
+    if (!isNaN(parsed) && parsed > 0) {
+      ts = parsed > 1e12 ? parsed : parsed * 1000;
+    } else {
+      ts = new Date(dateStr).getTime();
+    }
+  }
+  if (!ts || isNaN(ts)) return "";
+  const diff = Date.now() - ts;
+  if (diff < 0) return "now";
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "now";
   if (mins < 60) return `${mins}m ago`;
@@ -16,7 +29,8 @@ function timeAgo(dateStr?: string | null): string {
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
   const months = Math.floor(days / 30);
-  return `${months}mo ago`;
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
 }
 
 export function ThreadCard({ session, onClick }: ThreadCardProps) {

@@ -5,7 +5,7 @@ import { Pill } from "../shared/Pill";
 import { StatusDot } from "../shared/StatusDot";
 import type { DotStatus } from "../shared/StatusDot";
 
-export type ArtifactFilter = "all" | "images" | "webpages" | "documents";
+export type ArtifactFilter = "all" | "images" | "video" | "code" | "webpages" | "documents";
 
 interface ThreadHeaderProps {
   artifactFilter: ArtifactFilter;
@@ -55,7 +55,8 @@ export function ThreadHeader({
     }
   };
 
-  const filters: ArtifactFilter[] = ["all", "images", "webpages", "documents"];
+  const filters: ArtifactFilter[] = ["all", "images", "video", "code", "webpages", "documents"]
+    .filter((f) => f === "all" || artifactCounts[f as ArtifactFilter] > 0) as ArtifactFilter[];
 
   return (
     <header className="flex shrink-0 items-center gap-3 border-b border-[var(--color-line)] px-4 py-2.5">

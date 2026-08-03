@@ -11,10 +11,13 @@ import { SidebarSearch } from "./SidebarSearch";
 
 interface SidebarProps {
   open: boolean;
+  collapsed: boolean;
   onClose?: () => void;
+  onToggleCollapse?: () => void;
+  onAgentSelect?: (agentId: string) => void;
 }
 
-export function Sidebar({ open, onClose }: SidebarProps) {
+export function Sidebar({ open, collapsed, onClose, onToggleCollapse, onAgentSelect }: SidebarProps) {
   const sessions = useAppStore((s) => s.sessions);
   const sessionId = useAppStore((s) => s.sessionId);
   const openSession = useAppStore((s) => s.openSession);
@@ -51,6 +54,56 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     );
   }, [sessions, query]);
 
+  // Collapsed rail: show only icons
+  if (collapsed) {
+    return (
+      <aside
+        className="hidden md:flex flex-col items-center w-12 border-r border-[var(--color-line)] bg-surface py-3 gap-2"
+        aria-label="Collapsed sidebar"
+      >
+        <button
+          type="button"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-faint hover:bg-line/50 hover:text-ink transition-colors"
+          aria-label="Expand sidebar"
+          title="Expand sidebar"
+          onClick={onToggleCollapse}
+        >
+          ⊞
+        </button>
+        <button
+          type="button"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-accent hover:bg-accent-soft transition-colors"
+          aria-label="New thread"
+          title="New thread"
+          onClick={() => { newChat().catch(() => {}); }}
+        >
+          ✎
+        </button>
+        <div className="w-6 border-t border-[var(--color-line)] my-1" />
+        {agents.slice(0, 6).map((agent) => (
+          <button
+            key={agent.id}
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-sm hover:bg-line/50 transition-colors"
+            title={agent.name}
+            onClick={() => {
+              if (agent.id === "command-center") {
+                // Go home
+              }
+            }}
+          >
+            {agent.id === "command-center" ? "⚙️" :
+             agent.id === "jobs" ? "📋" :
+             agent.id === "worktrees" ? "🌿" :
+             agent.id === "project_brain" ? "🧠" :
+             agent.id === "hooks" ? "🪝" :
+             agent.id === "attach" ? "📎" : "·"}
+          </button>
+        ))}
+      </aside>
+    );
+  }
+
   return (
     <aside
       className={cn(
@@ -63,6 +116,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         onNewThread={() => {
           newChat().then(() => onClose?.()).catch(() => {});
         }}
+        onCollapse={onToggleCollapse}
       />
       <SidebarSearch query={query} onChange={setQuery} />
 
@@ -73,6 +127,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             if (agent.id === "command-center") {
               // Go home — deselect session
             }
+            onAgentSelect?.(agent.id);
             onClose?.();
           }}
         />

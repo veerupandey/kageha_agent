@@ -9,10 +9,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { CanvasItem } from "../lib/artifactMedia";
-import { artifactDownloadUrl, kindLabel } from "../lib/artifactMedia";
+import { artifactDownloadUrl, fileExt, kindLabel } from "../lib/artifactMedia";
 import { cn } from "../lib/cn";
 import { useAppStore } from "../store";
 import type { ActivityStep, ToolCard } from "../api/types";
+import { CodeBlock, CodeThumbnail } from "./shared/CodeBlock";
 
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -333,7 +334,19 @@ function ArtifactThumb({ item, active, onClick }: {
   onClick: () => void;
 }) {
   const [failed, setFailed] = useState(false);
+  const [codePreview, setCodePreview] = useState("");
   useEffect(() => { setFailed(false); }, [item.url]);
+
+  // Fetch first few lines for code thumbnails
+  useEffect(() => {
+    if (item.kind !== "code") { setCodePreview(""); return; }
+    let cancelled = false;
+    void fetch(item.url)
+      .then((r) => r.text())
+      .then((body) => { if (!cancelled) setCodePreview(body.slice(0, 500)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [item.url, item.kind]);
 
   return (
     <button
@@ -347,6 +360,10 @@ function ArtifactThumb({ item, active, onClick }: {
     >
       {item.kind === "image" && !failed ? (
         <img src={item.url} alt="" className="h-12 w-full object-cover" onError={() => setFailed(true)} />
+      ) : item.kind === "code" && codePreview ? (
+        <div className="h-12 w-full overflow-hidden">
+          <CodeThumbnail code={codePreview} filename={item.caption} lines={8} />
+        </div>
       ) : (
         <div className="flex h-12 items-center justify-center bg-canvas text-[0.6rem] font-semibold uppercase tracking-wide text-accent">
           {kindLabel(item.kind).slice(0, 4)}
@@ -365,7 +382,7 @@ function ArtifactPreview({ item }: { item: CanvasItem }) {
   const [textLoading, setTextLoading] = useState(false);
 
   useEffect(() => {
-    if (!item || (item.kind !== "text" && item.kind !== "markdown")) { setText(""); return; }
+    if (!item || (item.kind !== "text" && item.kind !== "markdown" && item.kind !== "code")) { setText(""); return; }
     let cancelled = false;
     setTextLoading(true);
     void fetch(item.url).then(r => r.text()).then(body => {
@@ -382,6 +399,19 @@ function ArtifactPreview({ item }: { item: CanvasItem }) {
   }
   if (item.kind === "audio") {
     return <audio src={item.url} controls className="w-full" />;
+  }
+  if (item.kind === "code") {
+    if (textLoading) return <p className="p-2 text-xs text-muted">Loading…</p>;
+    return (
+      <div className="relative">
+        <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5">
+          <span className="rounded bg-[#21262d] px-1.5 py-0.5 text-[0.6rem] font-medium text-[#8b949e]">
+            {fileExt(item.path).replace(".", "").toUpperCase()}
+          </span>
+        </div>
+        <CodeBlock code={text} filename={item.caption} maxHeight="16rem" />
+      </div>
+    );
   }
   if (item.kind === "markdown" || item.kind === "text") {
     if (textLoading) return <p className="p-2 text-xs text-muted">Loading…</p>;
@@ -459,7 +489,7 @@ const TAB_CONFIG: { id: CanvasTab; label: string; icon: string }[] = [
 ];
 
 /** Monitoring canvas with Timeline, Artifacts, and Stats tabs. */
-export function AgentCanvas({ alwaysShow }: { alwaysShow?: boolean } = {}) {
+export function AgentCanvas({ alwaysShow, onCollapse }: { alwaysShow?: boolean; onCollapse?: () => void } = {}) {
   const canvasOpen = useAppStore((s) => s.canvasOpen);
   const setCanvasOpen = useAppStore((s) => s.setCanvasOpen);
   const canvasItems = useAppStore((s) => s.canvasItems);
@@ -512,7 +542,18 @@ export function AgentCanvas({ alwaysShow }: { alwaysShow?: boolean } = {}) {
             </button>
           ))}
         </div>
-        {/* Close — only show when in old layout (not alwaysShow) */}
+        {/* Collapse / Close */}
+        {onCollapse && (
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-xs text-muted hover:bg-line/70 hover:text-ink transition-colors"
+            aria-label="Collapse panel"
+            title="Collapse panel"
+            onClick={onCollapse}
+          >
+            ⊟
+          </button>
+        )}
         {!alwaysShow && (
           <button
             type="button"

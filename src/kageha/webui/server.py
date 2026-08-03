@@ -2071,6 +2071,82 @@ class WebUIApp:
                 }
             )
 
+        # ── Hooks CRUD ─────────────────────────────────────────────────
+        if method == "GET" and path == "/api/hooks":
+            from kageha.project.hooks import load_hook_runner
+
+            root = self._q(query, "project_root") or self.project_root or str(Path.cwd())
+            runner = load_hook_runner(root)
+            return _json_bytes({
+                "project_root": root,
+                "hooks": [
+                    {
+                        "event": h.event,
+                        "command": h.command,
+                        "http": h.http,
+                        "deny_message": h.deny_message,
+                        "matcher": h.matcher,
+                        "timeout_s": h.timeout_s,
+                    }
+                    for h in runner.hooks
+                ],
+            })
+
+        if method == "POST" and path == "/api/hooks":
+            payload = self._json_body(body)
+            root = str(payload.get("project_root") or self.project_root or Path.cwd())
+            hooks_path = Path(root) / ".kageha" / "hooks.json"
+            hooks_path.parent.mkdir(parents=True, exist_ok=True)
+            existing: list[dict[str, Any]] = []
+            if hooks_path.is_file():
+                try:
+                    raw = json.loads(hooks_path.read_text(encoding="utf-8"))
+                    if isinstance(raw, list):
+                        existing = raw
+                    elif isinstance(raw, dict) and isinstance(raw.get("hooks"), list):
+                        existing = raw["hooks"]
+                except (OSError, json.JSONDecodeError):
+                    pass
+            new_hook = {
+                "event": str(payload.get("event") or "").strip(),
+                "command": str(payload.get("command") or "").strip(),
+                "http": str(payload.get("http") or "").strip(),
+                "deny_message": str(payload.get("deny_message") or "").strip(),
+                "matcher": str(payload.get("matcher") or "").strip(),
+                "timeout_s": float(payload.get("timeout_s") or 15),
+            }
+            if not new_hook["event"]:
+                raise ValueError("event is required")
+            existing.append(new_hook)
+            hooks_path.write_text(
+                json.dumps(existing, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            return _json_bytes({"ok": True, "hook": new_hook, "total": len(existing)})
+
+        if method == "DELETE" and path == "/api/hooks":
+            payload = self._json_body(body)
+            root = str(payload.get("project_root") or self.project_root or Path.cwd())
+            index = int(payload.get("index", -1))
+            hooks_path = Path(root) / ".kageha" / "hooks.json"
+            if not hooks_path.is_file():
+                raise FileNotFoundError("no hooks.json")
+            try:
+                raw = json.loads(hooks_path.read_text(encoding="utf-8"))
+                existing = raw if isinstance(raw, list) else (raw.get("hooks") if isinstance(raw, dict) else [])
+                if not isinstance(existing, list):
+                    existing = []
+            except (OSError, json.JSONDecodeError):
+                existing = []
+            if index < 0 or index >= len(existing):
+                raise IndexError(f"hook index {index} out of range")
+            removed = existing.pop(index)
+            hooks_path.write_text(
+                json.dumps(existing, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            return _json_bytes({"ok": True, "removed": removed, "total": len(existing)})
+
         # @ file search. UI wiring lives in the React frontend.
         if method == "GET" and path == "/api/project/files":
             from kageha.project.file_index import get_file_index
@@ -2874,7 +2950,7 @@ class WebUIApp:
         }
 
     def _delete_session(self, session_id: str) -> bool:
-        """Remove session workspace directory. Returns True if something was deleted."""
+        """Remove session workspace directory and runtime store entry."""
         import shutil
 
         from kageha.config import sessions_dir
@@ -2889,10 +2965,28 @@ class WebUIApp:
         # Drop in-memory thread bindings for this session.
         thread_id = self._load_thread_binding(sid) or f"web-{sid}"
         self.server.threads.pop(thread_id, None)
+        deleted_fs = False
         if root.is_dir():
             shutil.rmtree(root)
-            return True
-        return False
+            deleted_fs = True
+        # Also remove from the durable runtime store (journal / SQLite).
+        try:
+            from kageha.runtime.store import RuntimeStore
+            store = RuntimeStore()
+            try:
+                with store._lock:
+                    store._conn.execute("DELETE FROM events WHERE session_id=?", (sid,))
+                    store._conn.execute("DELETE FROM tool_attempts WHERE session_id=?", (sid,))
+                    store._conn.execute("DELETE FROM checkpoints WHERE session_id=?", (sid,))
+                    store._conn.execute("DELETE FROM artifact_manifest WHERE session_id=?", (sid,))
+                    store._conn.execute("DELETE FROM approvals WHERE session_id=?", (sid,))
+                    store._conn.execute("DELETE FROM turns WHERE session_id=?", (sid,))
+                    store._conn.execute("DELETE FROM sessions WHERE id=?", (sid,))
+            finally:
+                store.close()
+        except Exception:  # noqa: BLE001
+            pass
+        return deleted_fs
 
     def _maybe_set_session_title(
         self,
