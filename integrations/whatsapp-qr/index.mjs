@@ -65,7 +65,13 @@ const start = async () => {
       const from = message.key.remoteJid;
       if (!from || from.endsWith("@g.us") || isBroadcastJid(from)) continue;
       const ownJid = sock.user?.id || state.creds.me?.id || "";
-      const isSelfChat = bareJid(from) && bareJid(from) === bareJid(ownJid);
+      const ownIds = [ownJid, state.creds.me?.id, state.creds.me?.lid]
+        .filter(Boolean)
+        .map(bareJid);
+      const alternateJid = message.key.remoteJidAlt;
+      const isSelfChat = [from, alternateJid]
+        .filter(Boolean)
+        .some((jid) => ownIds.includes(bareJid(jid)));
       if (message.key.fromMe && (!isSelfChat || sentMessageIds.has(message.key.id))) {
         sentMessageIds.delete(message.key.id);
         continue;
@@ -73,7 +79,7 @@ const start = async () => {
       // Self-chat events may carry the linked account's device-qualified JID
       // (for example `number:device@s.whatsapp.net`). Always reduce it to the
       // phone number so it matches WHATSAPP_QR_ALLOWED_USERS.
-      const senderJid = isSelfChat ? ownJid : message.key.senderPn || message.key.participantPn || from;
+      const senderJid = isSelfChat ? (state.creds.me?.id || ownJid) : message.key.senderPn || message.key.participantPn || from;
       const sender = bareJid(senderJid);
       emit({ type: "message_received", from: sender, jid: from });
       const content = message.message.conversation || message.message.extendedTextMessage?.text ||
