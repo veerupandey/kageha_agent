@@ -78,7 +78,7 @@ export function HeroInput() {
   }, [draft, recording, sendMessage, sessionId, setDraft, showToast]);
 
   return (
-    <div className="w-full max-w-[640px]">
+    <div className="ka-hero-input w-full max-w-[640px]">
       <div className="relative rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] shadow-[0_2px_12px_rgba(0,0,0,0.1)] transition-shadow focus-within:border-[var(--color-accent)] focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)]">
         {pendingFiles.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-4 pt-3">

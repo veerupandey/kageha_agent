@@ -227,7 +227,7 @@ export function Composer() {
 
   return (
     <form
-      className="shrink-0 border-t border-line bg-canvas px-3 pb-3 pt-2 md:px-5"
+      className="ka-composer shrink-0 border-t border-line bg-canvas px-3 pb-3 pt-2 md:px-5"
       id="composer"
       onSubmit={(e) => {
         e.preventDefault();
@@ -285,7 +285,7 @@ export function Composer() {
           </div>
         ) : null}
 
-        <div className="relative rounded-2xl border border-line/80 bg-surface shadow-[0_2px_12px_rgba(0,0,0,0.08)] ring-1 ring-line/20 focus-within:border-accent/50 focus-within:ring-accent/20 transition-all">
+        <div className="ka-composer-surface relative rounded-2xl border border-line/80 bg-surface shadow-[0_2px_12px_rgba(0,0,0,0.08)] ring-1 ring-line/20 focus-within:border-accent/50 focus-within:ring-accent/20 transition-all">
           {slashCtx && slashItems.length > 0 ? (
             <div
               className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-56 overflow-auto rounded-lg border border-line bg-surface p-1 shadow-lg"

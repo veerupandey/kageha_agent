@@ -90,7 +90,7 @@ export function AppShell() {
 
   return (
     <>
-      <div className="flex h-full min-h-0 bg-canvas text-ink" data-ui="kageha">
+      <div className="app-shell flex h-full min-h-0 bg-canvas text-ink" data-ui="kageha">
         {/* Sidebar */}
         <Sidebar
           open={sidebarOpen}
@@ -113,7 +113,7 @@ export function AppShell() {
         {/* Main content */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* Mobile header with hamburger */}
-          <div className="flex h-11 shrink-0 items-center border-b border-[var(--color-line)] px-3 md:hidden">
+          <div className="ka-mobile-header flex h-11 shrink-0 items-center border-b border-[var(--color-line)] px-3 md:hidden">
             <button
               type="button"
               className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:text-ink"

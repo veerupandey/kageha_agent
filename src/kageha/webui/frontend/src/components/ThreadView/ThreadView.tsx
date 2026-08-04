@@ -49,7 +49,7 @@ export function ThreadView({ onOpenLightbox, rightPanelCollapsed, onToggleRightP
   const showAgentCanvas = runStatus === "running" || (canvasOpen && runStatus !== "idle" && runStatus !== "success");
 
   return (
-    <main className="flex min-h-0 min-w-0 flex-1 flex-col" id="stage">
+    <main className="ka-thread-view flex min-h-0 min-w-0 flex-1 flex-col" id="stage">
       <ThreadHeader
         artifactFilter={artifactFilter}
         onFilterChange={handleFilterChange}
