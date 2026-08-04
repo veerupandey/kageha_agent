@@ -265,6 +265,9 @@ _CHANNEL_PLATFORMS = frozenset(
         "cron",
         "mcp",
         "gateway",
+        "telegram",
+        "whatsapp",
+        "whatsapp-qr",
     }
 )
 

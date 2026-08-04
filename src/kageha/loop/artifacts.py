@@ -19,6 +19,7 @@ _ARTIFACT_PATH_RE = re.compile(
 _INTERNAL_FILES = frozenset({
     "events.jsonl",
     "goal_card.json",
+    "goal_card_prior.json",
     "plan.json",
     "result.md",
     "todo.md",

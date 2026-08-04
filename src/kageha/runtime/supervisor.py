@@ -84,6 +84,20 @@ class ServiceSupervisor:
                     "memory-worker",
                 ),
             ),
+            ServiceDefinition(
+                "channels",
+                (
+                    python,
+                    "-m",
+                    "kageha.cli",
+                    "channels",
+                    "run",
+                ),
+                enabled=bool(
+                    os.environ.get("TELEGRAM_BOT_TOKEN")
+                    or os.environ.get("WHATSAPP_QR_ENABLED")
+                ),
+            ),
         ]
         return [service for service in services if service.enabled]
 
@@ -339,4 +353,3 @@ def _duplicates(values: list[int]) -> list[int]:
 
 def _systemd_quote(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
-

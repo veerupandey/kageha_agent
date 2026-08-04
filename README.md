@@ -21,7 +21,7 @@ Chat, plan, execute — with tools, memory, and multi-model intelligence.
 Kageha is an autonomous agent kernel that combines interactive chat with durable task execution. It plans, writes code, browses the web, generates media, and remembers context across sessions — all orchestrated through a crash-recoverable runtime with multi-model failover.
 
 ```
-User → Chat / WebUI / Telegram / WhatsApp
+User → Chat / WebUI / Telegram / WhatsApp QR
          │
          ▼
 ┌─────────────────────────────────────────────────┐
@@ -50,7 +50,7 @@ User → Chat / WebUI / Telegram / WhatsApp
 | **Runtime** | Event-sourced journal, crash recovery, resume from checkpoint, budget ceiling |
 | **Security** | OS sandbox (seatbelt/bwrap/docker), tool approval gates, risk-class policies |
 | **Web UI** | React SPA with live streaming, artifact preview, syntax highlighting, jobs panel |
-| **Channels** | CLI, WebUI, Telegram, WhatsApp, Signal, Matrix, Email, iMessage |
+| **Channels** | CLI, WebUI, Telegram (polling), WhatsApp QR (experimental), WhatsApp Cloud API (planned) |
 | **Skills** | Declarative YAML; auto-loaded by embedding match; distilled from successful runs |
 | **MCP** | Connect external MCP tool servers via stdio/SSE |
 | **Jobs** | Background durable execution; spawn, cancel, attach from UI or CLI |
@@ -75,13 +75,36 @@ uv run kageha run "Explain the architecture of this repo"
 uv run kageha webui
 ```
 
+### Messaging channels
+
+Telegram uses Bot API long polling. WhatsApp QR is an experimental local
+companion-device integration and requires Node.js plus the sidecar dependencies.
+See [docs/CHANNELS.md](docs/CHANNELS.md) for setup, allowlists, media support,
+background startup, lifecycle commands, and security limitations.
+
+```bash
+# Telegram
+export TELEGRAM_BOT_TOKEN="..."
+export TELEGRAM_ALLOWED_USERS="123456789"
+uv run kageha channels run --telegram
+
+# WhatsApp QR (experimental)
+cd integrations/whatsapp-qr && npm install && cd ../..
+export WHATSAPP_QR_ENABLED=1
+export WHATSAPP_QR_ALLOWED_USERS="15551234567"
+uv run kageha webui  # starts the configured channel in the background
+```
+
+Use `uv run kageha channels status` and `uv run kageha channels stop` for a
+supervised listener. A one-shot `kageha run` never starts messaging channels.
+
 ## Architecture
 
 > Full details: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  Interfaces: CLI · WebUI · Telegram · WhatsApp · Signal · API  │
+│  Interfaces: CLI · WebUI · Telegram · WhatsApp QR · API         │
 └───────────────────────────┬────────────────────────────────────┘
                             ▼
 ┌────────────────────────────────────────────────────────────────┐
@@ -123,6 +146,8 @@ uv run kageha webui
 | `kageha run "…"` | One-shot task execution |
 | `kageha webui` | Launch browser UI |
 | `kageha server` | App server (for WebUI backend) |
+| `kageha channels status` | Show channel listener ownership |
+| `kageha channels stop` | Stop a supervised channel listener |
 | `kageha models list` | Available model providers |
 | `kageha skills list` | Installed skills |
 | `kageha memory status` | Memory store info |

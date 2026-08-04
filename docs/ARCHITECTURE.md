@@ -8,8 +8,8 @@
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                           User Interfaces                                │
 ├──────────────┬──────────────┬──────────────┬────────────────────────────┤
-│  CLI (chat)  │   Web UI     │  Telegram    │  WhatsApp / Signal / Email │
-│  ─────────── │  (React SPA) │  Bot         │  Matrix / iMessage         │
+│  CLI (chat)  │   Web UI     │ Telegram bot │  WhatsApp QR / Cloud API   │
+│  ─────────── │  (React SPA) │  Bot         │  QR sidecar                │
 │  readline /  │  Vite + TS   │              │                            │
 │  prompt_toolkit             │              │                            │
 └──────┬───────┴──────┬───────┴──────┬───────┴────────────┬───────────────┘
@@ -155,6 +155,14 @@
 ```
 
 ## Key Flows
+
+### Messaging Channels
+
+Telegram and WhatsApp adapters normalize inbound text and media into a shared
+channel message contract. The durable channel queue deduplicates provider
+redeliveries, serializes turns per peer, and records outbound delivery attempts.
+Telegram currently uses long polling. WhatsApp QR runs in an isolated Node
+sidecar; see [CHANNELS.md](CHANNELS.md) for setup and its production limitations.
 
 ### Chat Turn (Normal Mode)
 ```
