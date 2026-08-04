@@ -81,6 +81,16 @@ export async function runTurn(
   }));
   set({ error: null, draft: "", canvasTurnPaths: new Set() });
 
+  // Set a provisional title from the user's message immediately (don't wait for done event).
+  // This prevents showing session IDs like "4a4b00b0" in the header/sidebar while running.
+  if (!get().sessionTitle && displayText) {
+    const provisional = displayText.replace(/^\/\w+\s*/, "").trim();
+    if (provisional.length >= 3) {
+      const clipped = provisional.length <= 60 ? provisional : provisional.slice(0, 57) + "…";
+      set({ sessionTitle: clipped });
+    }
+  }
+
   const mode = opts.agentMode || get().agentMode;
   const model = get().modelOverride.trim() || undefined;
 
