@@ -58,7 +58,7 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapse, onAgentSel
   if (collapsed) {
     return (
       <aside
-        className="hidden md:flex flex-col items-center w-12 border-r border-[var(--color-line)] bg-surface py-3 gap-2"
+        className="ka-sidebar-collapsed hidden md:flex flex-col items-center w-12 border-r border-[var(--color-line)] bg-surface py-3 gap-2"
         aria-label="Collapsed sidebar"
       >
         <button
@@ -107,7 +107,7 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapse, onAgentSel
   return (
     <aside
       className={cn(
-        "ka-sidebar fixed inset-y-0 left-0 z-50 flex w-[250px] flex-col overflow-hidden transition-transform md:static md:z-0 md:translate-x-0",
+        "ka-sidebar ka-sidebar-shell fixed inset-y-0 left-0 z-50 flex w-[250px] flex-col overflow-hidden transition-transform md:static md:z-0 md:translate-x-0",
         open ? "translate-x-0" : "-translate-x-full md:translate-x-0",
       )}
       aria-label="Main navigation"

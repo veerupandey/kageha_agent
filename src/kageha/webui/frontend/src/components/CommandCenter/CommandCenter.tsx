@@ -10,10 +10,11 @@ export function CommandCenter() {
   const recentSessions = sessions.filter((s) => !s.archived).slice(0, 6);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-12">
+    <div className="ka-command-center flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-12">
       <div className="flex w-full max-w-[700px] flex-col items-center gap-8">
         {/* Hero heading */}
-        <h1 className="text-center text-4xl font-bold tracking-tight text-ink">
+        <div className="ka-command-center-kicker">KAGEHA · WORKSPACE</div>
+        <h1 className="ka-command-center-title text-center text-4xl font-bold tracking-tight text-ink">
           Let's get to work.
         </h1>
 

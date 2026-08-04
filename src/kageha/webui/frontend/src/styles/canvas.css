@@ -2,16 +2,16 @@
 
 /* Dark mode is default for the new UI */
 [data-theme="dark"][data-ui="kageha"] {
-  --color-canvas: #0c0c0c;
-  --color-surface: #161616;
-  --color-surface-hover: #1f1f1f;
-  --color-ink: #fafafa;
-  --color-muted: #999;
-  --color-faint: #666;
-  --color-line: #2a2a2a;
-  --color-line-strong: #3a3a3a;
-  --color-accent: #f5a623;
-  --color-accent-soft: rgba(245, 166, 35, 0.12);
+  --color-canvas: #100f0d;
+  --color-surface: #191816;
+  --color-surface-hover: #24211c;
+  --color-ink: #f6f1e8;
+  --color-muted: #aaa398;
+  --color-faint: #746e64;
+  --color-line: #302d27;
+  --color-line-strong: #484239;
+  --color-accent: #e7a945;
+  --color-accent-soft: rgba(231, 169, 69, 0.13);
   --color-danger: #ef4444;
   --color-danger-soft: rgba(239, 68, 68, 0.1);
   --color-warn: #fbbf24;
@@ -27,16 +27,16 @@
 }
 
 [data-theme="light"][data-ui="kageha"] {
-  --color-canvas: #fafafa;
+  --color-canvas: #f5f3ee;
   --color-surface: #ffffff;
-  --color-surface-hover: #f5f5f5;
-  --color-ink: #1a1a1a;
-  --color-muted: #666;
-  --color-faint: #999;
-  --color-line: #e5e5e5;
-  --color-line-strong: #d4d4d4;
-  --color-accent: #d4850a;
-  --color-accent-soft: rgba(212, 133, 10, 0.08);
+  --color-surface-hover: #efede7;
+  --color-ink: #25231f;
+  --color-muted: #706b61;
+  --color-faint: #9b958a;
+  --color-line: #e4e0d7;
+  --color-line-strong: #d2ccc0;
+  --color-accent: #b56e12;
+  --color-accent-soft: rgba(181, 110, 18, 0.09);
   --color-danger: #dc2626;
   --color-danger-soft: rgba(220, 38, 38, 0.06);
   --color-warn: #d97706;
@@ -72,6 +72,111 @@
 .ka-sidebar {
   background: var(--color-sidebar);
   border-right: 1px solid var(--color-line);
+}
+
+/* ── Command-center polish ─────────────────────────────────────────────── */
+.app-shell {
+  background-image:
+    radial-gradient(circle at 75% -10%, color-mix(in srgb, var(--color-accent) 7%, transparent), transparent 32rem),
+    linear-gradient(135deg, color-mix(in srgb, var(--color-canvas) 96%, var(--color-accent)), var(--color-canvas));
+}
+
+.ka-sidebar-shell {
+  box-shadow: 12px 0 32px color-mix(in srgb, #000 12%, transparent);
+}
+
+.ka-sidebar-collapsed {
+  box-shadow: 8px 0 24px color-mix(in srgb, #000 10%, transparent);
+}
+
+.ka-mobile-header {
+  background: color-mix(in srgb, var(--color-surface) 78%, transparent);
+  backdrop-filter: blur(14px);
+}
+
+.ka-command-center {
+  position: relative;
+  overflow: auto;
+}
+
+.ka-command-center::before {
+  position: absolute;
+  width: 28rem;
+  height: 28rem;
+  content: "";
+  pointer-events: none;
+  border-radius: 999px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-accent) 11%, transparent), transparent 68%);
+  filter: blur(8px);
+  opacity: 0.7;
+}
+
+.ka-command-center > div {
+  position: relative;
+}
+
+.ka-command-center-kicker {
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: 0.63rem;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  opacity: 0.9;
+}
+
+.ka-command-center-title {
+  letter-spacing: -0.045em;
+  text-shadow: 0 1px 24px color-mix(in srgb, var(--color-accent) 9%, transparent);
+}
+
+.ka-hero-input > div {
+  border-color: color-mix(in srgb, var(--color-line-strong) 72%, transparent);
+  box-shadow: 0 18px 45px color-mix(in srgb, #000 15%, transparent), 0 0 0 1px color-mix(in srgb, var(--color-accent) 5%, transparent);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.ka-hero-input > div:focus-within {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 52px color-mix(in srgb, #000 18%, transparent), 0 0 0 4px var(--color-accent-soft);
+}
+
+.ka-thread-view > header {
+  background: color-mix(in srgb, var(--color-surface) 78%, transparent);
+  backdrop-filter: blur(14px);
+}
+
+.ka-conversation {
+  background: color-mix(in srgb, var(--color-canvas) 52%, transparent);
+  scroll-padding-bottom: 2rem;
+}
+
+.ka-conversation-panel > div:last-child {
+  position: relative;
+}
+
+.ka-composer {
+  background: color-mix(in srgb, var(--color-canvas) 88%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+.ka-composer-surface {
+  border-color: color-mix(in srgb, var(--color-line-strong) 72%, transparent);
+  box-shadow: 0 12px 34px color-mix(in srgb, #000 13%, transparent), 0 0 0 1px color-mix(in srgb, var(--color-accent) 5%, transparent);
+}
+
+.ka-composer-surface:focus-within {
+  box-shadow: 0 16px 38px color-mix(in srgb, #000 16%, transparent), 0 0 0 3px var(--color-accent-soft);
+}
+
+@media (max-width: 767px) {
+  .ka-command-center {
+    justify-content: flex-start;
+    padding-top: 5rem;
+  }
+
+  .ka-command-center-title {
+    font-size: 2.35rem;
+  }
 }
 
 .ka-sidebar-item {
