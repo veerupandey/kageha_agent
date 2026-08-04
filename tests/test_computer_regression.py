@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from kageha.harness.approvals import ApprovalGate
+from kageha.harness.approvals import ApprovalGate, apply_permission_scope
 from kageha.harness.runtime import HarnessContext
 from kageha.harness.sandbox import SessionWorkspace
 from kageha.harness.tools.builtin import load_entry_point_tools
@@ -46,6 +46,9 @@ _MACOS_ONLY = "ERROR: computer-use v1 is macOS-only"
 
 
 def _ctx(tmp_path: Path, *, auto_approve: bool = True) -> HarnessContext:
+    if not auto_approve:
+        # Isolate this file from process-wide grants made by approval tests.
+        apply_permission_scope("ask")
     root = tmp_path / "session"
     root.mkdir(parents=True, exist_ok=True)
     (root / "artifacts").mkdir(exist_ok=True)

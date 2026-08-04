@@ -67,7 +67,10 @@ class TelegramAdapter:
         self._stopped = asyncio.Event()
         self.allowed_users = _allowlist("TELEGRAM_ALLOWED_USERS")
         self.allow_all = os.environ.get("TELEGRAM_ALLOW_ALL_USERS", "").lower() in {
-            "1", "true", "yes", "on"
+            "1",
+            "true",
+            "yes",
+            "on",
         }
 
     @property
@@ -79,7 +82,7 @@ class TelegramAdapter:
         if self._owns_client:
             await self.client.aclose()
 
-    async def call(self, method: str, **params: Any) -> dict[str, Any]:
+    async def call(self, method: str, **params: Any) -> Any:
         response = await self.client.post(f"{self.base_url}/{method}", json=params)
         response.raise_for_status()
         data = response.json()
@@ -113,7 +116,12 @@ class TelegramAdapter:
         sender = message.get("from") or {}
         peer_id = str(chat.get("id") or "")
         user_id = str(sender.get("id") or peer_id)
-        if not peer_id or not self.allow_all and self.allowed_users and user_id not in self.allowed_users:
+        if (
+            not peer_id
+            or not self.allow_all
+            and self.allowed_users
+            and user_id not in self.allowed_users
+        ):
             return None
         if not self.allow_all and not self.allowed_users:
             return None
@@ -141,12 +149,21 @@ class TelegramAdapter:
     async def _download_media(self, message: dict[str, Any]) -> list[ChannelMedia]:
         item: dict[str, Any] | None = None
         kind = "file"
-        if message.get("photo"):
-            item = max(message["photo"], key=lambda value: int(value.get("file_size") or 0))
+        photo = message.get("photo")
+        if isinstance(photo, list):
+            photo_items = [value for value in photo if isinstance(value, dict)]
+            if photo_items:
+                item = max(photo_items, key=lambda value: int(value.get("file_size") or 0))
             kind = "image"
-        for key, candidate_kind in (("document", "document"), ("video", "video"), ("audio", "audio"), ("voice", "voice")):
-            if message.get(key):
-                item = message[key]
+        for key, candidate_kind in (
+            ("document", "document"),
+            ("video", "video"),
+            ("audio", "audio"),
+            ("voice", "voice"),
+        ):
+            candidate = message.get(key)
+            if isinstance(candidate, dict):
+                item = candidate
                 kind = candidate_kind
                 break
         if not item or not item.get("file_id"):
@@ -155,7 +172,9 @@ class TelegramAdapter:
         file_path = str(file_info.get("file_path") or "")
         if not file_path:
             return []
-        response = await self.client.get(f"https://api.telegram.org/file/bot{self.token}/{file_path}")
+        response = await self.client.get(
+            f"https://api.telegram.org/file/bot{self.token}/{file_path}"
+        )
         response.raise_for_status()
         root = kageha_home() / "platforms" / "telegram" / "inbound"
         root.mkdir(parents=True, exist_ok=True)
@@ -179,7 +198,7 @@ class TelegramAdapter:
     async def _send_reply(self, message: ChannelMessage, reply: ChannelReply) -> None:
         chat_id = message.peer_id
         thread_id = int(message.thread_id) if message.thread_id.isdigit() else None
-        common = {"chat_id": chat_id}
+        common: dict[str, Any] = {"chat_id": chat_id}
         if thread_id is not None:
             common["message_thread_id"] = thread_id
         for part in chunk_text(reply.text):

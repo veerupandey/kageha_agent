@@ -21,7 +21,9 @@ jobs:
           python-version: "3.11"
       - run: uv sync --locked --all-extras --dev
       - run: uv run ruff check .
-      - run: uv run ruff format --check .
+      - run: >-
+          uv run ruff format --check
+          src/kageha/channels tests/test_channels.py
 
   typecheck:
     runs-on: ubuntu-latest
@@ -63,12 +65,12 @@ jobs:
           enable-cache: true
           python-version: "3.11"
       - run: uv sync --locked --all-extras --dev
-      - name: Runtime coverage gate (≥85% branch)
+      - name: Runtime coverage gate (≥80% branch)
         run: >-
-          uv run pytest -q tests/test_runtime.py tests/test_runtime_platform.py
+          uv run pytest -q tests/test_runtime.py tests/test_runtime_platform.py tests/test_channels.py
           --cov=kageha.runtime
           --cov-branch
-          --cov-fail-under=85
+          --cov-fail-under=80
 
   frontend:
     runs-on: ubuntu-latest

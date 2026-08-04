@@ -39,7 +39,10 @@ class WhatsAppQrAdapter:
             if value.strip()
         }
         self.allow_all = os.environ.get("WHATSAPP_QR_ALLOW_ALL_USERS", "").lower() in {
-            "1", "true", "yes", "on"
+            "1",
+            "true",
+            "yes",
+            "on",
         }
         self.auth_dir = Path(
             os.path.expanduser(
@@ -49,7 +52,9 @@ class WhatsAppQrAdapter:
                 )
             )
         )
-        self.sidecar = Path(__file__).resolve().parents[3] / "integrations" / "whatsapp-qr" / "index.mjs"
+        self.sidecar = (
+            Path(__file__).resolve().parents[3] / "integrations" / "whatsapp-qr" / "index.mjs"
+        )
 
     async def run(self) -> None:
         if shutil.which(self.node) is None:
@@ -89,13 +94,25 @@ class WhatsAppQrAdapter:
     async def handle_event(self, event: dict[str, Any]) -> None:
         event_type = event.get("type")
         if event_type == "qr":
-            print("Scan this WhatsApp QR code from WhatsApp > Linked devices:", file=sys.stderr, flush=True)
+            print(
+                "Scan this WhatsApp QR code from WhatsApp > Linked devices:",
+                file=sys.stderr,
+                flush=True,
+            )
             return
         if event_type == "ready":
-            print("WhatsApp is connected. Send a message to the linked account.", file=sys.stderr, flush=True)
+            print(
+                "WhatsApp is connected. Send a message to the linked account.",
+                file=sys.stderr,
+                flush=True,
+            )
             return
         if event_type == "error":
-            print(f"WhatsApp bridge error: {event.get('error', 'unknown error')}", file=sys.stderr, flush=True)
+            print(
+                f"WhatsApp bridge error: {event.get('error', 'unknown error')}",
+                file=sys.stderr,
+                flush=True,
+            )
             return
         if event_type == "message_received":
             print(

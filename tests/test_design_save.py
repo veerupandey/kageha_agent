@@ -9,7 +9,6 @@ import pytest
 
 from kageha.app_server import AppServer
 from kageha.harness.sandbox import SessionWorkspace
-from kageha.loop.controller import LoopController
 from kageha.loop.mode_policy import (
     apply_saved_plan_markdown,
     mark_plan_approved,
@@ -18,7 +17,6 @@ from kageha.loop.mode_policy import (
 )
 from kageha.loop.planner import PlanStep, TaskPlan
 from kageha.memory.service import reset_memory_service_for_tests
-from kageha.models.base import ChatMessage, ChatResponse, ChatUsage
 from kageha.webui.server import WebUIApp
 
 
@@ -165,5 +163,4 @@ def test_design_put_locked_after_build(webui_app: WebUIApp):
     assert status == 400
     assert "locked" in payload["error"]
     assert (ws.root / "plan.md").read_text(encoding="utf-8") == "# Plan\n\nx\n"
-
 

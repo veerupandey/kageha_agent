@@ -76,9 +76,9 @@ class ChannelRuntime:
                 attachments = [media.local_path for media in message.media if media.local_path]
                 if attachments:
                     prompt = (
-                        f"{prompt}\n\n" if prompt else ""
-                    ) + "Attached files:\n" + "\n".join(
-                        f"- `{path}`" for path in attachments
+                        (f"{prompt}\n\n" if prompt else "")
+                        + "Attached files:\n"
+                        + "\n".join(f"- `{path}`" for path in attachments)
                     )
             if not prompt:
                 prompt = "Please inspect the attached media and describe what you found."
