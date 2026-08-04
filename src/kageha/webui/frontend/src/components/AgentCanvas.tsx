@@ -743,28 +743,40 @@ export function AgentCanvas({ alwaysShow, onCollapse }: { alwaysShow?: boolean; 
   const [activeTab, setActiveTab] = useState<CanvasTab>("timeline");
 
   const prevRunStatus = useRef(runStatus);
+  const autoSwitchedToPlan = useRef(false);
 
-  // Auto-switch to timeline only when a NEW run starts (not on every status update)
+  // Auto-switch logic: runs ONCE per transition, never yanks the user back
   useEffect(() => {
-    if (runStatus === "running" && prevRunStatus.current !== "running") {
+    const wasRunning = prevRunStatus.current === "running";
+    const nowRunning = runStatus === "running";
+
+    // New run starts → show Timeline (reset plan switch flag)
+    if (nowRunning && !wasRunning) {
       setActiveTab("timeline");
+      autoSwitchedToPlan.current = false;
     }
+
     prevRunStatus.current = runStatus;
   }, [runStatus]);
 
-  // Auto-switch to plan tab when todo items first appear
+  // Todos appeared → switch to Plan (only once per run, never re-triggers)
   useEffect(() => {
-    if (todoBoard && todoBoard.total > 0) {
+    if (todoBoard && todoBoard.total > 0 && !autoSwitchedToPlan.current) {
+      autoSwitchedToPlan.current = true;
       setActiveTab("plan");
     }
   }, [todoBoard?.total]);
 
-  // Auto-switch to artifacts when new ones appear (after run completes)
+  // Run completed with artifacts → switch to Artifacts (only from Timeline/Plan)
   useEffect(() => {
-    if (canvasItems.length > 0 && activeTab === "timeline" && runStatus !== "running") {
+    if (
+      canvasItems.length > 0 &&
+      runStatus !== "running" &&
+      (activeTab === "timeline" || activeTab === "plan")
+    ) {
       setActiveTab("artifacts");
     }
-  }, [canvasItems.length]);
+  }, [canvasItems.length, runStatus]);
 
   if (!alwaysShow && !canvasOpen) return null;
 
