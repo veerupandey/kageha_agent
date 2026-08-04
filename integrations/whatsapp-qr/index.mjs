@@ -28,6 +28,10 @@ const rememberSent = (result) => {
   }
 };
 const bareJid = (jid) => String(jid || "").split("@")[0].split(":")[0];
+const isBroadcastJid = (jid) => {
+  const value = String(jid || "");
+  return value.endsWith("@newsletter") || value.endsWith("@broadcast");
+};
 const sendMedia = async (sock, to, runId, relative) => {
   const sessionRoot = path.resolve(process.env.KAGEHA_HOME || path.join(process.env.HOME || ".", ".kageha"), "sessions", runId);
   const file = path.resolve(sessionRoot, relative);
@@ -59,15 +63,18 @@ const start = async () => {
     for (const message of messages) {
       if (!message.message) continue;
       const from = message.key.remoteJid;
-      if (!from || from.endsWith("@g.us")) continue;
+      if (!from || from.endsWith("@g.us") || isBroadcastJid(from)) continue;
       const ownJid = sock.user?.id || state.creds.me?.id || "";
       const isSelfChat = bareJid(from) && bareJid(from) === bareJid(ownJid);
       if (message.key.fromMe && (!isSelfChat || sentMessageIds.has(message.key.id))) {
         sentMessageIds.delete(message.key.id);
         continue;
       }
-      const senderJid = message.key.senderPn || message.key.participantPn || from;
-      const sender = senderJid.replace(/@s\.whatsapp\.net$/, "").replace(/@lid$/, "");
+      // Self-chat events may carry the linked account's device-qualified JID
+      // (for example `number:device@s.whatsapp.net`). Always reduce it to the
+      // phone number so it matches WHATSAPP_QR_ALLOWED_USERS.
+      const senderJid = isSelfChat ? ownJid : message.key.senderPn || message.key.participantPn || from;
+      const sender = bareJid(senderJid);
       emit({ type: "message_received", from: sender, jid: from });
       const content = message.message.conversation || message.message.extendedTextMessage?.text ||
         message.message.imageMessage?.caption || message.message.documentMessage?.caption || "";

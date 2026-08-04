@@ -44,6 +44,11 @@ export WHATSAPP_QR_ALLOWED_USERS="15551234567"
 kageha channels run --whatsapp-qr
 ```
 
+The linked WhatsApp account can also message its own chat. The bridge
+normalizes device-qualified WhatsApp IDs to the phone number before applying
+the allowlist. For normal private-chat testing, use a second WhatsApp account
+and allow that sender's international number without `+`, spaces, or dashes.
+
 If `WHATSAPP_QR_ALLOWED_USERS` is omitted in an interactive terminal, Kageha
 prompts for it. Use the WhatsApp sender's international phone number without
 the leading `+` or spaces. Access from other numbers is ignored by design.
