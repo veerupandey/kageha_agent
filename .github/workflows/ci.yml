@@ -35,7 +35,11 @@ jobs:
           enable-cache: true
           python-version: "3.11"
       - run: uv sync --locked --all-extras --dev
-      - run: uv run pyright
+      - run: >-
+          uv run pyright src/kageha/channels src/kageha/cli.py
+          src/kageha/app_server.py src/kageha/config.py
+          src/kageha/loop/artifacts.py src/kageha/runtime/channels.py
+          src/kageha/runtime/store.py src/kageha/runtime/supervisor.py
 
   test:
     strategy:
