@@ -752,9 +752,9 @@ export function AgentCanvas({ alwaysShow, onCollapse }: { alwaysShow?: boolean; 
     prevRunStatus.current = runStatus;
   }, [runStatus]);
 
-  // Auto-switch to plan tab when todo items appear (plan approved)
+  // Auto-switch to plan tab when todo items first appear
   useEffect(() => {
-    if (todoBoard && todoBoard.total > 0 && activeTab === "timeline") {
+    if (todoBoard && todoBoard.total > 0) {
       setActiveTab("plan");
     }
   }, [todoBoard?.total]);
