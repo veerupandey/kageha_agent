@@ -10,6 +10,7 @@ export function MiniComposer() {
   const sendMessage = useAppStore((s) => s.sendMessage);
   const setDraft = useAppStore((s) => s.setDraft);
   const sending = useAppStore((s) => s.sending);
+  const stopGeneration = useAppStore((s) => s.stopGeneration);
   const sessionId = useAppStore((s) => s.sessionId);
   const pendingFiles = useAppStore((s) => s.pendingFiles);
   const addPendingFiles = useAppStore((s) => s.addPendingFiles);
@@ -134,15 +135,26 @@ export function MiniComposer() {
         >
           {transcribing ? "…" : recording ? "■" : "Mic"}
         </button>
-        <button
-          type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent text-xs text-white disabled:opacity-40"
-          aria-label="Send"
-          disabled={!localDraft.trim() || sending}
-          onClick={handleSend}
-        >
-          ↑
-        </button>
+        {sending ? (
+          <button
+            type="button"
+            className="inline-flex h-7 items-center justify-center rounded-full bg-red-500 px-3 text-xs font-medium text-white hover:bg-red-600 transition-colors"
+            aria-label="Stop"
+            onClick={() => void stopGeneration()}
+          >
+            Stop
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent text-xs text-white disabled:opacity-40"
+            aria-label="Send"
+            disabled={!localDraft.trim()}
+            onClick={handleSend}
+          >
+            ↑
+          </button>
+        )}
       </div>
     </div>
   );
