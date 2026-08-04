@@ -301,7 +301,6 @@ def test_only_cli_entrypoint_installs_cli_approver():
 
     # Locate source files
     src_root = Path(importlib.util.find_spec("kageha").submodule_search_locations[0])
-    cli_path = src_root / "cli.py"
     repl_path = src_root / "chat" / "repl.py"
     app_server_path = src_root / "app_server.py"
     eval_harness_path = src_root / "eval" / "harness.py"

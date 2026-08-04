@@ -1166,6 +1166,19 @@ class RuntimeStore:
                 self._conn.execute("ROLLBACK")
                 raise
 
+    def latest_channel_session(self, *, channel: str, identity_key: str) -> str:
+        """Return the most recent bound session for a channel identity."""
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT session_id FROM channel_messages
+                WHERE channel=? AND identity_key=? AND session_id!=''
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (channel.strip().lower(), identity_key.strip()),
+            ).fetchone()
+            return str(row["session_id"]) if row else ""
+
     def claim_channel_message(
         self,
         *,

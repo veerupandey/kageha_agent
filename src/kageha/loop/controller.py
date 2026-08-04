@@ -62,7 +62,7 @@ from kageha.loop.verifier import (
     VerifyResult,
     build_workspace_evidence,
     verify_adaptive,
-    verify_with_defects,
+    verify_with_defects,  # noqa: F401 - compatibility surface used by mode-machine tests.
 )
 from kageha.models.base import ChatMessage
 from kageha.models.effort import TaskProfile, classify_effort, profile_task

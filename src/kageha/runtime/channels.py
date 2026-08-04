@@ -43,6 +43,7 @@ class DurableChannelQueue:
         identity: str,
         external_id: str,
         text: str,
+        payload: dict[str, Any] | None = None,
     ) -> QueueReceipt:
         key = identity_hash(self.channel, identity)
         dedup_key = external_id.strip() or hashlib.sha256(
@@ -54,13 +55,16 @@ class DurableChannelQueue:
             direction="inbound",
             external_id=external_id,
             dedup_key=dedup_key,
-            payload={"text": text},
+            payload=dict(payload or {"text": text}),
         )
         return QueueReceipt(
             message_id=str(row["id"]),
             accepted=created,
             status=str(row["status"]),
         )
+
+    def identity_key(self, identity: str) -> str:
+        return identity_hash(self.channel, identity)
 
     def enqueue_outbound(
         self,
@@ -103,4 +107,3 @@ class DurableChannelQueue:
             retry_after_s=retry_after_s,
             external_id=external_id,
         )
-

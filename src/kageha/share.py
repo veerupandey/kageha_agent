@@ -185,7 +185,6 @@ def generate_share_html(session_id: str, session_dir: Path) -> str:
     steps = turn.get("steps", 0)
     cost = turn.get("spent_usd", 0)
     validated = turn.get("validated", False)
-    evidence = turn.get("verification_evidence", "")
     failures = turn.get("recovered_failures", [])
 
     goal_items = goals.get("items", [])
@@ -313,7 +312,7 @@ details li {{ margin: 0.3rem 0; }}
       <span class="meta-badge">{steps} steps</span>
       <span class="meta-badge">${cost:.4f}</span>
       <span class="meta-badge status-{'success' if status == 'success' else 'error'}">{status}</span>
-      {f'<span class="meta-badge">✓ verified</span>' if validated else ''}
+      {'<span class="meta-badge">✓ verified</span>' if validated else ''}
     </div>
   </div>
 

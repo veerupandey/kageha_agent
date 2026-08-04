@@ -1,0 +1,11 @@
+{
+  "name": "kageha-whatsapp-qr",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.18",
+    "mime-types": "^2.1.35",
+    "pino": "^9.14.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

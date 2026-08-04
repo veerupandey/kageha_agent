@@ -90,6 +90,11 @@ In the browser:
 
 Sessions live under `~/.kageha/sessions/`.
 
+## Messaging channels
+
+See [CHANNELS.md](CHANNELS.md) for Telegram polling and experimental WhatsApp
+QR setup, allowlists, media behavior, and security limitations.
+
 Hot reload (two terminals):
 
 ```bash

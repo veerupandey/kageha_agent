@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import sys
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -34,6 +36,38 @@ def _exit_code_for_run_status(status: str | None) -> int:
     return 1
 
 
+def _autostart_configured_channels(surface: str) -> None:
+    """Ensure configured channels run alongside a long-lived Kageha surface."""
+    if (os.environ.get("KAGEHA_CHANNEL_AUTOSTART", "1").strip().lower() in
+            {"0", "false", "no", "off"}):
+        return
+    if not (
+        os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+        or os.environ.get("WHATSAPP_QR_ENABLED", "").strip()
+    ):
+        return
+    from kageha.channels.process import channel_process_is_running
+
+    if channel_process_is_running():
+        typer.echo(f"[kageha] channels already running; reusing listener ({surface})")
+        return
+    from kageha.runtime.supervisor import ServiceSupervisor
+
+    supervisor = ServiceSupervisor()
+    try:
+        result = supervisor.start("channels")
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"[kageha] channel autostart failed ({surface}): {exc}", err=True)
+        return
+    finally:
+        supervisor.close()
+    row = result[0] if result else {}
+    if row.get("already_running"):
+        typer.echo(f"[kageha] channels already running (pid {row.get('pid')})")
+    else:
+        typer.echo(f"[kageha] channels started in background (pid {row.get('pid')})")
+
+
 app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
@@ -62,6 +96,7 @@ computer_app = typer.Typer(
     help="macOS computer-use (/computer in chat)",
     invoke_without_command=True,
 )
+channels_app = typer.Typer(help="Messaging channels")
 app.add_typer(models_app, name="models")
 models_app.add_typer(models_auth_app, name="auth")
 app.add_typer(skills_app, name="skills")
@@ -73,11 +108,198 @@ app.add_typer(jobs_app, name="jobs")
 app.add_typer(project_app, name="project")
 app.add_typer(browser_app, name="browser")
 app.add_typer(computer_app, name="computer")
+app.add_typer(channels_app, name="channels")
 
 
 @app.callback()
 def main_callback() -> None:
     """Kageha — loop + harness + memory."""
+
+
+@channels_app.command("run")
+def channels_run(
+    telegram: bool = typer.Option(False, "--telegram", help="Run the Telegram bot"),
+    whatsapp_qr: bool = typer.Option(False, "--whatsapp-qr", help="Run the experimental WhatsApp QR bridge"),
+) -> None:
+    """Run one or more configured messaging adapters."""
+    from kageha.channels.runtime import ChannelRuntime
+    from kageha.channels.telegram import TelegramAdapter
+    from kageha.channels.whatsapp_qr import (
+        WhatsAppQrAdapter,
+        whatsapp_qr_dependencies_ready,
+    )
+
+    selected = []
+    if telegram or (not telegram and not whatsapp_qr and os.environ.get("TELEGRAM_BOT_TOKEN")):
+        selected.append("telegram")
+    if whatsapp_qr or (not telegram and not whatsapp_qr and os.environ.get("WHATSAPP_QR_ENABLED")):
+        selected.append("whatsapp-qr")
+    if not selected:
+        raise typer.BadParameter("select --telegram or --whatsapp-qr, or configure a channel in the environment")
+    telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    telegram_allowed = os.environ.get("TELEGRAM_ALLOWED_USERS", "").strip()
+    whatsapp_allowed = os.environ.get("WHATSAPP_QR_ALLOWED_USERS", "").strip()
+    if "telegram" in selected and not telegram_token:
+        typer.echo("Telegram setup: create a bot with @BotFather in Telegram.")
+        typer.echo("1. Send /newbot to @BotFather and follow the prompts.")
+        typer.echo("2. Copy the bot token it gives you and paste it below.")
+        typer.echo("3. Send /start to your new bot after it starts.")
+        if not sys.stdin.isatty():
+            raise typer.BadParameter(
+                "Set TELEGRAM_BOT_TOKEN and rerun this command from a terminal."
+            )
+        try:
+            telegram_token = typer.prompt("Telegram bot token", hide_input=True).strip()
+        except (EOFError, KeyboardInterrupt):
+            raise typer.BadParameter(
+                "No token supplied. Set TELEGRAM_BOT_TOKEN or rerun interactively."
+            ) from None
+        if not telegram_token:
+            raise typer.BadParameter("A Telegram bot token is required")
+    if "telegram" in selected and not telegram_allowed:
+        typer.echo("For safety, Telegram access is deny-by-default.")
+        typer.echo("Find your numeric Telegram user ID, or use allow-all only for testing.")
+        if not sys.stdin.isatty():
+            raise typer.BadParameter(
+                "Set TELEGRAM_ALLOWED_USERS and rerun this command from a terminal."
+            )
+        try:
+            telegram_allowed = typer.prompt(
+                "Allowed Telegram user IDs (comma-separated; use * only for testing)",
+                default="",
+                show_default=False,
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            raise typer.BadParameter(
+                "Set TELEGRAM_ALLOWED_USERS before running in a non-interactive shell."
+            ) from None
+        if not telegram_allowed:
+            raise typer.BadParameter(
+                "At least one Telegram user ID is required; use * only for a temporary test run."
+            )
+    if "whatsapp-qr" in selected and not whatsapp_allowed:
+        typer.echo("For safety, WhatsApp access is deny-by-default.")
+        typer.echo("Enter the WhatsApp phone number(s) allowed to message this account.")
+        typer.echo("Use the international format without + or spaces; use * only for testing.")
+        if not sys.stdin.isatty():
+            raise typer.BadParameter(
+                "Set WHATSAPP_QR_ALLOWED_USERS and rerun this command from a terminal."
+            )
+        try:
+            whatsapp_allowed = typer.prompt(
+                "Allowed WhatsApp numbers (comma-separated)",
+                default="",
+                show_default=False,
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            raise typer.BadParameter(
+                "Set WHATSAPP_QR_ALLOWED_USERS before running in a non-interactive shell."
+            ) from None
+        if not whatsapp_allowed:
+            raise typer.BadParameter(
+                "At least one WhatsApp number is required; use * only for a temporary test run."
+            )
+    if "whatsapp-qr" in selected and not whatsapp_qr_dependencies_ready():
+        raise typer.BadParameter(
+            "WhatsApp QR dependencies are missing. Run: "
+            "cd integrations/whatsapp-qr && npm install"
+        )
+
+    async def _run() -> None:
+        runtime = ChannelRuntime()
+        adapters: list[Any] = []
+        from kageha.channels.process import ChannelProcessLock
+
+        try:
+            channel_lock = ChannelProcessLock()
+            channel_lock.acquire()
+        except RuntimeError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        try:
+            if "telegram" in selected:
+                adapter = TelegramAdapter(runtime, token=telegram_token)
+                if telegram_allowed == "*":
+                    adapter.allow_all = True
+                else:
+                    adapter.allowed_users = {
+                        value.strip() for value in telegram_allowed.split(",") if value.strip()
+                    }
+                try:
+                    bot = await adapter.call("getMe")
+                except Exception as exc:
+                    raise typer.BadParameter(
+                        f"Telegram token validation failed: {exc}"
+                    ) from exc
+                typer.echo(
+                    f"Telegram @{bot.get('username', 'bot')} is running. "
+                    "Send /start to it, then send a message. Press Ctrl-C to stop."
+                )
+                adapters.append(adapter)
+            if "whatsapp-qr" in selected:
+                adapter = WhatsAppQrAdapter(runtime)
+                if whatsapp_allowed == "*":
+                    adapter.allow_all = True
+                else:
+                    adapter.allowed_users = {
+                        value.strip() for value in whatsapp_allowed.split(",") if value.strip()
+                    }
+                adapters.append(adapter)
+            await asyncio.gather(*(adapter.run() for adapter in adapters))
+        finally:
+            await asyncio.gather(*(adapter.close() for adapter in adapters), return_exceptions=True)
+            await runtime.close()
+            channel_lock.release()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        pass
+
+
+@channels_app.command("status")
+def channels_status() -> None:
+    """Show whether the channel listener is active and who owns it."""
+    from kageha.channels.process import channel_process_is_running
+    from kageha.runtime.supervisor import ServiceSupervisor
+
+    supervisor = ServiceSupervisor()
+    try:
+        managed = next(
+            (row for row in supervisor.status()["services"] if row["name"] == "channels"),
+            None,
+        )
+    finally:
+        supervisor.close()
+    running = channel_process_is_running()
+    if managed and managed.get("alive"):
+        typer.echo(f"running (supervised, pid {managed.get('pid')})")
+    elif running:
+        typer.echo("running (foreground/manual listener)")
+    else:
+        typer.echo("stopped")
+
+
+@channels_app.command("stop")
+def channels_stop() -> None:
+    """Stop a supervisor-managed channel listener."""
+    from kageha.channels.process import channel_process_is_running
+    from kageha.runtime.supervisor import ServiceSupervisor
+
+    supervisor = ServiceSupervisor()
+    try:
+        managed = next(
+            (row for row in supervisor.status()["services"] if row["name"] == "channels"),
+            None,
+        )
+        if managed and managed.get("alive"):
+            result = supervisor.stop("channels")
+            typer.echo(json.dumps(result, indent=2))
+        elif channel_process_is_running():
+            typer.echo("A foreground channel listener is running; stop it with Ctrl-C.")
+        else:
+            typer.echo("channels already stopped")
+    finally:
+        supervisor.close()
 
 
 @app.command("version")
@@ -821,6 +1043,7 @@ def chat_cmd(
         raise typer.Exit(code=2) from exc
     if sandbox:
         typer.echo(f"[kageha] sandbox={selected_sandbox}")
+    _autostart_configured_channels("chat")
 
     asyncio.run(
         run_chat_repl(
@@ -897,6 +1120,7 @@ def server_cmd(
     """Start JSON-RPC App Server (stdio, Unix socket, or loopback WebSocket)."""
     from kageha.app_server_listen import main_listen
 
+    _autostart_configured_channels("server")
     main_listen(listen)
 @worktree_app.command("list")
 def worktree_list_cmd(
@@ -1282,6 +1506,7 @@ def webui_cmd(
     """Serve the Kageha chat + memory Web UI (REST over App Server)."""
     from kageha.webui.server import serve_webui
 
+    _autostart_configured_channels("webui")
     serve_webui(
         host=host,
         port=port,

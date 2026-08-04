@@ -251,7 +251,9 @@ class AppServer:
             agent_id = str(params.get("agent_id") or "main")
             channel_key = str(params.get("channel_key") or "")
             prior_run = str(
-                self._thread_dict(thread_id).get("run_id") or ""
+                params.get("run_id")
+                or self._thread_dict(thread_id).get("run_id")
+                or ""
             )
             model_param = params.get("model") or params.get("model_override")
             task_text = str(task)
