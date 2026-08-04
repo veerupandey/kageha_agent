@@ -256,6 +256,18 @@ def channels_run(
         pass
 
 
+@channels_app.command("setup")
+def channels_setup() -> None:
+    """Configure Telegram/WhatsApp once for WebUI and chat autostart."""
+    from kageha.config import resolve_env_file
+    from kageha.setup_wizard import configure_channels
+
+    try:
+        configure_channels(resolve_env_file())
+    except (ValueError, EOFError, KeyboardInterrupt) as exc:
+        raise typer.BadParameter(str(exc) or "Channel setup cancelled") from None
+
+
 @channels_app.command("status")
 def channels_status() -> None:
     """Show whether the channel listener is active and who owns it."""
@@ -312,6 +324,9 @@ def setup_cmd(
     no_smoke: bool = typer.Option(
         False, "--no-smoke", help="Skip the optional model smoke test prompt"
     ),
+    channels: bool = typer.Option(
+        False, "--channels", help="Also configure Telegram/WhatsApp for WebUI autostart"
+    ),
 ) -> None:
     """Guided setup: surface, API key or Codex/Antigravity OAuth, packs, default model."""
     from kageha.setup_wizard import run_setup
@@ -319,6 +334,13 @@ def setup_cmd(
     result = run_setup(smoke_test=False if no_smoke else None)
     if not result.get("ok"):
         raise typer.Exit(1)
+    if channels:
+        from kageha.setup_wizard import configure_channels
+
+        try:
+            configure_channels(Path(result["env_path"]))
+        except (ValueError, EOFError, KeyboardInterrupt) as exc:
+            raise typer.BadParameter(str(exc) or "Channel setup cancelled") from None
     if result.get("smoke_ok") is False:
         raise typer.Exit(1)
 

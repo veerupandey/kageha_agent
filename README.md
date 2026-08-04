@@ -83,16 +83,12 @@ See [docs/CHANNELS.md](docs/CHANNELS.md) for setup, allowlists, media support,
 background startup, lifecycle commands, and security limitations.
 
 ```bash
-# Telegram
-export TELEGRAM_BOT_TOKEN="..."
-export TELEGRAM_ALLOWED_USERS="123456789"
-uv run kageha channels run --telegram
+# Configure either channel once (recommended)
+uv run kageha channels setup
 
-# WhatsApp QR (experimental)
+# WhatsApp QR sidecar dependencies (experimental, first time only)
 cd integrations/whatsapp-qr && npm install && cd ../..
-export WHATSAPP_QR_ENABLED=1
-export WHATSAPP_QR_ALLOWED_USERS="15551234567"
-uv run kageha webui  # starts the configured channel in the background
+uv run kageha webui  # starts configured channels in the background
 ```
 
 Use `uv run kageha channels status` and `uv run kageha channels stop` for a

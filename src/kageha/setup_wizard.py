@@ -480,6 +480,52 @@ def _configure_packs(env_path: Path) -> tuple[list[str], str | None]:
     return packs, image_model
 
 
+def configure_channels(env_path: Path | None = None) -> dict[str, bool]:
+    """Persist guided Telegram/WhatsApp channel configuration."""
+    env_path = env_path or (Path.cwd() / ".env")
+    if not env_path.is_file():
+        env_path.write_text("# Kageha env\n", encoding="utf-8")
+    existing_telegram = bool(read_env_value("TELEGRAM_BOT_TOKEN", env_path))
+    existing_whatsapp = bool(read_env_value("WHATSAPP_QR_ENABLED", env_path))
+    print(
+        "\nMessaging channels\n"
+        "  Configure once here; `kageha webui` and `kageha chat` will start\n"
+        "  configured channels automatically.\n",
+        flush=True,
+    )
+    telegram = _yn("Enable Telegram?", existing_telegram)
+    if telegram:
+        token = _prompt_secret("Telegram bot token", "TELEGRAM_BOT_TOKEN")
+        allowed = _prompt(
+            "Allowed Telegram user IDs (comma-separated)",
+            read_env_value("TELEGRAM_ALLOWED_USERS", env_path),
+        )
+        if not token or not allowed:
+            raise ValueError("Telegram requires a bot token and at least one allowed user ID")
+        upsert_env_key("TELEGRAM_BOT_TOKEN", token, env_path)
+        upsert_env_key("TELEGRAM_ALLOWED_USERS", allowed, env_path)
+    whatsapp = _yn("Enable WhatsApp QR?", existing_whatsapp)
+    if whatsapp:
+        allowed = _prompt(
+            "Allowed WhatsApp numbers (international, no + or spaces)",
+            read_env_value("WHATSAPP_QR_ALLOWED_USERS", env_path),
+        )
+        if not allowed:
+            raise ValueError("WhatsApp requires at least one allowed phone number")
+        upsert_env_key("WHATSAPP_QR_ENABLED", "1", env_path)
+        upsert_env_key("WHATSAPP_QR_ALLOWED_USERS", allowed, env_path)
+        upsert_env_key("WHATSAPP_QR_ALLOW_ALL_USERS", "", env_path)
+    configured = telegram or whatsapp
+    upsert_env_key("KAGEHA_CHANNEL_AUTOSTART", "1" if configured else "0", env_path)
+    print(f"Saved channel configuration → {env_path}", flush=True)
+    if whatsapp:
+        print(
+            "Start `kageha webui` to launch WhatsApp; scan the QR in the terminal on first use.",
+            flush=True,
+        )
+    return {"telegram": telegram, "whatsapp": whatsapp}
+
+
 def _print_next_steps(
     *,
     surface: Surface,

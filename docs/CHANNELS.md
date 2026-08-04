@@ -5,6 +5,21 @@ adapter receives a platform message, deduplicates it, binds it to a durable
 Kageha session, runs the agent, and delivers text or generated artifacts back
 through the originating channel.
 
+## Guided setup
+
+Configure channels once with the wizard; credentials and allowlists are saved
+to the project `.env` (which is gitignored):
+
+```bash
+kageha channels setup
+# or include channel setup in the main first-run wizard:
+kageha setup --channels
+```
+
+After that, use `kageha webui` or `kageha chat`. Configured channels start
+automatically, and WhatsApp shows its QR in the terminal the first time it is
+linked. There is no need to export channel variables in every shell.
+
 ## Telegram
 
 Create a bot with `@BotFather`, then configure:

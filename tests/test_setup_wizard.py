@@ -8,7 +8,7 @@ import yaml
 from typer.testing import CliRunner
 
 from kageha.cli import app
-from kageha.setup_wizard import run_setup
+from kageha.setup_wizard import configure_channels, run_setup
 
 
 def test_setup_help():
@@ -25,6 +25,21 @@ def test_models_setup_is_alias():
     result = runner.invoke(app, ["models", "setup", "--help"])
     assert result.exit_code == 0
     assert "alias" in result.stdout.lower() or "kageha setup" in result.stdout.lower()
+
+
+def test_configure_channels_persists_safe_autostart_settings(tmp_path: Path, monkeypatch):
+    env_path = tmp_path / ".env"
+    answers = iter(["n", "y", "12369780550"])
+    monkeypatch.setattr("builtins.input", lambda *_a, **_k: next(answers))
+
+    result = configure_channels(env_path)
+
+    assert result == {"telegram": False, "whatsapp": True}
+    env_text = env_path.read_text()
+    assert "WHATSAPP_QR_ENABLED=1" in env_text
+    assert "WHATSAPP_QR_ALLOWED_USERS=12369780550" in env_text
+    assert "WHATSAPP_QR_ALLOW_ALL_USERS=" in env_text
+    assert "KAGEHA_CHANNEL_AUTOSTART=1" in env_text
 
 
 def test_run_setup_openai_compat_and_packs(tmp_path: Path, monkeypatch):
