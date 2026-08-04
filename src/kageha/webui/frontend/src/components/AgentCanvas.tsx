@@ -7,7 +7,7 @@
  * - Stats: Cost, tokens, steps, elapsed time
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { CanvasItem } from "../lib/artifactMedia";
@@ -742,9 +742,14 @@ export function AgentCanvas({ alwaysShow, onCollapse }: { alwaysShow?: boolean; 
   const todoBoard = useAppStore((s) => s.todoBoard);
   const [activeTab, setActiveTab] = useState<CanvasTab>("timeline");
 
-  // Auto-switch to timeline when a run starts
+  const prevRunStatus = useRef(runStatus);
+
+  // Auto-switch to timeline only when a NEW run starts (not on every status update)
   useEffect(() => {
-    if (runStatus === "running") setActiveTab("timeline");
+    if (runStatus === "running" && prevRunStatus.current !== "running") {
+      setActiveTab("timeline");
+    }
+    prevRunStatus.current = runStatus;
   }, [runStatus]);
 
   // Auto-switch to plan tab when todo items appear (plan approved)
