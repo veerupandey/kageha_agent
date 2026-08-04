@@ -181,3 +181,28 @@ async def test_whatsapp_qr_sidecar_event_end_to_end(tmp_path):
         assert command["text"] == "reply from runtime"
     finally:
         await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_qr_rejects_unlisted_sender_without_reply(tmp_path):
+    server = FakeAppServer()
+    from kageha.runtime.store import RuntimeStore
+
+    store = RuntimeStore(tmp_path / "runtime.db")
+    runtime = ChannelRuntime(server=server, store=store)
+    adapter = WhatsAppQrAdapter(runtime)
+    adapter.allowed_users = {"12369780550"}
+    adapter.process = FakeProcess()
+    try:
+        await adapter.handle_event(
+            {
+                "type": "message",
+                "id": "wa-unauthorized-1",
+                "from": "15551234567",
+                "text": "hello",
+            }
+        )
+        assert server.requests == []
+        assert adapter.process.stdin.lines == []
+    finally:
+        await runtime.close()

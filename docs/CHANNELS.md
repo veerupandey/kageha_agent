@@ -86,10 +86,9 @@ kageha webui
 ```
 
 For a reliable smoke test, send a message from a second WhatsApp account to the
-linked account. WhatsApp may not forward self-chat messages from the linked
-account into the companion device's inbound event stream. The adapter has
-guards for self-chat and outbound reply loops, but self-chat is not the
-recommended production test path.
+linked account. Self-chat is also supported when WhatsApp forwards the event;
+the adapter normalizes the linked account's device-qualified ID and guards
+against outbound reply loops.
 
 Inspect or stop a supervised listener with:
 
@@ -114,6 +113,10 @@ If the listener was started directly with `kageha channels run`, stop it with
   the same time.
 - Channel turns do not auto-approve risky tools. Approval-required work is
   reported back as blocked and should be continued from the Web UI or CLI.
+- WhatsApp is deny-by-default: senders not listed in
+  `WHATSAPP_QR_ALLOWED_USERS` are never passed to the agent and receive no
+  agent reply. Keep `WHATSAPP_QR_ALLOW_ALL_USERS` unset except for isolated
+  testing.
 
 ## Current limitations
 
