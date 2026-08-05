@@ -68,6 +68,11 @@ def _multipart(
     return body, f"multipart/form-data; boundary={boundary}"
 
 
+def test_computer_frame_throttle_allows_first_frame(webui_app: WebUIApp):
+    assert webui_app._allow_computer_frame_emit() is True
+    assert webui_app._allow_computer_frame_emit() is False
+
+
 def test_meta_exposes_memory_kinds(webui_app: WebUIApp):
     status, payload = _call(webui_app, "GET", "/api/meta")
     assert status == 200

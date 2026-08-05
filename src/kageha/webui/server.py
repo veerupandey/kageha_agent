@@ -1442,6 +1442,7 @@ class WebUIApp:
     ) -> None:
         self.server = server or AppServer()
         self.project_root = str(project_root or Path.cwd())
+        self._last_computer_frame_at = 0.0
         self._loop = asyncio.new_event_loop()
         self._loop_thread = threading.Thread(
             target=self._run_loop, name="kageha-webui-loop", daemon=True
