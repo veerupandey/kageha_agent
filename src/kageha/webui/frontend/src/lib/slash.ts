@@ -119,8 +119,10 @@ export function filterSlashCommands(
     .trim();
   let matched: SlashCommand[];
   if (!q) {
-    const primary = new Set(SLASH_PRIMARY_IDS);
-    matched = list.filter((c) => primary.has(String(c.id || "")));
+    // Show the complete capability-filtered catalog when the user types `/`.
+    // Primary commands still sort first, while every available slash command
+    // remains discoverable without requiring the user to know its prefix.
+    matched = list;
   } else {
     matched = list.filter((c) => {
       const id = String(c.id || "").toLowerCase();
