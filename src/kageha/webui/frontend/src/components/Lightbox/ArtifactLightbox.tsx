@@ -112,11 +112,36 @@ export function ArtifactLightbox({ itemPath, onClose, onNavigate }: ArtifactLigh
       }}
     >
       <div
-        className="ka-lightbox"
+        className="ka-lightbox-frame"
         ref={containerRef}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
       >
+        {/* Navigation arrows sit in the gutter, outside the canvas. */}
+        <button
+          type="button"
+          className="absolute -left-14 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-line bg-[var(--color-surface)]/90 text-muted shadow-lg backdrop-blur-sm hover:bg-[var(--color-surface)] hover:text-ink"
+          aria-label="Previous artifact"
+          onClick={() => onNavigate("prev")}
+        >
+          <svg aria-hidden="true" viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m12.5 4.5-5.5 5.5 5.5 5.5" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="absolute -right-14 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-line bg-[var(--color-surface)]/90 text-muted shadow-lg backdrop-blur-sm hover:bg-[var(--color-surface)] hover:text-ink"
+          aria-label="Next artifact"
+          onClick={() => onNavigate("next")}
+        >
+          <svg aria-hidden="true" viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m7.5 4.5 5.5 5.5-5.5 5.5" />
+          </svg>
+        </button>
+
+        <div
+          className="ka-lightbox"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >
         {/* Close button */}
         <button
           type="button"
@@ -127,26 +152,9 @@ export function ArtifactLightbox({ itemPath, onClose, onNavigate }: ArtifactLigh
           ✕
         </button>
 
-        {/* Navigation arrows */}
-        <button
-          type="button"
-          className="absolute left-4 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--color-surface)]/80 text-lg text-muted hover:text-ink"
-          aria-label="Previous artifact"
-          onClick={() => onNavigate("prev")}
-        >
-          ←
-        </button>
-        <button
-          type="button"
-          className="absolute right-[296px] top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--color-surface)]/80 text-lg text-muted hover:text-ink"
-          aria-label="Next artifact"
-          onClick={() => onNavigate("next")}
-        >
-          →
-        </button>
-
         <LightboxPreview item={item} />
         <LightboxSidebar item={item} />
+        </div>
       </div>
     </div>
   );

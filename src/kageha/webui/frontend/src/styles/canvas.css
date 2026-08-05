@@ -310,16 +310,28 @@
   justify-content: center;
 }
 
-.ka-lightbox {
+.ka-lightbox-frame {
+  position: relative;
   width: 90vw;
   max-width: 1200px;
   height: 85vh;
   max-height: 800px;
+}
+
+.ka-lightbox {
+  width: 100%;
+  height: 100%;
   display: flex;
   background: var(--color-surface);
   border-radius: var(--radius-xl);
   overflow: hidden;
   border: 1px solid var(--color-line);
+}
+
+@media (max-width: 1320px) {
+  .ka-lightbox-frame {
+    width: calc(100vw - 8rem);
+  }
 }
 
 .ka-lightbox-preview {

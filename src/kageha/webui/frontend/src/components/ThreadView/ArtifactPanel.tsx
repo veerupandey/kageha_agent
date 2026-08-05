@@ -126,7 +126,7 @@ function InlinePreview({
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden border-t border-line bg-[var(--color-canvas)]">
       {/* Preview header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-line/50">
+      <div className="flex shrink-0 items-center justify-between px-3 py-2 border-b border-line/50">
         <div className="flex items-center gap-2 min-w-0">
           <FileIcon kind={item.kind} ext={fileExt(item.path)} />
           <div className="min-w-0">
@@ -165,7 +165,7 @@ function InlinePreview({
       </div>
 
       {/* Content */}
-      <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {item.kind === "image" ? (
           <div className="flex items-center justify-center p-4 bg-[#0d1117]">
             <img
@@ -200,8 +200,13 @@ function InlinePreview({
           loading ? (
             <div className="p-4 text-xs text-muted">Loading…</div>
           ) : (
-            <div className="p-2">
-              <CodeBlock code={text} filename={item.caption} maxHeight="calc(100% - 1rem)" />
+            <div className="h-full min-h-0 p-2">
+              <CodeBlock
+                code={text}
+                filename={item.caption}
+                maxHeight="100%"
+                className="h-full overscroll-contain"
+              />
             </div>
           )
         ) : item.kind === "markdown" ? (
