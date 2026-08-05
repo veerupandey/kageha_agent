@@ -1,7 +1,13 @@
 import asyncio
 import json
 
-from kageha.harness.approvals import ApprovalDecision, ApprovalGate, ApprovalRequest
+from kageha.harness.approvals import (
+    ApprovalDecision,
+    ApprovalGate,
+    ApprovalRequest,
+    apply_permission_scope,
+    process_permissions,
+)
 from kageha.harness.runtime import HarnessContext
 from kageha.harness.sandbox import SessionWorkspace
 from kageha.harness.tools.builtin import register as register_builtin
@@ -118,6 +124,54 @@ def test_require_explicit_fail_closed_without_approver():
         assert ok.approved is False
 
     asyncio.run(_run())
+
+
+def test_full_access_allows_host_escape_without_prompt(monkeypatch):
+    import kageha.harness.approvals as ap
+
+    monkeypatch.setattr(
+        ap,
+        "_PROCESS_PERMISSIONS",
+        {"auto_approve": True, "sandbox_network": True, "scope": "full"},
+    )
+    decisions: list[str] = []
+    gate = ApprovalGate(
+        approver=None,
+        audit=lambda _req, decision: decisions.append(decision),
+    )
+
+    async def _run():
+        outcome = await gate.require_host_escape(
+            ApprovalRequest(
+                action="bash_elevated",
+                detail="test -f /tmp/example",
+                risk_class="shell_elevated",
+            )
+        )
+        assert outcome.approved is True
+        assert outcome.scope == "full"
+
+    asyncio.run(_run())
+    assert decisions == ["approved_full_access"]
+
+
+def test_downgrading_full_access_to_auto_restores_sandbox_boundary(monkeypatch):
+    import kageha.harness.approvals as ap
+
+    monkeypatch.setattr(
+        ap,
+        "_PROCESS_PERMISSIONS",
+        {"auto_approve": False, "sandbox_network": False, "scope": "ask"},
+    )
+    monkeypatch.delenv("KAGEHA_SANDBOX_ALLOW_NETWORK", raising=False)
+
+    apply_permission_scope("full")
+    assert process_permissions()["sandbox_network"] is True
+
+    result = apply_permission_scope("session")
+    assert result["scope"] == "session"
+    assert process_permissions()["sandbox_network"] is False
+    assert "KAGEHA_SANDBOX_ALLOW_NETWORK" not in ap.os.environ
 
 
 def test_request_approval_tool_uses_explicit_bus(tmp_path):

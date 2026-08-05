@@ -27,6 +27,22 @@ _READ_PREFIXES = (
     "pdf_meta",
 )
 
+_READ_ONLY_TOOLS = frozenset(
+    {
+        "web_fetch",
+        "parallel_web_fetch",
+        "headless_fetch",
+        "skill_list",
+        "browser_snapshot",
+        "browser_screenshot",
+        "browser_diagnostics",
+        "computer_screenshot",
+        "computer_get_state",
+        "computer_list_apps",
+        "computer_doctor",
+    }
+)
+
 _ARGS_PREVIEW_KEYS = (
     "path",
     "command",
@@ -62,7 +78,7 @@ _ARTIFACT_PATH_RE = re.compile(
 
 def classify_side_effect(tool_name: str, risk_class: str) -> str:
     name = (tool_name or "").lower()
-    if name.startswith(_READ_PREFIXES):
+    if name in _READ_ONLY_TOOLS or name.startswith(_READ_PREFIXES):
         return "read"
     if risk_class in {"safe"} and name in {"web_search", "parallel_web_search"}:
         return "read"

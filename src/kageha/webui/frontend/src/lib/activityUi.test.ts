@@ -1,33 +1,16 @@
 import { describe, expect, it } from "vitest";
-import {
-  activityGlyph,
-  activityLineText,
-  friendlyActivityLabel,
-} from "./activityUi";
+import { activityTarget, activityUrl } from "./activityUi";
 
-describe("activityUi", () => {
-  it("maps labels to CLI-style glyphs", () => {
-    expect(activityGlyph("Thinking…")).toBe("✦");
-    expect(activityGlyph("Running bash")).toBe("▸");
-    expect(activityGlyph("Waiting for approval")).toBe("⏸");
-    expect(activityGlyph("Error")).toBe("!");
+describe("activity navigation", () => {
+  it("routes browser and computer activity", () => {
+    expect(activityTarget("browser_navigate Opening page…")).toBe("browser");
+    expect(activityTarget("computer_click Clicking…")).toBe("computer");
+    expect(activityTarget("Reading file…")).toBeNull();
   });
 
-  it("friendly-labels noisy telemetry", () => {
-    expect(friendlyActivityLabel("Accepted")).toBe("Starting…");
-    expect(friendlyActivityLabel("Planning…")).toBe("Planning…");
-    expect(friendlyActivityLabel("action: bash")).toBe("Running bash…");
-    expect(friendlyActivityLabel("tools: read_file, write_file")).toBe(
-      "Running read_file…",
+  it("extracts a page URL from tool arguments", () => {
+    expect(activityUrl('{"url":"https://example.com/path"}')).toBe(
+      "https://example.com/path",
     );
-  });
-
-  it("keeps one short detail hint on a line", () => {
-    expect(
-      activityLineText({
-        label: "Plan ready",
-        detail: ["agent=normal · stage=act"],
-      }),
-    ).toContain("Plan ready");
   });
 });

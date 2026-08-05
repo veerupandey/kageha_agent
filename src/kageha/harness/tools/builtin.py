@@ -259,7 +259,7 @@ def register(ctx: "HarnessContext") -> ToolRegistry:
                 "Prefer bash(network=true) if you only need internet inside the sandbox.\n"
                 f"\nCommand:\n{command}"
             )
-            ok = await gate.require_explicit(
+            ok = await gate.require_host_escape(
                 ApprovalRequest(
                     action="bash_elevated",
                     detail=detail,
@@ -1389,6 +1389,15 @@ def load_entry_point_tools(ctx: "HarnessContext") -> ToolRegistry:
                 reg.register(t)
     except Exception as e:  # noqa: BLE001
         _fail_or_warn("user_tools", e)
+
+    # Keep the complete registry executable, but give the model a compact
+    # discovery escape hatch so per-turn schema selection can stay lean.
+    try:
+        from kageha.harness.dynamic_tools import register_tool_search
+
+        register_tool_search(ctx, reg)
+    except Exception as e:  # noqa: BLE001
+        _fail_or_warn("tool_search", e)
 
     ctx.meta["tool_load_warnings"] = warnings
     ctx.meta["tool_count"] = len(reg.names())

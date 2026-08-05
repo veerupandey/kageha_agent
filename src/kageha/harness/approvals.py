@@ -146,8 +146,12 @@ def apply_permission_scope(scope: str) -> dict[str, Any]:
             "message": "Ask mode: confirm before risky tools.",
         }
     if scope == "session":
+        had_full_net = bool(_PROCESS_PERMISSIONS.get("sandbox_network"))
         _PROCESS_PERMISSIONS["auto_approve"] = True
+        _PROCESS_PERMISSIONS["sandbox_network"] = False
         _PROCESS_PERMISSIONS["scope"] = "session"
+        if had_full_net:
+            os.environ.pop("KAGEHA_SANDBOX_ALLOW_NETWORK", None)
         return {
             "scope": "session",
             "auto_approve": True,
@@ -164,8 +168,8 @@ def apply_permission_scope(scope: str) -> dict[str, Any]:
             "auto_approve": True,
             "sandbox_network": True,
             "message": (
-                "Full access: auto-approve + sandbox network for this process. "
-                "Elevated host-escape still asks once unless you approve it."
+                "Full access: no approval prompts; host access and network are allowed "
+                "for this process."
             ),
         }
     return {"scope": "once", "auto_approve": False, "sandbox_network": False, "message": ""}
@@ -263,6 +267,7 @@ class ApprovalGate:
         # Inherit Session/Full grants from earlier turns in this process.
         perms = process_permissions()
         self.auto_approve = bool(auto_approve or perms.get("auto_approve"))
+        self.full_access = str(perms.get("scope") or "") == "full"
         self.audit = audit
         self.on_permission_grant = on_permission_grant
         self.log: list[ApprovalRequest] = []
@@ -288,6 +293,8 @@ class ApprovalGate:
         grant = apply_permission_scope(self.last_scope)
         if grant.get("auto_approve"):
             self.auto_approve = True
+        if grant.get("scope") == "full":
+            self.full_access = True
         if self.on_permission_grant is not None:
             try:
                 self.on_permission_grant(grant)
@@ -357,6 +364,15 @@ class ApprovalGate:
                     self.audit(req, "denied_policy")
                 return ApprovalOutcome(False)
             return await self._ask(req, persist_allowlist=False)
+
+    async def require_host_escape(self, req: ApprovalRequest) -> ApprovalOutcome:
+        """Match Codex Full access: no prompt only after explicit Full selection."""
+        if self.full_access:
+            self.log.append(req)
+            if self.audit is not None:
+                self.audit(req, "approved_full_access")
+            return ApprovalOutcome(True, scope="full")
+        return await self.require_explicit(req)
 
     async def _ask(
         self, req: ApprovalRequest, *, persist_allowlist: bool

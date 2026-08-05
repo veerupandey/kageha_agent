@@ -30,8 +30,6 @@ _SLASH_COMMANDS = (
     "/model",
     "/model list",
     "/model reset",
-    "/comet",
-    "/comet status",
     "/browser",
     "/browser list",
     "/browser status",
@@ -47,6 +45,7 @@ _SLASH_COMMANDS = (
     "/browser pack on",
     "/browser pack off",
     "/browser depth flash",
+    "/browser diagnose",
     "/computer",
     "/computer status",
     "/computer doctor",
@@ -99,6 +98,7 @@ _SUBCOMMANDS: dict[str, tuple[str, ...]] = {
         "cdp",
         "pack",
         "depth",
+        "diagnose",
     ),
     "/computer": (
         "status",
@@ -122,7 +122,6 @@ _SUBCOMMANDS: dict[str, tuple[str, ...]] = {
         "correct",
         "forget",
     ),
-    "/comet": ("status", "start"),
 }
 
 

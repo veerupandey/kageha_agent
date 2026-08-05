@@ -38,8 +38,12 @@ def _exit_code_for_run_status(status: str | None) -> int:
 
 def _autostart_configured_channels(surface: str) -> None:
     """Ensure configured channels run alongside a long-lived Kageha surface."""
-    if (os.environ.get("KAGEHA_CHANNEL_AUTOSTART", "1").strip().lower() in
-            {"0", "false", "no", "off"}):
+    if os.environ.get("KAGEHA_CHANNEL_AUTOSTART", "1").strip().lower() in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }:
         return
     if not (
         os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
@@ -119,7 +123,9 @@ def main_callback() -> None:
 @channels_app.command("run")
 def channels_run(
     telegram: bool = typer.Option(False, "--telegram", help="Run the Telegram bot"),
-    whatsapp_qr: bool = typer.Option(False, "--whatsapp-qr", help="Run the experimental WhatsApp QR bridge"),
+    whatsapp_qr: bool = typer.Option(
+        False, "--whatsapp-qr", help="Run the experimental WhatsApp QR bridge"
+    ),
 ) -> None:
     """Run one or more configured messaging adapters."""
     from kageha.channels.runtime import ChannelRuntime
@@ -135,7 +141,9 @@ def channels_run(
     if whatsapp_qr or (not telegram and not whatsapp_qr and os.environ.get("WHATSAPP_QR_ENABLED")):
         selected.append("whatsapp-qr")
     if not selected:
-        raise typer.BadParameter("select --telegram or --whatsapp-qr, or configure a channel in the environment")
+        raise typer.BadParameter(
+            "select --telegram or --whatsapp-qr, or configure a channel in the environment"
+        )
     telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     telegram_allowed = os.environ.get("TELEGRAM_ALLOWED_USERS", "").strip()
     whatsapp_allowed = os.environ.get("WHATSAPP_QR_ALLOWED_USERS", "").strip()
@@ -201,8 +209,7 @@ def channels_run(
             )
     if "whatsapp-qr" in selected and not whatsapp_qr_dependencies_ready():
         raise typer.BadParameter(
-            "WhatsApp QR dependencies are missing. Run: "
-            "cd integrations/whatsapp-qr && npm install"
+            "WhatsApp QR dependencies are missing. Run: cd integrations/whatsapp-qr && npm install"
         )
 
     async def _run() -> None:
@@ -227,9 +234,7 @@ def channels_run(
                 try:
                     bot = await adapter.call("getMe")
                 except Exception as exc:
-                    raise typer.BadParameter(
-                        f"Telegram token validation failed: {exc}"
-                    ) from exc
+                    raise typer.BadParameter(f"Telegram token validation failed: {exc}") from exc
                 typer.echo(
                     f"Telegram @{bot.get('username', 'bot')} is running. "
                     "Send /start to it, then send a message. Press Ctrl-C to stop."
@@ -347,9 +352,7 @@ def setup_cmd(
 
 @app.command("run")
 def run_cmd(
-    task: Optional[str] = typer.Argument(
-        None, help="Task for the agent (optional with --resume)"
-    ),
+    task: Optional[str] = typer.Argument(None, help="Task for the agent (optional with --resume)"),
     auto_approve: bool = typer.Option(False, "--auto-approve", help="Skip HITL prompts"),
     resume: Optional[str] = typer.Option(
         None,
@@ -509,8 +512,7 @@ def run_cmd(
     )
     if isinstance(correction, list):
         memory_extra = (
-            memory_extra
-            + "\n\nThe user's correction matched multiple recalled memories, "
+            memory_extra + "\n\nThe user's correction matched multiple recalled memories, "
             f"which were quarantined: {', '.join(correction)}. Ask one concise "
             "clarifying question to identify the intended claim."
         ).strip()
@@ -558,9 +560,7 @@ def run_cmd(
                         **common,
                     )
                 else:
-                    handle = durable.submit(
-                        TurnRequest(objective=task_text, **common)
-                    )
+                    handle = durable.submit(TurnRequest(objective=task_text, **common))
                 result = await handle.result()
         except Exception as exc:
             memory.capture_turn(
@@ -867,9 +867,7 @@ def memory_consolidate(
 ) -> None:
     from kageha.memory.service import get_memory_service
 
-    typer.echo(
-        json.dumps(get_memory_service().consolidate(force=force), indent=2, sort_keys=True)
-    )
+    typer.echo(json.dumps(get_memory_service().consolidate(force=force), indent=2, sort_keys=True))
 
 
 @memory_app.command("forgotten")
@@ -972,10 +970,7 @@ def runtime_rebuild(
         rebuilt = store.rebuild(session_id)
         typer.echo(
             json.dumps(
-                {
-                    turn_id: snapshot.to_dict()
-                    for turn_id, snapshot in rebuilt.items()
-                },
+                {turn_id: snapshot.to_dict() for turn_id, snapshot in rebuilt.items()},
                 indent=2,
                 sort_keys=True,
             )
@@ -1025,16 +1020,11 @@ def chat_cmd(
     ),
     auto_approve: bool = typer.Option(False, "--auto-approve", help="Skip HITL prompts"),
     quiet: bool = typer.Option(False, "--quiet", help="Hide live step/tool progress"),
-    max_steps: Optional[int] = typer.Option(
-        None, "--max-steps", help="Per-turn loop step ceiling"
-    ),
+    max_steps: Optional[int] = typer.Option(None, "--max-steps", help="Per-turn loop step ceiling"),
     voice: bool = typer.Option(
         False,
         "--voice",
-        help=(
-            "Local mic → STT (needs sox/ffmpeg + mic + API key). "
-            "Headless hosts: type instead"
-        ),
+        help=("Local mic → STT (needs sox/ffmpeg + mic + API key). Headless hosts: type instead"),
     ),
     project: Path = typer.Option(
         Path.cwd(), "--project", "-C", help="Project root for AGENTS.md / rules / tools"
@@ -1102,16 +1092,16 @@ def sessions_cmd(
         title = load_workspace_title(sid)
         label = title or str(row["objective"])[:100]
         typer.echo(
-            f"{sid}  {row['updated_at']:.3f}  "
-            f"[{row['turn_status'] or row['status']}]  "
-            f"{label}"
+            f"{sid}  {row['updated_at']:.3f}  [{row['turn_status'] or row['status']}]  {label}"
         )
 
 
 @app.command("share")
 def share_cmd(
     session_id: str = typer.Argument(help="Session ID to export (from `kageha sessions`)"),
-    output: str = typer.Option("", "--output", "-o", help="Output file path (default: session/share.html)"),
+    output: str = typer.Option(
+        "", "--output", "-o", help="Output file path (default: session/share.html)"
+    ),
 ) -> None:
     """Export a session as a shareable standalone HTML replay.
 
@@ -1144,6 +1134,8 @@ def server_cmd(
 
     _autostart_configured_channels("server")
     main_listen(listen)
+
+
 @worktree_app.command("list")
 def worktree_list_cmd(
     project: Path = typer.Option(Path.cwd(), "--project", "-C"),
@@ -1246,8 +1238,7 @@ def jobs_run_cmd(
 
     if auto_build and not session_id:
         typer.echo(
-            "ERROR: --build requires --resume SESSION "
-            "(the job/session that wrote plan.md).",
+            "ERROR: --build requires --resume SESSION (the job/session that wrote plan.md).",
             err=True,
         )
         raise typer.Exit(code=2)
@@ -1291,9 +1282,7 @@ def jobs_list_cmd(limit: int = typer.Option(20, "--limit")) -> None:
     """List recent background jobs."""
     from kageha.project.async_jobs import list_jobs
 
-    typer.echo(
-        json.dumps([j.to_dict() for j in list_jobs(limit=limit)], indent=2)
-    )
+    typer.echo(json.dumps([j.to_dict() for j in list_jobs(limit=limit)], indent=2))
 
 
 @jobs_app.command("status")
@@ -1465,6 +1454,16 @@ def browser_research_cmd(
     typer.echo(asyncio.run(_run()))
 
 
+@browser_app.command("diagnose")
+def browser_diagnose_cmd(
+    url: str = typer.Argument(..., help="Page URL to inspect"),
+) -> None:
+    """Open a page and print console/network/performance diagnostics."""
+    from kageha.chat.browser_commands import diagnose_url
+
+    typer.echo(asyncio.run(diagnose_url(url)))
+
+
 @app.command("research")
 def research_cmd(
     query: str = typer.Argument(..., help="Research question"),
@@ -1509,9 +1508,7 @@ def project_status_cmd(
 def webui_cmd(
     host: str = typer.Option("127.0.0.1", "--host", help="Bind address"),
     port: int = typer.Option(8788, "--port", "-p", help="HTTP port"),
-    open_browser: bool = typer.Option(
-        False, "--open", help="Open the UI in a browser"
-    ),
+    open_browser: bool = typer.Option(False, "--open", help="Open the UI in a browser"),
     attach: Optional[str] = typer.Option(
         None,
         "--attach",
@@ -1536,6 +1533,8 @@ def webui_cmd(
         attach=attach,
         project_root=str(project.resolve()),
     )
+
+
 @models_app.command("list")
 def models_list() -> None:
     from kageha.models.registry import ModelRegistry
@@ -1676,9 +1675,7 @@ def models_setup(
     no_smoke: bool = typer.Option(
         False, "--no-smoke", help="Skip the optional model smoke test prompt"
     ),
-    no_test: bool = typer.Option(
-        False, "--no-test", help="Alias of --no-smoke (compat)"
-    ),
+    no_test: bool = typer.Option(False, "--no-test", help="Alias of --no-smoke (compat)"),
 ) -> None:
     """Alias of `kageha setup` (guided surface, OAuth/API keys, packs, default model)."""
     from kageha.setup_wizard import run_setup
@@ -1697,9 +1694,7 @@ def models_providers() -> None:
     from kageha.models.setup import list_presets
 
     for p in list_presets():
-        typer.echo(
-            f"{p.key:14} {p.label:32} env={p.api_key_env} default={p.default_model}"
-        )
+        typer.echo(f"{p.key:14} {p.label:32} env={p.api_key_env} default={p.default_model}")
 
 
 @skills_app.command("list")
@@ -1722,10 +1717,7 @@ def skills_add(source: Path = typer.Argument(...)) -> None:
 def skills_install(
     spec: str = typer.Argument(
         ...,
-        help=(
-            "Local path, GitHub owner/repo, or owner/repo/skill "
-            "(e.g. anthropics/skills/pdf)"
-        ),
+        help=("Local path, GitHub owner/repo, or owner/repo/skill (e.g. anthropics/skills/pdf)"),
     ),
     only: Optional[str] = typer.Option(
         None,
@@ -1831,8 +1823,7 @@ def skills_reindex() -> None:
         raise typer.Exit(1)
     n = len((index._data.get("skills") or {}))
     typer.echo(
-        f"Indexed {n} skills with {cfg.provider}/{cfg.model} "
-        f"(dim={cfg.dimensions}) → {index.path}"
+        f"Indexed {n} skills with {cfg.provider}/{cfg.model} (dim={cfg.dimensions}) → {index.path}"
     )
 
 
@@ -1959,9 +1950,7 @@ def mcp_test(
                 if any(not d["ok"] and d.get("error") != "disabled" for d in detail):
                     # only fail if something was enabled and failed
                     enabled_fail = [
-                        d
-                        for d in detail
-                        if not d["ok"] and d.get("error") not in {"disabled", ""}
+                        d for d in detail if not d["ok"] and d.get("error") not in {"disabled", ""}
                     ]
                     if enabled_fail:
                         raise typer.Exit(code=1)

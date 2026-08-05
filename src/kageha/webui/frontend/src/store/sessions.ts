@@ -1,6 +1,16 @@
 import { ApiError, api } from "../api/client";
 import type { SessionSummary } from "../api/types";
 
+export function provisionalSessionTitle(message: string): string {
+  let value = String(message || "").replace(/\s+/g, " ").trim();
+  if (value.startsWith("/")) {
+    value = value.includes(" ") ? value.replace(/^\/\S+\s*/, "") : "";
+  }
+  const words = value.split(" ").filter(Boolean);
+  if (words.length > 8) value = `${words.slice(0, 8).join(" ")}…`;
+  return value.length <= 60 ? value : `${value.slice(0, 57).trimEnd()}…`;
+}
+
 export type SessionPatch = {
   title?: string;
   archived?: boolean;

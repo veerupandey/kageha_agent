@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applySessionFlagsLocally,
   filterSessionsForRail,
+  provisionalSessionTitle,
   sortSessionsPinnedFirst,
 } from "./sessions";
 import type { SessionSummary } from "../api/types";
@@ -12,6 +13,16 @@ function sid(
 ): SessionSummary {
   return { session_id: id, title: opts.title ?? id, ...opts };
 }
+
+describe("provisionalSessionTitle", () => {
+  it("uses a short first-words label immediately", () => {
+    expect(
+      provisionalSessionTitle(
+        "Please install Factory desktop and configure the provider with my API key",
+      ),
+    ).toBe("Please install Factory desktop and configure the provider…");
+  });
+});
 
 describe("sortSessionsPinnedFirst", () => {
   it("moves pinned sessions to the top without reordering peers", () => {

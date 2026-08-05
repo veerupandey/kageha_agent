@@ -202,7 +202,10 @@ class AppServer:
             # Keep doctor as fallback hint, but always surface the real failure —
             # opaque "Request failed" made healthy doctor output useless when the
             # session was blocked on reconciliation / InvalidTransition.
-            if "reconciliation" in detail.lower() or "uncertain" in detail.lower():
+            if any(
+                token in detail.lower()
+                for token in ("reconcile", "reconciliation", "uncertain")
+            ):
                 message = (
                     f"{detail} Start a new chat, or clear the stuck approval/"
                     "uncertain tool attempt on this session."
@@ -255,6 +258,17 @@ class AppServer:
                 or self._thread_dict(thread_id).get("run_id")
                 or ""
             )
+            # The Web UI reserves its session id before the first real turn so
+            # uploads and chat history have a stable workspace.  That shell is
+            # not in the runtime store yet and therefore cannot be resumed.
+            # Preserve the reserved id when submitting its first runtime turn.
+            runtime_session_exists = False
+            if prior_run:
+                try:
+                    self.runtime.store.inspect_session(prior_run)
+                    runtime_session_exists = True
+                except KeyError:
+                    pass
             model_param = params.get("model") or params.get("model_override")
             task_text = str(task)
             # Mode-only (/plan, "plan", …): switch machine, do NOT invent a
@@ -470,9 +484,13 @@ class AppServer:
                 request_args["approver"] = self._make_web_approver(thread_id)
             handle = (
                 self.runtime.resume(prior_run, task_text, **request_args)
-                if prior_run
+                if runtime_session_exists
                 else self.runtime.submit(
-                    TurnRequest(objective=task_text, **request_args)
+                    TurnRequest(
+                        objective=task_text,
+                        session_id=prior_run,
+                        **request_args,
+                    )
                 )
             )
             self._handles[thread_id] = handle

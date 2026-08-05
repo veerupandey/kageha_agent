@@ -24,7 +24,7 @@ describe("mergeServerCatalog", () => {
     expect(mergeServerCatalog(null)).toEqual(SLASH_COMMANDS);
   });
 
-  it("lets server commands override same id", () => {
+  it("treats a non-empty server catalog as authoritative", () => {
     const server = [
       {
         id: "plan",
@@ -38,10 +38,10 @@ describe("mergeServerCatalog", () => {
     const plan = merged.find((c) => c.id === "plan");
     expect(plan?.description).toBe("Server plan");
     expect(plan?.title).toBe("Plan+");
-    expect(merged.length).toBeGreaterThanOrEqual(SLASH_COMMANDS.length);
+    expect(merged).toHaveLength(1);
   });
 
-  it("appends new server-only commands", () => {
+  it("does not retain stale fallback commands", () => {
     const server = [
       { id: "custom", label: "/custom", description: "Custom", kind: "prefs" },
     ];
@@ -53,7 +53,7 @@ describe("mergeServerCatalog", () => {
         kind: "prefs",
       },
     ]);
-    expect(merged.map((c) => c.id)).toEqual(["ask", "custom"]);
+    expect(merged.map((c) => c.id)).toEqual(["custom"]);
   });
 });
 

@@ -359,7 +359,7 @@ export const useAppStore = create<AppState>((set, get) => {
       });
       const label =
         normalized === "full"
-          ? "Full · auto-approve + sandbox network"
+          ? "Full access · no prompts or sandbox boundary"
           : normalized === "session"
             ? "Auto · risky tools auto-approved"
             : "Ask · confirm risky tools";

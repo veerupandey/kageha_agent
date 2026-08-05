@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -68,10 +69,7 @@ def _run_input_action(action: Callable[[], None]) -> str | None:
     try:
         action()
     except Exception as exc:  # noqa: BLE001
-        return (
-            "ERROR: computer input failed "
-            f"({type(exc).__name__}): {str(exc)[:300]}"
-        )
+        return f"ERROR: computer input failed ({type(exc).__name__}): {str(exc)[:300]}"
     return None
 
 
@@ -235,6 +233,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
         "window_id": None,
         "ref_map": {},
         "frontmost_before": None,
+        "frame_seq": 0,
     }
 
     async def _approve_app_input(action: str, detail: str) -> str | None:
@@ -300,11 +299,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
             try:
                 launched = await driver.call(
                     "launch_app",
-                    (
-                        {"bundle_id": target}
-                        if "." in target
-                        else {"name": target}
-                    ),
+                    ({"bundle_id": target} if "." in target else {"name": target}),
                 )
             except driver.ComputerDriverError as exc:
                 return None, f"ERROR: launch_app failed: {exc}"
@@ -373,9 +368,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
             out["daemon"] = f"error: {exc}"
         perms = await driver.permissions_status()
         out["permissions"] = perms
-        out["ready"] = bool(
-            perms.get("accessibility") and perms.get("screen_recording")
-        )
+        out["ready"] = bool(perms.get("accessibility") and perms.get("screen_recording"))
         if not out["ready"]:
             out["hint"] = "cua-driver permissions grant"
         return json.dumps(out)
@@ -425,19 +418,19 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
                 "window_id": wid or state.get("window_id"),
             }
         )
-        return json.dumps(
+        payload = await _with_live_frame(
             {
                 "ok": True,
                 "app": state["app"],
                 "bundle_id": state["bundle_id"],
                 "pid": state["pid"],
                 "window_id": state["window_id"],
-                "self_activation_suppressed": launched.get(
-                    "self_activation_suppressed"
-                ),
+                "self_activation_suppressed": launched.get("self_activation_suppressed"),
                 "next": "Call computer_get_state(app=…) before clicking.",
-            }
+            },
+            action="launch",
         )
+        return json.dumps(payload)
 
     @tool(description="Wait for UI to settle (milliseconds). Use after launch/click.")
     async def computer_wait(ms: int = 400) -> str:
@@ -475,9 +468,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
             )
         return json.dumps({"apps": rows, "count": len(rows)})
 
-    async def _peek_readings(
-        *, max_elements: int = 32
-    ) -> tuple[list[dict[str, Any]], float]:
+    async def _peek_readings(*, max_elements: int = 32) -> tuple[list[dict[str, Any]], float]:
         """Cheap post-action readings (no screenshot). Returns (readings, peek_ms)."""
         import time as _time
 
@@ -511,6 +502,52 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
             state["ref_map"] = ref_map
         return readings[:12], (_time.perf_counter() - t0) * 1000.0
 
+    async def _with_live_frame(
+        payload: dict[str, Any],
+        *,
+        action: str,
+        click_x: int | None = None,
+        click_y: int | None = None,
+    ) -> dict[str, Any]:
+        """Attach a small post-action frame so WebUI can follow computer use."""
+        if os.environ.get("KAGEHA_COMPUTER_LIVE_FRAMES", "1").strip().lower() in {
+            "0", "false", "off", "no"
+        }:
+            return payload
+        pid = int(state.get("pid") or 0)
+        window_id = int(state.get("window_id") or 0)
+        if pid <= 0 or window_id <= 0:
+            return payload
+        state["frame_seq"] = int(state.get("frame_seq") or 0) + 1
+        seq = int(state["frame_seq"])
+        shot_rel = f"artifacts/computer/live/action_{seq:04d}.png"
+        thumb_rel = f"artifacts/computer/thumbs/action_{seq:04d}.jpg"
+        shot_abs = ctx.workspace.path(shot_rel)
+        shot_abs.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            await driver.call(
+                "get_window_state",
+                {
+                    "pid": pid,
+                    "window_id": window_id,
+                    "include_screenshot": True,
+                    "screenshot_out_file": str(shot_abs),
+                    "max_elements": 1,
+                },
+                ensure=False,
+                timeout=15.0,
+            )
+        except Exception:  # noqa: BLE001 - observer must never fail the action
+            return payload
+        if not shot_abs.is_file():
+            return payload
+        payload.update({"app": state.get("app"), "action": action, "screenshot": shot_rel})
+        if maybe_write_computer_thumb(shot_abs, ctx.workspace.path(thumb_rel)):
+            payload.update({"thumb": thumb_rel, "thumb_path": thumb_rel})
+        if click_x is not None and click_y is not None:
+            payload.update({"click_x": click_x, "click_y": click_y})
+        return payload
+
     @tool(
         description=(
             "Capture AX snapshot + readings for an app (AX app state). "
@@ -533,11 +570,37 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
         target = (app or state.get("app") or "").strip()
         if not target:
             return "ERROR: app required (name or bundle_id)"
-        match, fail = await _resolve_app(target, launch_if_needed=launch_if_needed)
-        if fail:
-            return fail
-        assert match is not None
-        pid = int(match.get("pid") or 0)
+        # Reuse the app/window binding within a turn. list_apps + window
+        # resolution are redundant on every observation and are noticeable on
+        # AX-heavy apps. A stale binding fails closed in get_window_state; the
+        # next call resolves normally after state is cleared below.
+        bound_names = {
+            str(state.get("app") or "").strip().lower(),
+            str(state.get("bundle_id") or "").strip().lower(),
+        }
+        reuse_bound = (
+            target.lower() in bound_names
+            and int(state.get("pid") or 0) > 0
+            and int(state.get("window_id") or 0) > 0
+        )
+        if reuse_bound:
+            match = {
+                "name": state.get("app") or target,
+                "bundle_id": state.get("bundle_id"),
+                "pid": state.get("pid"),
+                "windows": [],
+            }
+            pid = int(state["pid"])
+            window_id = int(state["window_id"])
+            wins: list[dict[str, Any]] = []
+        else:
+            match, fail = await _resolve_app(target, launch_if_needed=launch_if_needed)
+            if fail:
+                return fail
+            assert match is not None
+            pid = int(match.get("pid") or 0)
+            window_id = None
+            wins = match.get("windows") or []
         if pid <= 0:
             # launch path may have set windows; try launch again
             try:
@@ -551,9 +614,8 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
                 wins = launched.get("windows") or []
             except driver.ComputerDriverError as exc:
                 return f"ERROR: app not running and launch failed: {exc}"
-        else:
-            wins = match.get("windows") or []
-        window_id = best_window_id(wins) if wins else None
+        if window_id is None:
+            window_id = best_window_id(wins) if wins else None
         if window_id is None:
             window_id, werr = await _pick_window(pid)
             if werr:
@@ -573,12 +635,30 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
         if include_screenshot:
             args["screenshot_out_file"] = str(shot_abs)
         try:
-            data = await driver.call(
-                "get_window_state", args, timeout=45.0 if compact else 90.0
-            )
+            data = await driver.call("get_window_state", args, timeout=45.0 if compact else 90.0)
         except driver.ComputerDriverError as exc:
+            if reuse_bound:
+                state.pop("pid", None)
+                state.pop("window_id", None)
+                state.pop("ref_map", None)
             return f"ERROR: get_window_state failed: {exc}"
         elements = data.get("elements") if isinstance(data.get("elements"), list) else []
+        visual_fallback = False
+        if bool(data.get("degraded")) and not include_screenshot:
+            # AX can be sparse for canvas/Electron/custom controls. Re-observe the
+            # same approved target window with pixels only on that degraded path.
+            visual_args = dict(args)
+            visual_args["include_screenshot"] = True
+            visual_args["screenshot_out_file"] = str(shot_abs)
+            try:
+                visual_data = await driver.call("get_window_state", visual_args, timeout=45.0)
+                if shot_abs.is_file() or visual_data.get("screenshot_file_path"):
+                    visual_fallback = True
+                    if len(visual_data.get("elements") or []) > len(elements):
+                        data = visual_data
+                        elements = visual_data.get("elements") or []
+            except driver.ComputerDriverError:
+                pass
         snap, ref_map, readings = driver.elements_to_snapshot(
             elements,
             limit=elem_cap,
@@ -606,12 +686,11 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
             "readings": readings[:16],
             "frontmost_app": front,
             "focus_note": (
-                "background OK"
-                if front and front != state["app"]
-                else "target may be frontmost"
+                "background OK" if front and front != state["app"] else "target may be frontmost"
             ),
             "degraded": bool(data.get("degraded")),
             "degraded_reason": data.get("degraded_reason"),
+            "visual_fallback": visual_fallback,
             "compact": bool(compact),
             "loop": (
                 "Prefer computer_click_sequence(text=/labels=/refs=). "
@@ -621,7 +700,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
         }
         if not compact:
             out["tree_markdown"] = (data.get("tree_markdown") or "")[:2000]
-        if include_screenshot and shot_abs.is_file():
+        if (include_screenshot or visual_fallback) and shot_abs.is_file():
             out["screenshot"] = shot_rel
             out["screenshot_bytes"] = shot_abs.stat().st_size
             out["screenshot_hint"] = (
@@ -637,10 +716,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
 
     def _bound_target() -> str | None:
         if not state.get("pid") or not state.get("window_id"):
-            return (
-                "ERROR: call computer_get_state(app=...) first this turn "
-                "before input actions"
-            )
+            return "ERROR: call computer_get_state(app=...) first this turn before input actions"
         return None
 
     def _normalize_label(raw: str) -> str:
@@ -679,7 +755,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
     def _label_tokens(raw: str) -> list[str]:
         parts: list[str] = []
         buf = ""
-        for ch in (raw or ""):
+        for ch in raw or "":
             if ch in ",;|":
                 if buf.strip():
                     parts.append(buf.strip())
@@ -737,7 +813,6 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
                 indices.append(hit)
         return indices, unresolved
 
-
     @tool(
         description=(
             "Click a UI element by snapshot ref (e0) or window-local x,y pixels. "
@@ -763,9 +838,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
         btn = button if button in {"left", "right", "middle"} else "left"
         idx = driver.ref_to_index(ref) if ref else None
         if idx is not None:
-            denied = await _approve_app_input(
-                "computer_click", f"{btn} click ref=e{idx}"
-            )
+            denied = await _approve_app_input("computer_click", f"{btn} click ref=e{idx}")
             if denied:
                 return denied
             args: dict[str, Any] = {
@@ -782,7 +855,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
             except driver.ComputerDriverError as exc:
                 return f"ERROR: {exc}"
             readings, peek_ms = await _peek_readings(max_elements=24)
-            return json.dumps(
+            payload = await _with_live_frame(
                 {
                     "ok": True,
                     "mode": "ax_ref",
@@ -792,12 +865,12 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
                     "readings": readings,
                     "timing": {"peek_ms": round(peek_ms, 1)},
                     "loop": "Quote readings; skip get_state unless refs look stale.",
-                }
+                },
+                action="click",
             )
+            return json.dumps(payload)
         if x >= 0 and y >= 0 and state.get("pid") and state.get("window_id"):
-            denied = await _approve_app_input(
-                "computer_click", f"{btn} click pixels ({x},{y})"
-            )
+            denied = await _approve_app_input("computer_click", f"{btn} click pixels ({x},{y})")
             if denied:
                 return denied
             try:
@@ -816,7 +889,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
             except driver.ComputerDriverError as exc:
                 return f"ERROR: {exc}"
             readings, peek_ms = await _peek_readings(max_elements=24)
-            return json.dumps(
+            payload = await _with_live_frame(
                 {
                     "ok": True,
                     "mode": "pixel",
@@ -827,12 +900,14 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
                     "readings": readings,
                     "timing": {"peek_ms": round(peek_ms, 1)},
                     "loop": "Quote readings; skip get_state unless refs look stale.",
-                }
+                },
+                action="click",
+                click_x=x,
+                click_y=y,
             )
+            return json.dumps(payload)
         if allow_global_cursor and x >= 0 and y >= 0:
-            denied = await _approve_app_input(
-                "computer_click", f"GLOBAL cursor {btn} at ({x},{y})"
-            )
+            denied = await _approve_app_input("computer_click", f"GLOBAL cursor {btn} at ({x},{y})")
             if denied:
                 return denied
             try:
@@ -855,9 +930,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
             "or allow_global_cursor=true with screen x,y"
         )
 
-    async def _bind_app_window(
-        target: str, *, launch_if_needed: bool
-    ) -> str | None:
+    async def _bind_app_window(target: str, *, launch_if_needed: bool) -> str | None:
         """Bind pid/window_id without a full AX snapshot. Returns ERROR string or None."""
         match, fail = await _resolve_app(target, launch_if_needed=launch_if_needed)
         if fail:
@@ -933,9 +1006,11 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
             target = (app or state.get("app") or "").strip()
             if not target:
                 return "ERROR: app required with text= (e.g. app='Calculator' text='8+9=')"
-            if not (state.get("pid") and state.get("window_id") and (
-                not app or state.get("app") == target or state.get("bundle_id") == target
-            )):
+            if not (
+                state.get("pid")
+                and state.get("window_id")
+                and (not app or state.get("app") == target or state.get("bundle_id") == target)
+            ):
                 bind_err = await _bind_app_window(target, launch_if_needed=launch_if_needed)
                 if bind_err:
                     return bind_err
@@ -960,12 +1035,10 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
             except driver.ComputerDriverError as exc:
                 return f"ERROR: type_text failed: {exc}"
             readings, peek_ms = await _peek_readings(max_elements=24)
-            mode = (
-                "adaptive_text_from_labels" if adaptive_from_labels else "type_text"
-            )
+            mode = "adaptive_text_from_labels" if adaptive_from_labels else "type_text"
             timing = _timing_payload(peek_ms=peek_ms, mode=mode)
             timing["elapsed_ms"] = round((_time.perf_counter() - seq_t0) * 1000.0, 1)
-            return json.dumps(
+            payload = await _with_live_frame(
                 {
                     "ok": True,
                     "mode": mode,
@@ -975,9 +1048,11 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
                     "result": _slim_driver_result(result),
                     "readings": readings,
                     "timing": timing,
-                    "loop": "Quote readings and stop. Do not call get_state or screenshot.",
-                }
+                    "loop": "Quote readings and stop. A live frame was captured automatically.",
+                },
+                action="type_text",
             )
+            return json.dumps(payload)
 
         elements: list[dict[str, Any]] = []
         need_bind = bool(app.strip() or label_list) or not (
@@ -1009,9 +1084,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
                     )
                 except driver.ComputerDriverError as exc:
                     return f"ERROR: get_window_state failed: {exc}"
-                elements = (
-                    data.get("elements") if isinstance(data.get("elements"), list) else []
-                )
+                elements = data.get("elements") if isinstance(data.get("elements"), list) else []
                 _snap, ref_map, _readings = driver.elements_to_snapshot(
                     elements,
                     limit=48,
@@ -1043,11 +1116,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
                     )
                 except driver.ComputerDriverError as exc:
                     return f"ERROR: snapshot for labels failed: {exc}"
-                elements = (
-                    data.get("elements")
-                    if isinstance(data.get("elements"), list)
-                    else []
-                )
+                elements = data.get("elements") if isinstance(data.get("elements"), list) else []
             indices, unresolved = _resolve_labels_to_indices(label_list, elements)
             if unresolved:
                 return json.dumps(
@@ -1102,7 +1171,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
         readings, peek_ms = await _peek_readings(max_elements=24)
         timing = _timing_payload(peek_ms=peek_ms, mode=mode)
         timing["elapsed_ms"] = round((_time.perf_counter() - seq_t0) * 1000.0, 1)
-        return json.dumps(
+        payload = await _with_live_frame(
             {
                 "ok": True,
                 "mode": mode,
@@ -1116,9 +1185,10 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
                     "If readings show the goal, stop and quote them. "
                     "Do not re-call get_state or screenshot."
                 ),
-            }
+            },
+            action="click_sequence",
         )
-
+        return json.dumps(payload)
 
     @tool(
         description="AX set_value on element ref (eN). Prefer over typing into fields. HITL.",
@@ -1134,9 +1204,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
         idx = driver.ref_to_index(ref)
         if idx is None:
             return "ERROR: ref must look like e12"
-        denied = await _approve_app_input(
-            "computer_set_value", f"set e{idx}={value[:120]!r}"
-        )
+        denied = await _approve_app_input("computer_set_value", f"set e{idx}={value[:120]!r}")
         if denied:
             return denied
         try:
@@ -1290,7 +1358,9 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
             else:
                 mods.append(p)
         if not mods:
-            return "ERROR: hotkey needs a modifier (e.g. command+c); use computer_key for a single key"
+            return (
+                "ERROR: hotkey needs a modifier (e.g. command+c); use computer_key for a single key"
+            )
         try:
             result = await _call_input_with_foreground_retry(
                 "hotkey",
@@ -1368,6 +1438,7 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
             return err
         dest = ctx.workspace.path(path)
         dest.parent.mkdir(parents=True, exist_ok=True)
+
         # Prefer driver desktop capture when available; fall back to screencapture.
         def _shot_payload(*, via: str) -> str:
             payload: dict[str, Any] = {
@@ -1420,18 +1491,14 @@ def register_computer_tools(ctx: "HarnessContext") -> ToolRegistry:
         err = _require_macos()
         if err:
             return err
-        denied = await _approve_app_input(
-            "computer_move", f"GLOBAL move to ({x},{y})"
-        )
+        denied = await _approve_app_input("computer_move", f"GLOBAL move to ({x},{y})")
         if denied:
             return denied
         try:
             pag = _require_pyautogui()
         except ImportError as e:
             return f"ERROR: {e}"
-        failure = _run_input_action(
-            lambda: pag.moveTo(int(x), int(y), duration=0.15)
-        )
+        failure = _run_input_action(lambda: pag.moveTo(int(x), int(y), duration=0.15))
         if failure:
             return failure
         return f"moved to ({x},{y}) mode=global_cursor"

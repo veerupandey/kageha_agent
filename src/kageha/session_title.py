@@ -134,6 +134,10 @@ def title_from_message(message: str) -> str:
             value = parts[1]
         else:
             value = _SLASH_PREFIX.sub("", value).strip()
+    # Sidebar labels should be glanceable, not a copy of the whole prompt.
+    words = value.split()
+    if len(words) > 8:
+        value = " ".join(words[:8]) + "…"
     return clip_title(value)
 
 

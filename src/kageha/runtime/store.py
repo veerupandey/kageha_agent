@@ -958,6 +958,15 @@ class RuntimeStore:
             return {}
         return data if isinstance(data, dict) else {}
 
+    def tool_attempt_result(self, attempt_id: str) -> str:
+        """Return the durable raw result for transport repair/replay."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT result FROM tool_attempts WHERE id=?",
+                (attempt_id,),
+            ).fetchone()
+        return str(row["result"] or "") if row is not None else ""
+
     def reconcile_inflight(self, session_id: str) -> list[ToolAttempt]:
         """Mark interrupted reads retryable and interrupted mutations uncertain."""
         with self._lock:

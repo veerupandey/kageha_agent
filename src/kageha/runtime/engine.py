@@ -232,7 +232,32 @@ class AgentRuntime:
             attempt
             for attempt in reconciled
             if attempt.state.value == "uncertain"
+            and attempt.side_effect == "external_mutation"
         ]
+        local_uncertain = [
+            attempt
+            for attempt in reconciled
+            if attempt.state.value == "uncertain"
+            and attempt.side_effect != "external_mutation"
+        ]
+        if local_uncertain:
+            # Local/workspace mutations can be inspected and repaired by the
+            # agent. Record the recovery condition without making every app
+            # restart fatal. Exact duplicate calls remain guarded by journal.
+            self.store.append_event(
+                session_id=handle.session_id,
+                turn_id=handle.turn_id,
+                kind=RunEventKind.CHECKPOINT,
+                payload={
+                    "status": "local_reconciliation_needed",
+                    "reason": "Interrupted local mutation; verify state before retrying",
+                    "tools": [
+                        f"{attempt.tool_name}:{attempt.id}"
+                        for attempt in local_uncertain
+                    ],
+                },
+                idempotency_key=f"local-reconciliation:{handle.turn_id}",
+            )
         if uncertain:
             self.store.append_event(
                 session_id=handle.session_id,

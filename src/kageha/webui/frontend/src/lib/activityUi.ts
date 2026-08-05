@@ -79,3 +79,33 @@ export function activityLineText(step: ActivityStep): string {
   if (label.toLowerCase().includes(hint.toLowerCase().slice(0, 24))) return label;
   return `${label}  ${hint}`;
 }
+
+export type ActivityTarget = "browser" | "computer" | null;
+
+export function activityTarget(label: string): ActivityTarget {
+  const low = String(label || "").toLowerCase();
+  if (low.includes("browser") || low.includes("page") || low.includes("web")) {
+    return "browser";
+  }
+  if (
+    low.includes("desktop") ||
+    low.includes("computer") ||
+    low.includes("clicking") ||
+    low.includes("typing") ||
+    low.includes("scrolling") ||
+    low.includes("opening app") ||
+    low.includes("capturing")
+  ) {
+    return "computer";
+  }
+  return null;
+}
+
+/** Extract the first navigable page URL from compact tool arguments/details. */
+export function activityUrl(...values: Array<string | undefined>): string | null {
+  for (const value of values) {
+    const match = String(value || "").match(/https?:\/\/[^\s"'<>\\}]+/i);
+    if (match) return match[0].replace(/[),.;]+$/, "");
+  }
+  return null;
+}

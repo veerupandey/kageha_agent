@@ -13,7 +13,7 @@ triggers:
   - use comet
   - interact with the page
   - click through
-allowed-tools: web_fetch browser_connect browser_open browser_snapshot browser_click browser_type browser_fill browser_press browser_scroll browser_wait browser_screenshot browser_evaluate browser_cdp browser_tabs browser_lock browser_close browse_logged_in
+allowed-tools: web_fetch browser_connect browser_open browser_snapshot browser_click browser_type browser_fill browser_select browser_upload browser_press browser_scroll browser_wait browser_screenshot browser_evaluate browser_batch browser_cdp browser_diagnostics browser_tabs browser_lock browser_close browse_logged_in
 ---
 
 # web_browse
@@ -41,10 +41,14 @@ When the user asks to open/browse a specific site, **do the navigation** — do 
 3. Read the snapshot. Act with **one** of:
    - `browser_click(target)` — `e0` ref, CSS, `text=…`, or `role=button:Name`
    - `browser_fill(target, text)` / `browser_type(target, text)`
+   - `browser_select(target, option)` for native dropdowns; never click `<option>` nodes
+   - `browser_upload(target, paths_json)` for resume/document file inputs
    - `browser_press(key)` / `browser_scroll` / `browser_wait`
+   - `browser_batch(actions_json)` for 2–12 predictable actions from the same snapshot; it observes once at the end
    - `browser_evaluate(expression)` when refs are not enough
 4. After each action, use the returned snapshot (or `browser_snapshot`) — do not guess selectors blindly.
 5. `browser_screenshot` only when you need vision evidence — not every step.
+6. For app bugs or slowness, use `browser_diagnostics` for console, failed requests, and performance data.
 6. Keep waits short (`browser_wait` 200–1500ms). Do not relaunch the browser between steps.
 7. `browser_lock(unlock)` + `browser_close` when done.
 

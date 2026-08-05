@@ -16,6 +16,11 @@ _NAMED_SECRET = re.compile(
 )
 _TOKEN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z0-9_./+=-]{24,}(?![A-Za-z0-9])")
 _URL = re.compile(r"https?://[^\s<>'\"]+", re.IGNORECASE)
+_SAFE_ARTIFACT_PATH = re.compile(
+    r"^(?:artifacts|outputs|diagrams|carousel|research|slides)/"
+    r"[A-Za-z0-9_./+=-]+\.(?:png|jpe?g|webp|gif|pdf|txt|md|json|html|csv)$",
+    re.IGNORECASE,
+)
 _SENSITIVE_URL_QUERY = re.compile(
     r"(?i)([?&](?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|"
     r"signature|sig|x-amz-signature|x-goog-signature)=)([^&#\s]+)"
@@ -76,6 +81,13 @@ def _inside_public_url(match: re.Match[str], text: str) -> bool:
     )
 
 
+def _is_safe_artifact_path(value: str) -> bool:
+    normalized = value.replace("\\", "/").lstrip("/")
+    return ".." not in normalized.split("/") and bool(
+        _SAFE_ARTIFACT_PATH.fullmatch(normalized)
+    )
+
+
 def inspect_memory_text(text: str) -> SecurityResult:
     """Return redacted text and a persistence classification.
 
@@ -97,7 +109,9 @@ def inspect_memory_text(text: str) -> SecurityResult:
     token_secrets = [
         m.group(0)
         for m in _TOKEN.finditer(raw)
-        if _looks_like_secret_token(m.group(0)) and not _inside_public_url(m, raw)
+        if _looks_like_secret_token(m.group(0))
+        and not _inside_public_url(m, raw)
+        and not _is_safe_artifact_path(m.group(0))
     ]
     if token_secrets:
         findings.append("high_entropy_secret")

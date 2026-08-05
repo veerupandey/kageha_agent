@@ -107,7 +107,8 @@ def test_api_slash_catalog_and_models(webui_app: WebUIApp):
     assert st == 200
     assert catalog.get("ok") is True
     ids = {c["id"] for c in catalog.get("commands") or []}
-    assert "comet" in ids
+    assert "browser-comet" in ids
+    assert "comet" not in ids
     assert "model" in ids
     assert "permissions" in ids
     assert "multitask" in ids
@@ -260,6 +261,32 @@ def test_chat_passes_followup_loop_mode(webui_app: WebUIApp, monkeypatch):
     assert captured["params"]["agent_mode"] == "normal"
     assert captured["params"]["max_steps"] == 24
     assert payload["loop_mode"] == "followup"
+
+
+def test_chat_gives_multi_page_application_recovery_budget(
+    webui_app: WebUIApp, monkeypatch
+):
+    captured: dict = {}
+
+    def fake_rpc(method: str, params: dict | None = None):
+        captured["params"] = params or {}
+        return {
+            "run_id": "abc123",
+            "status": "success",
+            "message": "ok",
+            "artifacts": [],
+            "turn_id": "t1",
+        }
+
+    monkeypatch.setattr(webui_app, "rpc", fake_rpc)
+    status, _payload = _call(
+        webui_app,
+        "POST",
+        "/api/chat",
+        body={"thread_id": "web-apply", "message": "Apply to this job application"},
+    )
+    assert status == 200
+    assert captured["params"]["max_steps"] == 48
 
 
 @pytest.mark.parametrize(
@@ -857,7 +884,7 @@ def test_session_title_auto_and_patch(webui_app: WebUIApp, monkeypatch: pytest.M
     )
     assert status == 200
     meta = json.loads((sessions_dir() / "title001" / "session.json").read_text())
-    assert meta["title"] == long_msg[:59].rstrip() + "…"
+    assert meta["title"] == "Explain quantum entanglement for a curious teenager in…"
 
     status, opened = _call(webui_app, "GET", "/api/sessions/title001")
     assert status == 200
