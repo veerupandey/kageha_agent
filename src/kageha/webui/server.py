@@ -2464,11 +2464,7 @@ class WebUIApp:
                 for m in reg.models.values()
             ]
             default_model = next(
-                (
-                    model_id
-                    for model_id in reg.roles.get("default", [])
-                    if model_id in available
-                ),
+                iter(reg.roles.get("default", [])),
                 "",
             )
             return _json_bytes(
