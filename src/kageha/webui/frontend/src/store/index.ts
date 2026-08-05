@@ -530,13 +530,18 @@ export const useAppStore = create<AppState>((set, get) => {
         : Array.isArray(res.data.items)
           ? res.data.items
           : [];
-      set({
-        models: list.map((m) =>
+      const models = list.map((m) =>
           typeof m === "string"
             ? m
             : String((m as { id?: string; name?: string }).id || (m as { name?: string }).name || ""),
-        ).filter(Boolean),
-      });
+        ).filter(Boolean);
+      const configuredDefault = String(res.data.default_model || "").trim();
+      set((state) => ({
+        models,
+        // Do not replace a model the user selected while the catalog was loading.
+        modelOverride:
+          state.modelOverride || (models.includes(configuredDefault) ? configuredDefault : ""),
+      }));
     },
 
     boot: async () => {

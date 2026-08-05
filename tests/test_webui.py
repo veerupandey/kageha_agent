@@ -122,6 +122,7 @@ def test_api_slash_catalog_and_models(webui_app: WebUIApp):
     assert models.get("ok") is True
     assert "models" in models
     assert "all" in models
+    assert models.get("default_model") == "glm-5.2"
     assert isinstance(models.get("text"), str)
 
 
