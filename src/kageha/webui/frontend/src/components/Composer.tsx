@@ -23,7 +23,7 @@ import {
 } from "../lib/voiceClient";
 import { useAppStore } from "../store";
 
-const MODES: AgentMode[] = ["normal", "plan", "goal"];
+const MODES: AgentMode[] = ["normal", "plan", "goal", "multitask"];
 
 const QA_START =
   /^(what|who|when|where|why|how|is|are|can|could|would|should|do|does|did)\b/i;
@@ -586,9 +586,25 @@ export function Composer() {
               <DropdownMenu.Trigger asChild>
                 <button
                   type="button"
-                  className="rounded-md px-2 py-1 text-xs font-medium text-muted hover:bg-line/70 hover:text-ink"
+                  className={cn(
+                    "rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                    agentMode === "normal"
+                      ? "text-muted hover:bg-line/70 hover:text-ink"
+                      : "bg-accent-soft text-accent",
+                  )}
+                  aria-pressed={agentMode !== "normal"}
                 >
-                  {modeLabel}
+                  <span className="inline-flex items-center gap-1.5">
+                    {agentMode !== "normal" && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
+                    )}
+                    {modeLabel}
+                    {agentMode !== "normal" && (
+                      <span className="rounded-full bg-accent/15 px-1.5 text-[0.6rem] uppercase tracking-wide">
+                        Active
+                      </span>
+                    )}
+                  </span>
                 </button>
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>

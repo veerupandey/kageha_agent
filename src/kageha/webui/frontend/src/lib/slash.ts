@@ -9,7 +9,7 @@ export interface TokenContext {
   token?: string;
 }
 
-const AGENT_MODES: AgentMode[] = ["normal", "plan", "goal"];
+const AGENT_MODES: AgentMode[] = ["normal", "plan", "goal", "multitask"];
 
 const SLASH_PRIMARY_IDS = [
   "plan",
@@ -119,8 +119,10 @@ export function filterSlashCommands(
     .trim();
   let matched: SlashCommand[];
   if (!q) {
-    const primary = new Set(SLASH_PRIMARY_IDS);
-    matched = list.filter((c) => primary.has(String(c.id || "")));
+    // Show the complete capability-filtered catalog when the user types `/`.
+    // Primary commands still sort first, while every available slash command
+    // remains discoverable without requiring the user to know its prefix.
+    matched = list;
   } else {
     matched = list.filter((c) => {
       const id = String(c.id || "").toLowerCase();
@@ -289,7 +291,7 @@ export function applySlashCommand(
     return;
   }
 
-  if (id === "new" || id === "task" || id === "multitask") {
+  if (id === "new" || id === "task") {
     clearToken();
     store.clearComposerChip({ resetMode: false });
     if (store.sessionId) {
@@ -303,6 +305,14 @@ export function applySlashCommand(
       store.setComposerChip("multitask", "multitask");
       store.showToast("Multitask · send your first task, then + or /multitask");
     }
+    return;
+  }
+
+  if (id === "multitask") {
+    clearToken();
+    store.clearComposerChip({ resetMode: false });
+    store.setAgentMode("multitask");
+    store.showToast("Multitask coordinator · one chat with parallel subagents");
     return;
   }
 

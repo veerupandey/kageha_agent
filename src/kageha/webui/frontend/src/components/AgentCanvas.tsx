@@ -18,7 +18,7 @@ import { ArtifactPanel } from "./ThreadView/ArtifactPanel";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
-type CanvasTab = "timeline" | "plan" | "artifacts" | "stats";
+type CanvasTab = "timeline" | "plan" | "subagents" | "artifacts" | "stats";
 
 interface SessionStats {
   steps: number;
@@ -186,6 +186,47 @@ function TimelineTab() {
           <ToolCallRow key={card.id} card={card} />
         ))}
       </div>
+    </div>
+  );
+}
+
+function SubagentsTab() {
+  const messages = useAppStore((s) => s.messages);
+  const cards = useMemo(() => {
+    const out: ToolCard[] = [];
+    for (const message of messages) {
+      if (message.role !== "assistant" || !message.toolCards) continue;
+      out.push(...message.toolCards.filter((card) =>
+        /spawn_(?:subagent|subagents)|spawn_task_graph/i.test(card.name),
+      ));
+    }
+    return out;
+  }, [messages]);
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="border-b border-line bg-accent-soft/30 px-3 py-3">
+        <p className="text-xs font-semibold text-ink">Coordinator workspace</p>
+        <p className="mt-1 text-[0.68rem] leading-relaxed text-muted">
+          Independent work runs in subagent threads while the main chat stays focused on the parent task.
+        </p>
+      </div>
+      {cards.length ? (
+        <div>
+          <p className="px-3 py-2 text-[0.65rem] uppercase tracking-wide text-muted">
+            Delegations ({cards.length})
+          </p>
+          {cards.map((card) => <ToolCallRow key={card.id} card={card} />)}
+        </div>
+      ) : (
+        <div className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
+          <span className="text-2xl text-accent">⑂</span>
+          <p className="mt-3 text-sm font-medium text-muted">No subagents yet</p>
+          <p className="mt-1 text-xs leading-relaxed text-faint">
+            The coordinator will show delegated research, implementation, testing, and review work here.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -561,6 +602,7 @@ function ArtifactsTab({ onOpenLightbox }: { onOpenLightbox?: (path: string) => v
 const TAB_CONFIG: { id: CanvasTab; label: string; icon: string }[] = [
   { id: "timeline", label: "Timeline", icon: "⚡" },
   { id: "plan", label: "Plan", icon: "☑" },
+  { id: "subagents", label: "Subagents", icon: "⑂" },
   { id: "artifacts", label: "Artifacts", icon: "📎" },
   { id: "stats", label: "Stats", icon: "📊" },
 ];
@@ -570,9 +612,25 @@ export function AgentCanvas({ alwaysShow, onCollapse, onOpenLightbox }: { always
   const canvasOpen = useAppStore((s) => s.canvasOpen);
   const setCanvasOpen = useAppStore((s) => s.setCanvasOpen);
   const canvasItems = useAppStore((s) => s.canvasItems);
+  const agentMode = useAppStore((s) => s.agentMode);
+  const messages = useAppStore((s) => s.messages);
   const runStatus = useAppStore((s) => s.runStatus);
   const todoBoard = useAppStore((s) => s.todoBoard);
   const [activeTab, setActiveTab] = useState<CanvasTab>("timeline");
+
+  // Keep the Subagents surface contextual: it only appears after the
+  // coordinator has actually delegated work to a subagent.
+  const hasSubagentActivity = useMemo(
+    () => messages.some((message) =>
+      message.role === "assistant" &&
+      message.toolCards?.some((card) => /spawn_(?:subagent|subagents)|spawn_task_graph/i.test(card.name)),
+    ),
+    [messages],
+  );
+  const visibleTabs = useMemo(
+    () => TAB_CONFIG.filter((tab) => tab.id !== "subagents" || hasSubagentActivity),
+    [hasSubagentActivity],
+  );
 
   const prevRunStatus = useRef(runStatus);
   const autoSwitchedToPlan = useRef(false);
@@ -593,11 +651,17 @@ export function AgentCanvas({ alwaysShow, onCollapse, onOpenLightbox }: { always
 
   // Todos appeared → switch to Plan (only once per run, never re-triggers)
   useEffect(() => {
-    if (todoBoard && todoBoard.total > 0 && !autoSwitchedToPlan.current) {
+    if (agentMode !== "multitask" && todoBoard && todoBoard.total > 0 && !autoSwitchedToPlan.current) {
       autoSwitchedToPlan.current = true;
       setActiveTab("plan");
     }
-  }, [todoBoard?.total]);
+  }, [agentMode, todoBoard?.total]);
+
+  useEffect(() => {
+    if (!hasSubagentActivity && activeTab === "subagents") {
+      setActiveTab("timeline");
+    }
+  }, [activeTab, hasSubagentActivity]);
 
   // Run completed with artifacts → switch to Artifacts (only from Timeline/Plan)
   useEffect(() => {
@@ -622,7 +686,7 @@ export function AgentCanvas({ alwaysShow, onCollapse, onOpenLightbox }: { always
       <header className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2">
         {/* Tabs */}
         <div className="flex min-w-0 flex-1 gap-0.5">
-          {TAB_CONFIG.map((tab) => (
+          {visibleTabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
@@ -672,6 +736,7 @@ export function AgentCanvas({ alwaysShow, onCollapse, onOpenLightbox }: { always
       <div className="flex min-h-0 flex-1 flex-col">
         {activeTab === "timeline" && <TimelineTab />}
         {activeTab === "plan" && <PlanTab />}
+        {activeTab === "subagents" && <SubagentsTab />}
         {activeTab === "artifacts" && <ArtifactsTab onOpenLightbox={onOpenLightbox} />}
         {activeTab === "stats" && <StatsTab />}
       </div>

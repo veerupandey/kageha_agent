@@ -9,8 +9,8 @@ import type {
 import type { AppState } from "./types";
 
 export const LAST_SESSION_KEY = "kageha.lastSessionId";
-export const MODE_SLASH_RE = /^\/(plan|goal|normal)\b/i;
-export const AGENT_MODES: AgentMode[] = ["normal", "plan", "goal"];
+export const MODE_SLASH_RE = /^\/(plan|goal|normal|multitask)\b/i;
+export const AGENT_MODES: AgentMode[] = ["normal", "plan", "goal", "multitask"];
 
 export function uid(prefix = "m"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
