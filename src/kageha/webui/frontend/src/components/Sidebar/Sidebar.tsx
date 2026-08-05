@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "../../lib/cn";
 import { useAppStore } from "../../store";
 import type { AgentEntry } from "./AgentsList";
@@ -24,6 +24,26 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapse, onAgentSel
   const newChat = useAppStore((s) => s.newChat);
   const meta = useAppStore((s) => s.meta);
   const [query, setQuery] = useState("");
+  const [width, setWidth] = useState(() => Number(localStorage.getItem("kageha.sidebarWidth")) || 296);
+  const [resizing, setResizing] = useState(false);
+
+  useEffect(() => {
+    if (!resizing) return;
+    const onMove = (event: PointerEvent) => setWidth(Math.min(420, Math.max(220, event.clientX)));
+    const onUp = () => setResizing(false);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { once: true });
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [resizing]);
+
+  useEffect(() => localStorage.setItem("kageha.sidebarWidth", String(Math.round(width))), [width]);
 
   const agents: AgentEntry[] = useMemo(() => {
     const list: AgentEntry[] = [
@@ -107,11 +127,19 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapse, onAgentSel
   return (
     <aside
       className={cn(
-        "ka-sidebar ka-sidebar-shell fixed inset-y-0 left-0 z-50 flex w-[250px] flex-col overflow-hidden transition-transform md:static md:z-0 md:translate-x-0",
+        "ka-sidebar ka-sidebar-shell fixed inset-y-0 left-0 z-50 flex w-[250px] shrink-0 flex-col overflow-hidden transition-transform md:static md:z-0 md:translate-x-0",
         open ? "translate-x-0" : "-translate-x-full md:translate-x-0",
       )}
+      style={{ width: `${width}px` }}
       aria-label="Main navigation"
     >
+      <div
+        className="absolute bottom-0 right-0 top-0 z-20 hidden w-1.5 cursor-col-resize hover:bg-accent/40 md:block"
+        role="separator"
+        aria-label="Resize navigation sidebar"
+        aria-orientation="vertical"
+        onPointerDown={(event) => { event.preventDefault(); setResizing(true); }}
+      />
       <SidebarHeader
         onNewThread={() => {
           newChat().then(() => onClose?.()).catch(() => {});

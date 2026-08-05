@@ -104,9 +104,22 @@ export function LightboxPreview({ item }: LightboxPreviewProps) {
   // Fallback: file icon
   return (
     <div className="ka-lightbox-preview">
-      <div className="flex flex-col items-center gap-3 text-faint">
-        <span className="text-5xl">📄</span>
-        <span className="text-sm">{name}</span>
+      <div className="mx-6 flex max-w-md flex-col items-center gap-3 rounded-2xl border border-line bg-surface px-8 py-10 text-center shadow-xl">
+        <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/15 text-sm font-bold uppercase text-accent">
+          {item.path.split(".").pop()?.slice(0, 5) || "FILE"}
+        </span>
+        <span className="break-all text-sm font-medium text-ink">{name}</span>
+        <span className="text-xs leading-relaxed text-faint">
+          This format cannot be rendered safely by the browser. You can open it in its native application or download it from the actions panel.
+        </span>
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1 rounded-lg bg-accent/15 px-3 py-2 text-xs font-medium text-accent hover:bg-accent/25"
+        >
+          Open file
+        </a>
       </div>
     </div>
   );

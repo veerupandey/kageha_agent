@@ -37,14 +37,14 @@ MEMORY_SCOPES = [item.value for item in MemoryScope]
 # Uploads / session file serving
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 _SAFE_SESSION_ID = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
-_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".avif", ".ico", ".tif", ".tiff", ".heic", ".heif"}
 _VIDEO_EXTS = {".mp4", ".webm", ".mov", ".m4v"}
 _AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".ogg", ".aac", ".flac"}
 _MARKDOWN_EXTS = {".md", ".markdown"}
-_TEXT_DOC_EXTS = {".txt", ".text"}
+_TEXT_DOC_EXTS = {".txt", ".text", ".json", ".jsonl", ".ndjson", ".csv", ".tsv", ".yaml", ".yml", ".toml", ".xml", ".ini", ".cfg", ".conf", ".log", ".tex", ".srt", ".vtt"}
 _PDF_EXTS = {".pdf"}
-_OFFICE_EXTS = {".ppt", ".pptx", ".doc", ".docx", ".xls", ".xlsx"}
-_ARCHIVE_EXTS = {".zip"}
+_OFFICE_EXTS = {".ppt", ".pptx", ".pps", ".ppsx", ".odp", ".key", ".doc", ".docx", ".rtf", ".odt", ".pages", ".xls", ".xlsx", ".xlsm", ".ods", ".numbers"}
+_ARCHIVE_EXTS = {".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar"}
 _MEDIA_EXTS = _IMAGE_EXTS | _VIDEO_EXTS | _AUDIO_EXTS
 _DESIGN_ARTIFACT_NAMES = frozenset(
     {"plan.md", "requirements.md", "skill_gaps.md", "explore_notes.md"}

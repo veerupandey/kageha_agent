@@ -10,12 +10,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import type { CanvasItem } from "../lib/artifactMedia";
-import { artifactDownloadUrl, fileExt, kindLabel } from "../lib/artifactMedia";
 import { cn } from "../lib/cn";
 import { useAppStore } from "../store";
 import type { ActivityStep, ToolCard } from "../api/types";
-import { CodeBlock, CodeThumbnail } from "./shared/CodeBlock";
+import { ArtifactPanel } from "./ThreadView/ArtifactPanel";
 
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -548,178 +546,12 @@ function StatsTab() {
 }
 
 
-// ── Artifacts Tab ──────────────────────────────────────────────────────
-
-function ArtifactThumb({ item, active, onClick }: {
-  item: CanvasItem;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const [failed, setFailed] = useState(false);
-  const [codePreview, setCodePreview] = useState("");
-  useEffect(() => { setFailed(false); }, [item.url]);
-
-  // Fetch first few lines for code thumbnails
-  useEffect(() => {
-    if (item.kind !== "code") { setCodePreview(""); return; }
-    let cancelled = false;
-    void fetch(item.url)
-      .then((r) => r.text())
-      .then((body) => { if (!cancelled) setCodePreview(body.slice(0, 500)); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [item.url, item.kind]);
-
+function ArtifactsTab({ onOpenLightbox }: { onOpenLightbox?: (path: string) => void }) {
   return (
-    <button
-      type="button"
-      title={item.path}
-      onClick={onClick}
-      className={cn(
-        "w-[4.5rem] shrink-0 overflow-hidden rounded-lg border text-left transition",
-        active ? "border-accent ring-2 ring-accent/25" : "border-line hover:border-accent/40",
-      )}
-    >
-      {item.kind === "image" && !failed ? (
-        <img src={item.url} alt="" className="h-12 w-full object-cover" onError={() => setFailed(true)} />
-      ) : item.kind === "code" && codePreview ? (
-        <div className="h-12 w-full overflow-hidden">
-          <CodeThumbnail code={codePreview} filename={item.caption} lines={8} />
-        </div>
-      ) : (
-        <div className="flex h-12 items-center justify-center bg-canvas text-[0.6rem] font-semibold uppercase tracking-wide text-accent">
-          {kindLabel(item.kind).slice(0, 4)}
-        </div>
-      )}
-      <span className="block truncate px-1.5 py-1 text-[0.65rem] text-muted">
-        {item.caption}
-      </span>
-    </button>
-  );
-}
-
-function ArtifactPreview({ item }: { item: CanvasItem }) {
-  const sessionId = useAppStore((s) => s.sessionId);
-  const [text, setText] = useState("");
-  const [textLoading, setTextLoading] = useState(false);
-
-  useEffect(() => {
-    if (!item || (item.kind !== "text" && item.kind !== "markdown" && item.kind !== "code")) { setText(""); return; }
-    let cancelled = false;
-    setTextLoading(true);
-    void fetch(item.url).then(r => r.text()).then(body => {
-      if (!cancelled) { setText(body.slice(0, 100_000)); setTextLoading(false); }
-    }).catch(() => { if (!cancelled) { setText("Could not load."); setTextLoading(false); } });
-    return () => { cancelled = true; };
-  }, [item?.url, item?.kind]);
-
-  if (item.kind === "image") {
-    return <img src={item.url} alt={item.caption} className="mx-auto max-h-64 max-w-full rounded-lg object-contain" />;
-  }
-  if (item.kind === "video") {
-    return <video src={item.url} controls className="mx-auto max-h-64 w-full bg-ink" />;
-  }
-  if (item.kind === "audio") {
-    return <audio src={item.url} controls className="w-full" />;
-  }
-  if (item.kind === "webpage") {
-    return (
-      <iframe
-        src={item.url}
-        title={item.caption}
-        sandbox="allow-scripts allow-same-origin"
-        className="h-48 w-full rounded border border-line"
-      />
-    );
-  }
-  if (item.kind === "code") {
-    if (textLoading) return <p className="p-2 text-xs text-muted">Loading…</p>;
-    return (
-      <div className="relative">
-        <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5">
-          <span className="rounded bg-[#21262d] px-1.5 py-0.5 text-[0.6rem] font-medium text-[#8b949e]">
-            {fileExt(item.path).replace(".", "").toUpperCase()}
-          </span>
-        </div>
-        <CodeBlock code={text} filename={item.caption} maxHeight="16rem" />
-      </div>
-    );
-  }
-  if (item.kind === "markdown" || item.kind === "text") {
-    if (textLoading) return <p className="p-2 text-xs text-muted">Loading…</p>;
-    if (item.kind === "markdown") {
-      return (
-        <div
-          className="markdown max-h-48 overflow-auto rounded border border-line bg-canvas p-2 text-[0.75rem]"
-          dangerouslySetInnerHTML={{
-            __html: DOMPurify.sanitize(
-              marked.parse(text, { async: false }) as string
-            ),
-          }}
-        />
-      );
-    }
-    return <pre className="max-h-48 overflow-auto rounded border border-line bg-canvas p-2 font-mono text-[0.65rem] text-ink whitespace-pre-wrap">{text || "(empty)"}</pre>;
-  }
-  return (
-    <div className="flex flex-col items-center gap-2 rounded-lg border border-line bg-canvas px-3 py-6 text-center">
-      <span className="text-lg font-semibold text-accent">{kindLabel(item.kind)}</span>
-      <a href={item.url} target="_blank" rel="noreferrer" className="text-xs text-accent hover:underline">Open</a>
-      <a href={artifactDownloadUrl(sessionId, item.path) || item.url} download={item.caption} className="text-xs text-ink hover:underline">Download</a>
-    </div>
-  );
-}
-
-function ArtifactsTab() {
-  const canvasItems = useAppStore((s) => s.canvasItems);
-  const canvasSelectedPath = useAppStore((s) => s.canvasSelectedPath);
-  const selectCanvasItem = useAppStore((s) => s.selectCanvasItem);
-  const refreshArtifacts = useAppStore((s) => s.refreshArtifacts);
-  const sessionId = useAppStore((s) => s.sessionId);
-
-  useEffect(() => {
-    if (sessionId) void refreshArtifacts();
-  }, [sessionId, refreshArtifacts]);
-
-  const selected = useMemo(
-    () => canvasItems.find((i) => i.path === canvasSelectedPath) || canvasItems[0] || null,
-    [canvasItems, canvasSelectedPath],
-  );
-
-  if (!canvasItems.length) {
-    return (
-      <div className="flex flex-1 items-center justify-center px-4 text-center text-sm text-muted">
-        No artifacts yet. Files created will appear here.
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 overflow-x-auto border-b border-line px-2 py-2">
-        <div className="flex gap-2">
-          {canvasItems.map((item) => (
-            <ArtifactThumb
-              key={item.path}
-              item={item}
-              active={item.path === selected?.path}
-              onClick={() => selectCanvasItem(item.path)}
-            />
-          ))}
-        </div>
-      </div>
-      {selected && (
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          <div className="mb-2 flex items-center gap-2">
-            <span className="rounded bg-line/80 px-1.5 py-0.5 text-[0.6rem] font-medium uppercase text-muted">
-              {kindLabel(selected.kind)}
-            </span>
-            <span className="truncate text-[0.65rem] text-muted">{selected.path}</span>
-          </div>
-          <ArtifactPreview item={selected} />
-        </div>
-      )}
-    </div>
+    <ArtifactPanel
+      filter="all"
+      onOpenLightbox={(path) => onOpenLightbox ? onOpenLightbox(path) : useAppStore.getState().openCanvasItem(path, { expand: true })}
+    />
   );
 }
 
@@ -734,7 +566,7 @@ const TAB_CONFIG: { id: CanvasTab; label: string; icon: string }[] = [
 ];
 
 /** Monitoring canvas with Timeline, Artifacts, and Stats tabs. */
-export function AgentCanvas({ alwaysShow, onCollapse }: { alwaysShow?: boolean; onCollapse?: () => void } = {}) {
+export function AgentCanvas({ alwaysShow, onCollapse, onOpenLightbox }: { alwaysShow?: boolean; onCollapse?: () => void; onOpenLightbox?: (path: string) => void } = {}) {
   const canvasOpen = useAppStore((s) => s.canvasOpen);
   const setCanvasOpen = useAppStore((s) => s.setCanvasOpen);
   const canvasItems = useAppStore((s) => s.canvasItems);
@@ -840,7 +672,7 @@ export function AgentCanvas({ alwaysShow, onCollapse }: { alwaysShow?: boolean; 
       <div className="flex min-h-0 flex-1 flex-col">
         {activeTab === "timeline" && <TimelineTab />}
         {activeTab === "plan" && <PlanTab />}
-        {activeTab === "artifacts" && <ArtifactsTab />}
+        {activeTab === "artifacts" && <ArtifactsTab onOpenLightbox={onOpenLightbox} />}
         {activeTab === "stats" && <StatsTab />}
       </div>
 
