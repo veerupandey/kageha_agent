@@ -24,8 +24,19 @@ describe("artifactMedia", () => {
   it("marks previewable kinds", () => {
     expect(isPreviewableKind("image")).toBe(true);
     expect(isPreviewableKind("pdf")).toBe(true);
-    expect(isPreviewableKind("presentation")).toBe(false);
-    expect(isPreviewableKind("download")).toBe(false);
+    expect(isPreviewableKind("presentation")).toBe(true);
+    expect(isPreviewableKind("download")).toBe(true);
+  });
+
+  it("recognizes common document, source, data, and archive formats", () => {
+    expect(canvasKindForPath("artifacts/report.docx")).toBe("document");
+    expect(canvasKindForPath("artifacts/deck.pptx")).toBe("presentation");
+    expect(canvasKindForPath("artifacts/data.xlsx")).toBe("spreadsheet");
+    expect(canvasKindForPath("artifacts/config.yaml")).toBe("text");
+    expect(canvasKindForPath("artifacts/main.py")).toBe("code");
+    expect(canvasKindForPath("artifacts/Dockerfile")).toBe("code");
+    expect(canvasKindForPath("artifacts/source.zip")).toBe("archive");
+    expect(canvasKindForPath("artifacts/book.epub")).toBe("ebook");
   });
 
   it("filters noise vs showcase deliverables", () => {

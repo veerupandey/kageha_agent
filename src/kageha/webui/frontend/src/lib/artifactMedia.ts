@@ -12,6 +12,9 @@ export type CanvasKind =
   | "presentation"
   | "document"
   | "spreadsheet"
+  | "archive"
+  | "ebook"
+  | "design"
   | "download";
 
 export interface CanvasItem {
@@ -31,6 +34,12 @@ const IMAGE_EXT = new Set([
   ".gif",
   ".bmp",
   ".svg",
+  ".avif",
+  ".ico",
+  ".tif",
+  ".tiff",
+  ".heic",
+  ".heif",
 ]);
 const VIDEO_EXT = new Set([".mp4", ".webm", ".mov", ".m4v"]);
 const AUDIO_EXT = new Set([".wav", ".mp3", ".m4a", ".ogg", ".aac", ".flac"]);
@@ -79,6 +88,20 @@ const CODE_EXT = new Set([
   ".v",
   ".sv",
   ".vhdl",
+  ".vue",
+  ".svelte",
+  ".astro",
+  ".dart",
+  ".groovy",
+  ".ps1",
+  ".bat",
+  ".cmd",
+  ".dockerfile",
+  ".tf",
+  ".hcl",
+  ".sol",
+  ".asm",
+  ".ipynb",
 ]);
 const TEXT_EXT = new Set([
   ".txt",
@@ -94,11 +117,26 @@ const TEXT_EXT = new Set([
   ".ini",
   ".cfg",
   ".conf",
+  ".properties",
+  ".editorconfig",
+  ".gitignore",
+  ".npmrc",
+  ".lock",
+  ".tsv",
+  ".ndjson",
+  ".jsonl",
+  ".tex",
+  ".bib",
+  ".srt",
+  ".vtt",
 ]);
 const WEBPAGE_EXT = new Set([".html", ".htm"]);
-const PRESENTATION_EXT = new Set([".ppt", ".pptx", ".key"]);
-const DOCUMENT_EXT = new Set([".doc", ".docx", ".rtf", ".odt"]);
-const SPREADSHEET_EXT = new Set([".xls", ".xlsx", ".csv"]); // csv also text
+const PRESENTATION_EXT = new Set([".ppt", ".pptx", ".pps", ".ppsx", ".odp", ".key"]);
+const DOCUMENT_EXT = new Set([".doc", ".docx", ".rtf", ".odt", ".pages"]);
+const SPREADSHEET_EXT = new Set([".xls", ".xlsx", ".xlsm", ".ods", ".numbers", ".csv", ".tsv"]);
+const ARCHIVE_EXT = new Set([".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar"]);
+const EBOOK_EXT = new Set([".epub", ".mobi", ".azw", ".azw3"]);
+const DESIGN_EXT = new Set([".fig", ".sketch", ".psd", ".ai", ".xd"]);
 
 export function fileExt(path: string): string {
   const base = path.split(/[?#]/)[0] || path;
@@ -114,6 +152,7 @@ export function fileBasename(path: string): string {
 
 export function canvasKindForPath(path: string, kindHint?: string): CanvasKind {
   const ext = fileExt(path);
+  const filename = fileBasename(path).toLowerCase();
   const hint = (kindHint || "").toLowerCase();
   if (IMAGE_EXT.has(ext) || hint === "image") return "image";
   if (VIDEO_EXT.has(ext) || hint === "video") return "video";
@@ -128,7 +167,10 @@ export function canvasKindForPath(path: string, kindHint?: string): CanvasKind {
     if (ext === ".csv") return "text";
     return "spreadsheet";
   }
-  if (CODE_EXT.has(ext) || hint === "code") return "code";
+  if (ARCHIVE_EXT.has(ext) || hint === "archive") return "archive";
+  if (EBOOK_EXT.has(ext) || hint === "ebook") return "ebook";
+  if (DESIGN_EXT.has(ext) || hint === "design") return "design";
+  if (CODE_EXT.has(ext) || ["dockerfile", "makefile", "rakefile", "gemfile", "procfile"].includes(filename) || hint === "code") return "code";
   if (TEXT_EXT.has(ext) || hint === "text") return "text";
   return "download";
 }
@@ -142,7 +184,14 @@ export function isPreviewableKind(kind: CanvasKind): boolean {
     kind === "webpage" ||
     kind === "markdown" ||
     kind === "text" ||
-    kind === "code"
+    kind === "code" ||
+    kind === "presentation" ||
+    kind === "document" ||
+    kind === "spreadsheet" ||
+    kind === "archive" ||
+    kind === "ebook" ||
+    kind === "design" ||
+    kind === "download"
   );
 }
 
@@ -170,6 +219,12 @@ export function kindLabel(kind: CanvasKind): string {
       return "Document";
     case "spreadsheet":
       return "Spreadsheet";
+    case "archive":
+      return "Archive";
+    case "ebook":
+      return "E-book";
+    case "design":
+      return "Design";
     default:
       return "File";
   }
@@ -216,6 +271,9 @@ export function isShowcaseArtifact(path: string): boolean {
     kind === "presentation" ||
     kind === "document" ||
     kind === "spreadsheet"
+    || kind === "archive"
+    || kind === "ebook"
+    || kind === "design"
   ) {
     return true;
   }

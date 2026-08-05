@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { CanvasItem } from "../../lib/artifactMedia";
@@ -182,6 +182,12 @@ function InlinePreview({
           <div className="p-4">
             <audio src={item.url} controls className="w-full" />
           </div>
+        ) : item.kind === "pdf" ? (
+          <iframe
+            src={item.url}
+            title={item.caption}
+            className="h-full min-h-[20rem] w-full border-0 bg-white"
+          />
         ) : item.kind === "webpage" ? (
           <iframe
             src={item.url}
@@ -285,6 +291,32 @@ export function ArtifactPanel({ filter, onOpenLightbox, onCollapse }: ArtifactPa
   const canvasItems = useAppStore((s) => s.canvasItems);
   const canvasTurnPaths = useAppStore((s) => s.canvasTurnPaths);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const splitRef = useRef<HTMLDivElement>(null);
+  const [listHeight, setListHeight] = useState(() => Number(localStorage.getItem("kageha.artifactListHeight")) || 280);
+  const [resizingSplit, setResizingSplit] = useState(false);
+
+  useEffect(() => {
+    if (!resizingSplit) return;
+    const onMove = (event: PointerEvent) => {
+      const bounds = splitRef.current?.getBoundingClientRect();
+      if (!bounds) return;
+      const max = Math.max(100, bounds.height - 180);
+      setListHeight(Math.min(max, Math.max(100, event.clientY - bounds.top)));
+    };
+    const onUp = () => setResizingSplit(false);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { once: true });
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [resizingSplit]);
+
+  useEffect(() => localStorage.setItem("kageha.artifactListHeight", String(Math.round(listHeight))), [listHeight]);
 
   const filtered = useMemo(
     () => canvasItems.filter((item) => matchesFilter(item, filter)),
@@ -314,7 +346,7 @@ export function ArtifactPanel({ filter, onOpenLightbox, onCollapse }: ArtifactPa
 
   if (filtered.length === 0) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div ref={splitRef} className="flex min-h-0 flex-1 flex-col">
         {onCollapse && (
           <div className="flex h-10 shrink-0 items-center justify-between border-b border-line px-3">
             <span className="text-[0.65rem] font-semibold text-muted uppercase tracking-wide">
@@ -343,7 +375,7 @@ export function ArtifactPanel({ filter, onOpenLightbox, onCollapse }: ArtifactPa
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div ref={splitRef} className="flex min-h-0 flex-1 flex-col">
       {/* Header */}
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-line px-3">
         <div className="flex items-center gap-2">
@@ -368,10 +400,10 @@ export function ArtifactPanel({ filter, onOpenLightbox, onCollapse }: ArtifactPa
       {/* Split: file list + preview */}
       <div className="flex min-h-0 flex-1 flex-col">
         {/* File list */}
-        <div className={cn(
-          "overflow-y-auto px-2 py-1.5 space-y-0.5 shrink-0",
-          selected ? "max-h-[30%] border-b border-line" : "flex-1",
-        )}>
+        <div
+          className={cn("overflow-y-auto px-2 py-1.5 space-y-0.5 shrink-0", !selected && "flex-1")}
+          style={selected ? { height: `${listHeight}px` } : undefined}
+        >
           {filtered.map((item) => (
             <FileListItem
               key={item.path}
@@ -382,6 +414,22 @@ export function ArtifactPanel({ filter, onOpenLightbox, onCollapse }: ArtifactPa
             />
           ))}
         </div>
+
+        {selected && (
+          <div
+            className="group relative z-20 h-2 shrink-0 cursor-row-resize border-y border-line bg-line/70 hover:bg-accent/60"
+            role="separator"
+            aria-label="Resize file list and artifact preview"
+            aria-orientation="horizontal"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.currentTarget.setPointerCapture?.(event.pointerId);
+              setResizingSplit(true);
+            }}
+          >
+            <span className="absolute left-1/2 top-1/2 h-0.5 w-14 -translate-x-1/2 -translate-y-1/2 rounded bg-faint group-hover:bg-accent" />
+          </div>
+        )}
 
         {/* Inline preview */}
         {selected && (

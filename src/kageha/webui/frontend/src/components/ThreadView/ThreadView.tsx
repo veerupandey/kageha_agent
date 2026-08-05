@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../../store";
 import { AgentCanvas } from "../AgentCanvas";
 import { ArtifactPanel } from "./ArtifactPanel";
@@ -18,6 +18,32 @@ export function ThreadView({ onOpenLightbox, rightPanelCollapsed, onToggleRightP
   const refreshArtifacts = useAppStore((s) => s.refreshArtifacts);
   const runStatus = useAppStore((s) => s.runStatus);
   const [artifactFilter, setArtifactFilter] = useState<ArtifactFilter>("all");
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const [rightWidth, setRightWidth] = useState(() => Number(localStorage.getItem("kageha.rightPanelWidth")) || 680);
+  const [resizing, setResizing] = useState(false);
+
+  useEffect(() => {
+    if (!resizing) return;
+    const onMove = (event: PointerEvent) => {
+      const bounds = layoutRef.current?.getBoundingClientRect();
+      if (!bounds) return;
+      const max = Math.max(360, bounds.width - 400);
+      setRightWidth(Math.min(max, Math.max(360, bounds.right - event.clientX)));
+    };
+    const onUp = () => setResizing(false);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { once: true });
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [resizing]);
+
+  useEffect(() => localStorage.setItem("kageha.rightPanelWidth", String(Math.round(rightWidth))), [rightWidth]);
 
   // Count artifacts by type
   const artifactCounts = useMemo(() => {
@@ -56,9 +82,9 @@ export function ThreadView({ onOpenLightbox, rightPanelCollapsed, onToggleRightP
         artifactCounts={artifactCounts}
       />
 
-      <div className="flex min-h-0 flex-1">
+      <div ref={layoutRef} className="flex min-h-0 flex-1">
         {/* Conversation panel (left) — expands to full width when right panel is collapsed */}
-        <div className={`flex min-h-0 min-w-0 flex-1 flex-col border-r border-[var(--color-line)] ${rightPanelCollapsed ? "" : "md:max-w-[60%] lg:max-w-[50%]"}`}>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <ConversationPanel />
         </div>
 
@@ -81,9 +107,19 @@ export function ThreadView({ onOpenLightbox, rightPanelCollapsed, onToggleRightP
             )}
           </div>
         ) : (
-          <div className="hidden min-h-0 flex-1 flex-col md:flex">
+          <>
+          <div
+            className="group relative hidden w-1.5 shrink-0 cursor-col-resize bg-line/40 hover:bg-accent/40 md:block"
+            role="separator"
+            aria-label="Resize chat and artifact panels"
+            aria-orientation="vertical"
+            onPointerDown={(event) => { event.preventDefault(); setResizing(true); }}
+          >
+            <span className="absolute left-1/2 top-1/2 h-10 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-faint/50 group-hover:bg-accent" />
+          </div>
+          <div className="hidden min-h-0 shrink-0 flex-col md:flex" style={{ width: `${rightWidth}px`, maxWidth: "calc(100% - 400px)" }}>
             {showAgentCanvas ? (
-              <AgentCanvas alwaysShow onCollapse={onToggleRightPanel} />
+              <AgentCanvas alwaysShow onCollapse={onToggleRightPanel} onOpenLightbox={onOpenLightbox} />
             ) : (
               <ArtifactPanel
                 filter={artifactFilter}
@@ -92,6 +128,7 @@ export function ThreadView({ onOpenLightbox, rightPanelCollapsed, onToggleRightP
               />
             )}
           </div>
+          </>
         )}
       </div>
     </main>
