@@ -202,7 +202,10 @@ class AppServer:
             # Keep doctor as fallback hint, but always surface the real failure —
             # opaque "Request failed" made healthy doctor output useless when the
             # session was blocked on reconciliation / InvalidTransition.
-            if "reconciliation" in detail.lower() or "uncertain" in detail.lower():
+            if any(
+                token in detail.lower()
+                for token in ("reconcile", "reconciliation", "uncertain")
+            ):
                 message = (
                     f"{detail} Start a new chat, or clear the stuck approval/"
                     "uncertain tool attempt on this session."

@@ -1092,6 +1092,39 @@ async def test_agent_runtime_blocks_uncertain_external_mutation(
         store.close()
 
 
+@pytest.mark.asyncio
+async def test_agent_runtime_continues_after_interrupted_local_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("KAGEHA_HOME", str(tmp_path / "home"))
+    store = RuntimeStore(tmp_path / "runtime.db")
+    accepted = _turn(store, "edit")
+    SessionWorkspace.create(accepted.session_id)
+    attempt, created = store.begin_tool_attempt(
+        session_id=accepted.session_id,
+        turn_id=accepted.turn_id,
+        tool_call_id="call",
+        tool_name="write_file",
+        arguments={"path": "artifacts/result.txt"},
+        side_effect="mutation",
+        risk_class="safe",
+    )
+    assert created and attempt.state == ToolReconciliation.IN_PROGRESS
+    runtime = AgentRuntime(store=store, controller_factory=_FakeController)
+    try:
+        handle = runtime.resume(accepted.session_id, "verify and continue")
+        result = await handle.result()
+        assert result.status == "success"
+        uncertain_ids = {
+            row["id"] for row in store.inspect_session(accepted.session_id)["uncertain_tools"]
+        }
+        assert attempt.id in uncertain_ids
+    finally:
+        runtime.close()
+        store.close()
+
+
 
 def test_supervisor_linux_install_and_direct_process_lifecycle(
     tmp_path: Path,

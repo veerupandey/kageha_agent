@@ -38,13 +38,6 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     kind: "multitask",
   },
   {
-    id: "task",
-    label: "/task",
-    title: "New task",
-    description: "Open a separate task chat",
-    kind: "multitask",
-  },
-  {
     id: "tabs",
     label: "/tabs",
     title: "Tabs",
@@ -148,6 +141,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     kind: "browser",
   },
   {
+    id: "browser-diagnose",
+    label: "/browser diagnose",
+    description: "Console, network, and performance diagnostics for a URL",
+    kind: "browser",
+  },
+  {
     id: "research",
     label: "/research",
     description: "Blink research (native, no LLM loop)",
@@ -228,10 +227,11 @@ function normalizeCommand(raw: unknown): SlashCommand | null {
     description: String(c.description || ""),
     kind: String(c.kind || "prefs"),
     title: c.title != null ? String(c.title) : undefined,
+    usage: c.usage != null ? String(c.usage) : undefined,
   };
 }
 
-/** Merge server catalog over hardcoded fallback (server wins on same id). */
+/** Use the live server catalog as authority; fallback only while offline. */
 const LEAN_UI_EXCLUDED_IDS = new Set([
   "labs",
   "best-of-n",
@@ -249,7 +249,6 @@ export function mergeServerCatalog(
     return fallback.slice();
   }
   const byId = new Map<string, SlashCommand>();
-  for (const cmd of fallback) byId.set(cmd.id, cmd);
   for (const raw of serverCommands) {
     const cmd = normalizeCommand(raw);
     if (!cmd || LEAN_UI_EXCLUDED_IDS.has(cmd.id) || cmd.kind === "labs") continue;

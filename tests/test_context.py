@@ -16,6 +16,21 @@ def test_stable_prefix_order():
     assert system.index("## Tools") < system.index("## Skills catalog")
     assert system.index("## Skills catalog") < system.index("## Knowledge bases")
     assert out.prefix_tokens > 0
+    assert "run shell" not in system  # native schema already carries descriptions
+
+
+def test_superseded_browser_observations_are_compacted():
+    asm = ContextAssembler()
+    old = "title: old\nurl: https://old.test\n" + ("- [e1] button\n" * 100)
+    new = "title: new\nurl: https://new.test\n- [e1] button 'Submit'"
+    hist = [
+        ChatMessage(role="user", content="browse"),
+        ChatMessage(role="tool", name="browser_snapshot", content=old),
+        ChatMessage(role="tool", name="browser_click", content=new),
+    ]
+    out = asm.build(history=hist, tools=[])
+    assert "[superseded browser observation: browser_snapshot" in out.messages[2].content
+    assert out.messages[3].content == new
 
 
 def test_working_notes_trail_history_not_system():

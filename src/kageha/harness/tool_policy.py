@@ -47,6 +47,8 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
             "browser_click",
             "browser_type",
             "browser_fill",
+            "browser_select",
+            "browser_upload",
             "browser_press",
             "browser_scroll",
             "browser_wait",

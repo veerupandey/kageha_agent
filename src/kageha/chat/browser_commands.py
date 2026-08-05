@@ -25,6 +25,7 @@ Usage:
   /browser lightpanda      Use Lightpanda CDP (start server separately)
   /browser pack on|off     Force-enable/disable browser tool pack
   /browser depth flash|standard|deep
+  /browser diagnose <url>  Open URL and return console/network/performance diagnostics
 
 Backends: http · chromium · lightpanda · comet · chrome · cdp · docker · headless
 """
@@ -35,6 +36,34 @@ Usage:
   /research flash|standard|deep <query>
   /research depth flash|standard|deep
 """
+
+BROWSER_ACTIONS = frozenset(
+    {
+        "help",
+        "-h",
+        "--help",
+        "?",
+        "list",
+        "ls",
+        "backends",
+        "status",
+        "diagnose",
+        "diagnostics",
+        "profile",
+        "pack",
+        "depth",
+        "cdp",
+        "comet",
+        "use",
+        # Backend shorthands.
+        "http",
+        "chromium",
+        "lightpanda",
+        "chrome",
+        "docker",
+        "headless",
+    }
+)
 
 
 def _parts(line: str) -> list[str]:
@@ -63,6 +92,11 @@ async def handle_browser_command(line: str) -> tuple[bool, str]:
 
     if action == "status":
         return True, status_text()
+
+    if action in {"diagnose", "diagnostics", "profile"}:
+        if len(parts) < 3:
+            return True, "Usage: /browser diagnose <url>"
+        return True, await diagnose_url(parts[2])
 
     if action == "pack":
         if len(parts) < 3 or parts[2].lower() not in {"on", "off", "1", "0"}:
@@ -133,6 +167,26 @@ async def handle_browser_command(line: str) -> tuple[bool, str]:
     return True, f"Unknown /browser action {action!r}.\n\n{USAGE_BROWSER}"
 
 
+async def diagnose_url(url: str) -> str:
+    """One-shot browser diagnostics shared by chat, CLI, and WebUI."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https", "file"}:
+        return "ERROR: URL must use http://, https://, or file://"
+    apply_browser_prefs()
+    from kageha.harness.browser import BrowserEngine
+
+    engine = BrowserEngine()
+    try:
+        await engine.open(url, include_text=False)
+        return await engine.diagnostics(clear=False)
+    except Exception as exc:  # noqa: BLE001
+        return f"ERROR: browser diagnostics failed: {exc}"
+    finally:
+        await engine.close()
+
+
 async def _select(name: str, *, cdp: str | None = None) -> str:
     try:
         prefs = set_backend(name, cdp=cdp)
@@ -143,8 +197,7 @@ async def _select(name: str, *, cdp: str | None = None) -> str:
     lines = [status_text(), ""]
     if spec and spec.id == "lightpanda":
         lines.append(
-            "Tip: start Lightpanda if needed:\n"
-            "  lightpanda serve --host 127.0.0.1 --port 9222"
+            "Tip: start Lightpanda if needed:\n  lightpanda serve --host 127.0.0.1 --port 9222"
         )
     if spec and spec.needs_pack:
         lines.append("Browser pack enabled for the next agent turn.")

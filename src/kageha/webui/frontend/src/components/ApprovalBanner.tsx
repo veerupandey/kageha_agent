@@ -359,10 +359,11 @@ function ToolApprovalBanner({
           </button>
           <button
             type="button"
-            className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink hover:bg-line/50"
+            className="rounded-md border border-danger/30 bg-surface px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger-soft"
             onClick={() => onApprove("full")}
+            title="Disable future approval prompts and allow host access"
           >
-            Always
+            Full access
           </button>
           <span className="mx-1 text-line-strong" aria-hidden="true">|</span>
           <button

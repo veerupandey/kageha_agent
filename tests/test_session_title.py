@@ -10,6 +10,7 @@ from kageha.session_title import (
     pick_best_title,
     title_from_artifact_path,
     title_score,
+    title_from_message,
 )
 
 
@@ -28,6 +29,12 @@ def test_artifact_title():
         "The Daily Film Edit"
     )
     assert title_from_artifact_path("artifacts/SKILL.md") is None
+
+
+def test_message_title_uses_first_few_words():
+    assert title_from_message(
+        "Please install Factory desktop and configure the provider with my API key"
+    ) == "Please install Factory desktop and configure the provider…"
 
 
 def test_pick_best_prefers_substantive_user_over_greeting():

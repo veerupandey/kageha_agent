@@ -74,9 +74,7 @@ def test_api_comet_get_status(webui_app: WebUIApp, monkeypatch: pytest.MonkeyPat
 def test_api_comet_post_start(webui_app: WebUIApp, monkeypatch: pytest.MonkeyPatch) -> None:
     mock = AsyncMock(return_value="Comet ready at http://127.0.0.1:9222")
     monkeypatch.setattr("kageha.chat.comet.ensure_comet", mock)
-    st, data = _call(
-        webui_app, "POST", "/api/comet", body={"action": "start"}
-    )
+    st, data = _call(webui_app, "POST", "/api/comet", body={"action": "start"})
     assert st == 200
     assert data.get("ok") is True
     assert data.get("action") == "start"
@@ -91,9 +89,14 @@ def test_api_slash_catalog(webui_app: WebUIApp) -> None:
     assert data.get("ok") is True
     cmds = data.get("commands") or []
     ids = {c.get("id") for c in cmds}
-    assert {"plan", "goal", "normal", "new", "ask", "auto", "comet"} <= ids
+    assert {"plan", "goal", "normal", "new", "ask", "auto"} <= ids
+    assert "task" not in ids
+    assert "comet" not in ids  # canonical command is /browser comet
     assert "permissions" in ids
     assert "permissions-ask" in ids
+    assert "browser-diagnose" in ids
+    diagnose = next(c for c in data["commands"] if c["id"] == "browser-diagnose")
+    assert diagnose["usage"] == "/browser diagnose <url>"
     assert "best-of-n" not in ids
     assert "labs" not in ids
     caps = data.get("capabilities") or {}
@@ -152,12 +155,10 @@ def test_chat_slash_research_bypasses_agent(
 def test_react_slash_wires_browser_handler() -> None:
     """React frontend owns /browser slash handling (legacy app.js removed)."""
     root = Path(__file__).resolve().parents[1]
-    slash = (root / "src/kageha/webui/frontend/src/lib/slash.ts").read_text(
+    slash = (root / "src/kageha/webui/frontend/src/lib/slash.ts").read_text(encoding="utf-8")
+    catalog = (root / "src/kageha/webui/frontend/src/api/slashCatalog.ts").read_text(
         encoding="utf-8"
     )
-    catalog = (
-        root / "src/kageha/webui/frontend/src/api/slashCatalog.ts"
-    ).read_text(encoding="utf-8")
     assert "postBrowser" in slash
     assert "/api/browser" in slash
     assert 'label: "/browser"' in catalog

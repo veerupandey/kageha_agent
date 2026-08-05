@@ -15,6 +15,7 @@ import {
   uid,
 } from "./helpers";
 import type { AppState } from "./types";
+import { provisionalSessionTitle } from "./sessions";
 
 type SetState = (
   partial:
@@ -84,10 +85,16 @@ export async function runTurn(
   // Set a provisional title from the user's message immediately (don't wait for done event).
   // This prevents showing session IDs like "4a4b00b0" in the header/sidebar while running.
   if (!get().sessionTitle && displayText) {
-    const provisional = displayText.replace(/^\/\w+\s*/, "").trim();
+    const provisional = provisionalSessionTitle(displayText);
     if (provisional.length >= 3) {
-      const clipped = provisional.length <= 60 ? provisional : provisional.slice(0, 57) + "…";
-      set({ sessionTitle: clipped });
+      set((s) => ({
+        sessionTitle: provisional,
+        sessions: s.sessions.map((session) =>
+          session.session_id === sessionId
+            ? { ...session, title: provisional }
+            : session,
+        ),
+      }));
     }
   }
 

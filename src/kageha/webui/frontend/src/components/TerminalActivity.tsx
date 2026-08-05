@@ -4,6 +4,8 @@ import {
   activityGlyph,
   activityGlyphClass,
   activityLineText,
+  activityTarget,
+  activityUrl,
   friendlyActivityLabel,
 } from "../lib/activityUi";
 import { cn } from "../lib/cn";
@@ -13,10 +15,14 @@ export const TerminalActivity = memo(function TerminalActivity({
   steps,
   liveLabel,
   streaming,
+  onOpenBrowser,
+  onOpenComputer,
 }: {
   steps: ActivityStep[];
   liveLabel?: string;
   streaming: boolean;
+  onOpenBrowser?: (url?: string) => void;
+  onOpenComputer?: () => void;
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const lines = useMemo(() => {
@@ -25,6 +31,8 @@ export const TerminalActivity = memo(function TerminalActivity({
       glyph: activityGlyph(step.label),
       glyphClass: activityGlyphClass(step.label),
       text: activityLineText(step),
+      target: activityTarget(`${step.kind || ""} ${step.label}`),
+      url: activityUrl(...(step.detail || [])),
     }));
     if (streaming && liveLabel) {
       const friendly = friendlyActivityLabel(liveLabel);
@@ -35,6 +43,8 @@ export const TerminalActivity = memo(function TerminalActivity({
           glyph: activityGlyph(friendly),
           glyphClass: activityGlyphClass(friendly),
           text: friendly,
+          target: activityTarget(friendly),
+          url: null,
         });
       }
     }
@@ -59,12 +69,26 @@ export const TerminalActivity = memo(function TerminalActivity({
         </summary>
         <div className="terminal-activity-body max-h-48 space-y-0.5 overflow-y-auto border-t border-line px-3 py-2 font-mono text-sm">
           {lines.map((line) => (
-            <div key={line.key} className="flex gap-2 leading-5 animate-[fadeInUp_100ms_ease-out]">
+            <button
+              key={line.key}
+              type="button"
+              disabled={!line.target}
+              className={cn(
+                "flex w-full gap-2 rounded-sm text-left leading-5 animate-[fadeInUp_100ms_ease-out]",
+                line.target && "cursor-pointer hover:bg-accent-soft hover:text-accent",
+              )}
+              title={line.target ? `Open ${line.target} view` : undefined}
+              onClick={() => {
+                if (line.target === "browser") onOpenBrowser?.(line.url || undefined);
+                if (line.target === "computer") onOpenComputer?.();
+              }}
+            >
               <span className={cn("w-4 shrink-0 text-center", line.glyphClass)}>
                 {line.glyph}
               </span>
               <span className="min-w-0 flex-1 truncate text-ink">{line.text}</span>
-            </div>
+              {line.target ? <span className="shrink-0 text-faint">Open ↗</span> : null}
+            </button>
           ))}
         </div>
       </details>
@@ -88,12 +112,19 @@ export const TerminalActivity = memo(function TerminalActivity({
           lines.map((line, i) => {
             const current = i === lines.length - 1;
             return (
-              <div
+              <button
                 key={line.key}
+                type="button"
+                disabled={!line.target}
                 className={cn(
                   "flex gap-2 leading-5 animate-[fadeInUp_100ms_ease-out]",
                   current ? "text-ink" : "text-faint",
+                  line.target && "w-full cursor-pointer rounded-sm text-left hover:bg-accent-soft hover:text-accent",
                 )}
+                onClick={() => {
+                  if (line.target === "browser") onOpenBrowser?.(line.url || undefined);
+                  if (line.target === "computer") onOpenComputer?.();
+                }}
               >
                 <span
                   className={cn(
@@ -104,7 +135,8 @@ export const TerminalActivity = memo(function TerminalActivity({
                   {line.glyph}
                 </span>
                 <span className="min-w-0 flex-1 truncate">{line.text}</span>
-              </div>
+                {line.target ? <span className="shrink-0 text-[0.65rem] text-faint">Open ↗</span> : null}
+              </button>
             );
           })
         ) : (

@@ -128,6 +128,12 @@ def test_adaptive_labels_use_type_text_not_clicks(
         if tool == "type_text":
             return {"ok": True, "text": args.get("text"), "verified": True}
         if tool == "get_window_state":
+            if args.get("include_screenshot") and args.get("screenshot_out_file"):
+                from PIL import Image
+
+                Image.new("RGB", (320, 200), color=(30, 30, 30)).save(
+                    args["screenshot_out_file"]
+                )
             return {
                 "elements": [],
                 "tree_markdown": 'AXStaticText = "17"',
@@ -160,5 +166,7 @@ def test_adaptive_labels_use_type_text_not_clicks(
         assert "click" not in calls
         assert "type_text" in calls
         assert out["timing"]["elapsed_ms"] >= 0
+        assert out["screenshot"].endswith("action_0001.png")
+        assert out["thumb_path"].endswith("action_0001.jpg")
 
     asyncio.run(_run())

@@ -6,6 +6,7 @@ export type RunStatus =
   | "success"
   | "error"
   | "cancelled"
+  | "interrupted"
   | "waiting_approval";
 
 export type ComposerChipKind = "mode" | "multitask";
@@ -219,6 +220,8 @@ export interface SlashCommand {
   description: string;
   kind: SlashCommandKind;
   title?: string;
+  /** Example syntax shown by autocomplete when the command expects input. */
+  usage?: string;
 }
 
 export interface SlashCatalogResponse {

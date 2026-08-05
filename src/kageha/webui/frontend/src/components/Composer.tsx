@@ -14,7 +14,9 @@ import {
   filterSlashCommands,
   getAtContext,
   getSlashContext,
+  slashCommandGroup,
   slashCommandTitle,
+  slashCommandUsage,
 } from "../lib/slash";
 import {
   startMicRecording,
@@ -309,8 +311,17 @@ export function Composer() {
                     pickSlash(cmd);
                   }}
                 >
-                  <span className="font-medium">{slashCommandTitle(cmd)}</span>
-                  <span className="text-xs text-muted">{cmd.description}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="font-medium">{slashCommandTitle(cmd)}</span>
+                    <code className="text-xs text-faint">{slashCommandUsage(cmd)}</code>
+                    <span className="ml-auto text-[0.65rem] uppercase tracking-wide text-faint">
+                      {slashCommandGroup(cmd)}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-2 text-xs text-muted">
+                    <span className="min-w-0 flex-1 truncate">{cmd.description}</span>
+                    {i === slashIndex ? <kbd className="text-faint">Enter ↵</kbd> : null}
+                  </span>
                 </button>
               ))}
             </div>
@@ -666,8 +677,8 @@ export function Composer() {
                   {(
                     [
                       ["ask", "Ask — confirm risky tools"],
-                      ["auto", "Auto — session auto-approve"],
-                      ["full", "Full — auto + sandbox network"],
+                      ["auto", "Auto — approve routine requests"],
+                      ["full", "Full access — no prompts or sandbox boundary"],
                     ] as const
                   ).map(([mode, label]) => (
                     <DropdownMenu.Item

@@ -5,7 +5,9 @@ import { filterSlashByCapabilities } from "../api/slashCatalog";
 import {
   applySlashCommand,
   filterSlashCommands,
+  slashCommandGroup,
   slashCommandTitle,
+  slashCommandUsage,
 } from "../lib/slash";
 import { useAppStore } from "../store";
 
@@ -55,6 +57,15 @@ export function CommandPalette({
     ],
     [newChat, showToast],
   );
+
+  const groupedCommands = useMemo(() => {
+    const groups = new Map<string, SlashCommand[]>();
+    for (const cmd of filterSlashCommands(slashCommands, "")) {
+      const group = slashCommandGroup(cmd);
+      groups.set(group, [...(groups.get(group) || []), cmd]);
+    }
+    return [...groups.entries()];
+  }, [slashCommands]);
 
   useEffect(() => {
     if (!open) return;
@@ -107,19 +118,24 @@ export function CommandPalette({
         />
         <Command.List id="command-palette-results">
           <Command.Empty>No matches</Command.Empty>
-          <Command.Group heading="Commands">
-            {filterSlashCommands(slashCommands, "").map((cmd) => (
+          {groupedCommands.map(([group, commands]) => (
+          <Command.Group key={group} heading={group}>
+            {commands.map((cmd) => (
               <Command.Item
                 key={cmd.id}
                 value={`${slashCommandTitle(cmd)} ${cmd.label} ${cmd.description}`}
                 onSelect={() => runSlash(cmd)}
               >
-                <span className="font-medium">{slashCommandTitle(cmd)}</span>
-                <span className="text-xs text-faint">{cmd.label}</span>
-                <span className="text-xs text-muted">{cmd.description}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium">{slashCommandTitle(cmd)}</span>
+                  <span className="block truncate text-xs text-muted">{cmd.description}</span>
+                </span>
+                <code className="shrink-0 text-xs text-faint">{slashCommandUsage(cmd)}</code>
+                <kbd className="text-[0.65rem] text-faint">Enter</kbd>
               </Command.Item>
             ))}
           </Command.Group>
+          ))}
           <Command.Group heading="Actions">
             {actions.map((action) => (
               <Command.Item

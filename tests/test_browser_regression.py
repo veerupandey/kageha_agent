@@ -22,11 +22,15 @@ EXPECTED_BROWSER_TOOLS = frozenset(
         "browser_click",
         "browser_type",
         "browser_fill",
+        "browser_select",
+        "browser_upload",
         "browser_press",
         "browser_scroll",
         "browser_wait",
         "browser_screenshot",
         "browser_evaluate",
+        "browser_batch",
+        "browser_diagnostics",
         "browser_cdp",
         "browser_tabs",
         "browser_lock",
@@ -44,6 +48,8 @@ _LOCAL_HTML = """<!DOCTYPE html>
   <h1 id="heading">Hello Fixture</h1>
   <button id="go-btn" type="button">Go</button>
   <input id="name-input" type="text" name="name" placeholder="Your name" />
+  <select id="country"><option value="us">United States</option><option value="ca">Canada (+1)</option></select>
+  <input id="resume-input" type="file" />
   <p id="status">idle</p>
   <div id="tall" style="height: 2400px; background: linear-gradient(#fff, #ccc);">
     Spacer for scroll
@@ -102,6 +108,24 @@ def test_browser_tool_registration_names(tmp_path: Path) -> None:
     assert not missing, f"missing browser tools: {sorted(missing)}"
 
 
+def test_browser_connect_reuses_live_session() -> None:
+    from kageha.harness.browser.engine import BrowserEngine, TabHandle
+
+    class Page:
+        url = "https://example.test/already-open"
+
+        def is_closed(self):
+            return False
+
+    engine = BrowserEngine()
+    engine.mode = "headless"
+    engine.tabs = [TabHandle(page=Page())]
+    engine.active = 0
+    out = asyncio.run(engine.connect(target="auto"))
+    assert "reused headless" in out
+    assert engine.page is not None
+
+
 def test_web_browse_and_web_research_skills_discoverable() -> None:
     reg = SkillRegistry()
     assert "web_browse" in reg.skills
@@ -118,9 +142,7 @@ def test_web_browse_and_web_research_skills_discoverable() -> None:
     assert "web_browse" in (research.body or "")
 
 
-def test_browser_local_page_click_type_scroll_screenshot_close(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_browser_local_page_click_type_scroll_screenshot_close(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("KAGEHA_BROWSER_MODE", "headless")
     _ensure_playwright()
     from kageha.harness.tools.browser import register_browser_tools
@@ -135,15 +157,23 @@ def test_browser_local_page_click_type_scroll_screenshot_close(
     async def _run() -> None:
         await _chromium_or_skip()
         try:
-            opened = await reg.get("browser_open").call(
-                url=file_url, screenshot=True
-            )
+            opened = await reg.get("browser_open").call(url=file_url, screenshot=True)
             assert "Browse Regression Fixture" in opened or "title:" in opened
             assert "[e" in opened, f"expected snapshot refs in open output:\n{opened}"
 
             snap = await reg.get("browser_snapshot").call()
             assert "[e" in snap, f"expected refs in snapshot:\n{snap}"
             assert "button" in snap.lower() or "Go" in snap
+
+            batch_out = await reg.get("browser_batch").call(
+                actions_json=(
+                    '[{"action":"fill","target":"#name-input","text":"batched"},'
+                    '{"action":"click","target":"role=button:Go"}]'
+                )
+            )
+            assert "completed 2 browser actions" in batch_out
+            assert "title:" in batch_out
+            assert "clicked" in (await reg.get("extract").call(selector="#status"))
 
             shot_out = await reg.get("browser_screenshot").call(path="artifacts/regression.png")
             assert "Saved" in shot_out
@@ -166,10 +196,32 @@ def test_browser_local_page_click_type_scroll_screenshot_close(
             type_out = await reg.get("browser_type").call(target="#name-input", text="kageha")
             assert "typed into #name-input" in type_out
 
+            select_out = await reg.get("browser_select").call(
+                target="#country", option="Canada (+1)"
+            )
+            assert "selected 'Canada (+1)'" in select_out
+            # browser_fill also detects native selects instead of calling fill().
+            fill_select = await reg.get("browser_fill").call(
+                target="#country", text="United States"
+            )
+            assert "selected 'United States'" in fill_select
+
+            resume = ctx.workspace.root / "artifacts" / "resume.pdf"
+            resume.write_bytes(b"%PDF-1.4\n% fixture\n")
+            upload_out = await reg.get("browser_upload").call(
+                target="#resume-input", paths_json='["artifacts/resume.pdf"]'
+            )
+            assert "uploaded 1 file(s)" in upload_out
+
             eval_out = await reg.get("browser_evaluate").call(
                 expression="() => document.getElementById('status').textContent"
             )
             assert "clicked" in eval_out.lower()
+
+            diagnostics = await reg.get("browser_diagnostics").call()
+            assert '"timing"' in diagnostics
+            assert '"performance_metrics"' in diagnostics
+            assert file_url in diagnostics
 
             tabs_out = await reg.get("browser_tabs").call(action="list")
             assert "active:" in tabs_out
@@ -197,9 +249,7 @@ def test_browser_local_page_click_type_scroll_screenshot_close(
     asyncio.run(_run())
 
 
-def test_browser_compat_aliases_browse_extract_screenshot(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_browser_compat_aliases_browse_extract_screenshot(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("KAGEHA_BROWSER_MODE", "headless")
     _ensure_playwright()
     from kageha.harness.tools.browser import register_browser_tools

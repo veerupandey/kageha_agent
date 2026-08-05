@@ -19,6 +19,8 @@ Do not screenshot every step unless you need vision evidence.
 
 from __future__ import annotations
 
+import json
+import time
 from typing import TYPE_CHECKING
 
 from kageha.harness.browser import BrowserEngine, resolve_browser_mode, resolve_cdp_endpoint
@@ -37,7 +39,10 @@ __all__ = [
 
 def register_browser_tools(ctx: "HarnessContext") -> ToolRegistry:
     reg = ToolRegistry()
-    engine = BrowserEngine(artifact_root=lambda p: ctx.workspace.path(p))
+    engine = BrowserEngine(
+        artifact_root=lambda p: ctx.workspace.path(p),
+        session_key=str(getattr(ctx.workspace, "run_id", "") or ""),
+    )
 
     @tool(
         description=(
@@ -61,9 +66,7 @@ def register_browser_tools(ctx: "HarnessContext") -> ToolRegistry:
         ),
         risk_class="browser",
     )
-    async def browser_open(
-        url: str, screenshot: bool = False, include_text: bool = True
-    ) -> str:
+    async def browser_open(url: str, screenshot: bool = False, include_text: bool = False) -> str:
         return await engine.open(url, screenshot=screenshot, include_text=include_text)
 
     @tool(
@@ -77,9 +80,7 @@ def register_browser_tools(ctx: "HarnessContext") -> ToolRegistry:
     async def browser_snapshot(
         limit: int = 60, compact: bool = True, include_text: bool = False
     ) -> str:
-        return await engine.snapshot(
-            limit=limit, compact=compact, include_text=include_text
-        )
+        return await engine.snapshot(limit=limit, compact=compact, include_text=include_text)
 
     @tool(
         description="Click an element by snapshot ref (e0) or CSS / text=... / role=button:Name.",
@@ -102,6 +103,30 @@ def register_browser_tools(ctx: "HarnessContext") -> ToolRegistry:
     async def browser_fill(target: str, text: str) -> str:
         return await engine.fill(target, text)
 
+    @tool(
+        description="Select a native <select> option by visible label or value.",
+        risk_class="browser",
+    )
+    async def browser_select(target: str, option: str) -> str:
+        return await engine.select(target, option)
+
+    @tool(
+        description=(
+            "Upload one or more workspace files through a file input. "
+            "paths_json is a JSON array of session-relative paths."
+        ),
+        risk_class="browser",
+    )
+    async def browser_upload(target: str, paths_json: str) -> str:
+        try:
+            raw_paths = json.loads(paths_json)
+        except json.JSONDecodeError as exc:
+            return f"ERROR: paths_json must be a JSON array: {exc}"
+        if not isinstance(raw_paths, list) or not raw_paths:
+            return "ERROR: paths_json must be a non-empty JSON array"
+        paths = [str(ctx.workspace.path(str(path))) for path in raw_paths[:8]]
+        return await engine.upload(target, paths)
+
     @tool(description="Press a key (Enter, Tab, Escape, ArrowDown, etc.).", risk_class="browser")
     async def browser_press(key: str) -> str:
         return await engine.press(key)
@@ -113,7 +138,10 @@ def register_browser_tools(ctx: "HarnessContext") -> ToolRegistry:
     async def browser_scroll(direction: str = "down", amount: int = 600) -> str:
         return await engine.scroll(direction=direction, amount=amount)
 
-    @tool(description="Wait for a CSS selector (or timeout_ms if selector empty).", risk_class="browser")
+    @tool(
+        description="Wait for a CSS selector (or timeout_ms if selector empty).",
+        risk_class="browser",
+    )
     async def browser_wait(selector: str = "", timeout_ms: int = 3000) -> str:
         return await engine.wait(selector=selector, timeout_ms=timeout_ms)
 
@@ -134,14 +162,117 @@ def register_browser_tools(ctx: "HarnessContext") -> ToolRegistry:
 
     @tool(
         description=(
+            "Execute a bounded sequence of browser actions using the current snapshot, "
+            "then return one final snapshot. This avoids a model round-trip after every "
+            "click/fill/press. actions_json is an array (max 12) of objects with action="
+            "click|fill|type|select|press|scroll|wait and the corresponding target/text/option/key/"
+            "direction/amount/selector/timeout_ms fields. Stop on the first failure."
+        ),
+        risk_class="browser",
+    )
+    async def browser_batch(actions_json: str, final_snapshot: bool = True) -> str:
+        try:
+            actions = json.loads(actions_json or "[]")
+        except json.JSONDecodeError as exc:
+            return f"ERROR: actions_json must be a JSON array: {exc}"
+        if not isinstance(actions, list) or not actions:
+            return "ERROR: actions_json must be a non-empty JSON array"
+        if len(actions) > 12:
+            return "ERROR: browser_batch accepts at most 12 actions"
+
+        completed: list[str] = []
+        timings: list[dict[str, object]] = []
+        for idx, raw in enumerate(actions):
+            if not isinstance(raw, dict):
+                return f"ERROR: action {idx} must be an object"
+            action = str(raw.get("action") or "").strip().lower()
+            action_started = time.perf_counter()
+            try:
+                if action == "click":
+                    target = str(raw.get("target") or "")
+                    if not target:
+                        return f"ERROR: action {idx} click requires target"
+                    await engine.click(target, resnapshot=False)
+                elif action in {"fill", "type"}:
+                    target = str(raw.get("target") or "")
+                    if not target:
+                        return f"ERROR: action {idx} {action} requires target"
+                    text = str(raw.get("text") or "")
+                    if action == "fill":
+                        await engine.fill(target, text)
+                    else:
+                        await engine.type_text(
+                            target,
+                            text,
+                            clear=bool(raw.get("clear", True)),
+                        )
+                elif action == "select":
+                    target = str(raw.get("target") or "")
+                    option = str(raw.get("option") or raw.get("text") or "")
+                    if not target or not option:
+                        return f"ERROR: action {idx} select requires target and option"
+                    await engine.select(target, option)
+                elif action == "press":
+                    key = str(raw.get("key") or "")
+                    if not key:
+                        return f"ERROR: action {idx} press requires key"
+                    await engine.press(key)
+                elif action == "scroll":
+                    await engine.scroll(
+                        direction=str(raw.get("direction") or "down"),
+                        amount=int(raw.get("amount") or 600),
+                    )
+                elif action == "wait":
+                    await engine.wait(
+                        selector=str(raw.get("selector") or ""),
+                        timeout_ms=int(raw.get("timeout_ms") or 1000),
+                    )
+                else:
+                    return f"ERROR: action {idx} has unsupported action={action!r}"
+            except Exception as exc:  # noqa: BLE001
+                return (
+                    f"ERROR: browser_batch stopped at action {idx} ({action}): {exc}\n"
+                    f"completed: {completed}"
+                )
+            completed.append(action)
+            timings.append(
+                {
+                    "index": idx,
+                    "action": action,
+                    "duration_ms": round((time.perf_counter() - action_started) * 1000.0, 1),
+                }
+            )
+
+        summary = (
+            f"completed {len(completed)} browser actions: {', '.join(completed)}\n"
+            f"timings: {json.dumps(timings, separators=(',', ':'))}"
+        )
+        if final_snapshot:
+            return summary + "\n\n" + await engine.snapshot(include_text=False)
+        page = await engine.ensure_page()
+        return summary + f"\nurl: {page.url}"
+
+    @tool(
+        description=(
             "Raw Chrome DevTools Protocol call on the active page "
-            "(e.g. method=Runtime.evaluate, params_json='{\"expression\":\"1+1\"}'). "
+            '(e.g. method=Runtime.evaluate, params_json=\'{"expression":"1+1"}\'). '
             "Input/Browser/Target/cookie mutations are denied."
         ),
         risk_class="browser",
     )
     async def browser_cdp(method: str, params_json: str = "{}") -> str:
         return await engine.cdp(method, params_json)
+
+    @tool(
+        description=(
+            "Inspect the current page's console events, failed network requests, "
+            "navigation/resource timings, DOM size, and CDP performance metrics. "
+            "Use for live web-app diagnosis instead of ad-hoc JavaScript probes."
+        ),
+        risk_class="browser",
+    )
+    async def browser_diagnostics(clear: bool = False) -> str:
+        return await engine.diagnostics(clear=clear)
 
     @tool(
         description=(
@@ -196,12 +327,16 @@ def register_browser_tools(ctx: "HarnessContext") -> ToolRegistry:
         browser_click,
         browser_type,
         browser_fill,
+        browser_select,
+        browser_upload,
         browser_press,
         browser_scroll,
         browser_wait,
         browser_screenshot,
         browser_evaluate,
+        browser_batch,
         browser_cdp,
+        browser_diagnostics,
         browser_tabs,
         browser_lock,
         browser_close,

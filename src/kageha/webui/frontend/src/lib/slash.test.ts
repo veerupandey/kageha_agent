@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { getAtContext, getSlashContext } from "./slash";
+import {
+  getAtContext,
+  getSlashContext,
+  slashCommandGroup,
+  slashCommandUsage,
+} from "./slash";
 import {
   isComputerAdminSlash,
   isMetaOnlySlash,
@@ -45,6 +50,19 @@ describe("getAtContext", () => {
 
   it("returns null outside @token", () => {
     expect(getAtContext("plain text", 4)).toBeNull();
+  });
+});
+
+describe("slash command presentation", () => {
+  it("shows action groups and argument syntax", () => {
+    const command = {
+      id: "browser-diagnose",
+      label: "/browser diagnose",
+      description: "Inspect a page",
+      kind: "browser",
+    };
+    expect(slashCommandGroup(command)).toBe("Browser & research");
+    expect(slashCommandUsage(command)).toBe("/browser diagnose <url>");
   });
 });
 

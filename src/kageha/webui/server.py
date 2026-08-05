@@ -37,13 +37,63 @@ MEMORY_SCOPES = [item.value for item in MemoryScope]
 # Uploads / session file serving
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 _SAFE_SESSION_ID = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
-_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".avif", ".ico", ".tif", ".tiff", ".heic", ".heif"}
+_IMAGE_EXTS = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".gif",
+    ".bmp",
+    ".svg",
+    ".avif",
+    ".ico",
+    ".tif",
+    ".tiff",
+    ".heic",
+    ".heif",
+}
 _VIDEO_EXTS = {".mp4", ".webm", ".mov", ".m4v"}
 _AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".ogg", ".aac", ".flac"}
 _MARKDOWN_EXTS = {".md", ".markdown"}
-_TEXT_DOC_EXTS = {".txt", ".text", ".json", ".jsonl", ".ndjson", ".csv", ".tsv", ".yaml", ".yml", ".toml", ".xml", ".ini", ".cfg", ".conf", ".log", ".tex", ".srt", ".vtt"}
+_TEXT_DOC_EXTS = {
+    ".txt",
+    ".text",
+    ".json",
+    ".jsonl",
+    ".ndjson",
+    ".csv",
+    ".tsv",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".xml",
+    ".ini",
+    ".cfg",
+    ".conf",
+    ".log",
+    ".tex",
+    ".srt",
+    ".vtt",
+}
 _PDF_EXTS = {".pdf"}
-_OFFICE_EXTS = {".ppt", ".pptx", ".pps", ".ppsx", ".odp", ".key", ".doc", ".docx", ".rtf", ".odt", ".pages", ".xls", ".xlsx", ".xlsm", ".ods", ".numbers"}
+_OFFICE_EXTS = {
+    ".ppt",
+    ".pptx",
+    ".pps",
+    ".ppsx",
+    ".odp",
+    ".key",
+    ".doc",
+    ".docx",
+    ".rtf",
+    ".odt",
+    ".pages",
+    ".xls",
+    ".xlsx",
+    ".xlsm",
+    ".ods",
+    ".numbers",
+}
 _ARCHIVE_EXTS = {".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar"}
 _MEDIA_EXTS = _IMAGE_EXTS | _VIDEO_EXTS | _AUDIO_EXTS
 _DESIGN_ARTIFACT_NAMES = frozenset(
@@ -94,10 +144,16 @@ _ARTIFACT_PREFERRED_PREFIXES = (
     "carousel/",
 )
 # When agents write under project_root, WebUI still needs these in the session.
-_DELIVERABLE_EXTS = _OFFICE_EXTS | _PDF_EXTS | _ARCHIVE_EXTS | _MEDIA_EXTS | {
-    ".html",
-    ".htm",
-}
+_DELIVERABLE_EXTS = (
+    _OFFICE_EXTS
+    | _PDF_EXTS
+    | _ARCHIVE_EXTS
+    | _MEDIA_EXTS
+    | {
+        ".html",
+        ".htm",
+    }
+)
 _DELIVERABLE_NAME_RE = re.compile(
     r"(?:^|[\s`\"'(])((?:artifacts|outputs|diagrams|research|slides|carousel)/"
     r"[A-Za-z0-9._\-/]+\.[A-Za-z0-9]+|"
@@ -201,13 +257,6 @@ _WEBUI_SLASH_BASE: tuple[dict[str, str], ...] = (
         "id": "new",
         "label": "/new",
         "description": "Multitask · next send opens parallel tab",
-        "kind": "multitask",
-        "title": "Multitask",
-    },
-    {
-        "id": "task",
-        "label": "/task",
-        "description": "Multitask · same as /new",
         "kind": "multitask",
         "title": "Multitask",
     },
@@ -319,21 +368,38 @@ _WEBUI_SLASH_BROWSER: tuple[dict[str, str], ...] = (
         "kind": "browser",
     },
     {
+        "id": "browser-diagnose",
+        "label": "/browser diagnose",
+        "usage": "/browser diagnose <url>",
+        "description": "Console, network, and performance diagnostics for a URL",
+        "kind": "browser",
+    },
+    {
         "id": "research",
         "label": "/research",
+        "usage": "/research <query>",
         "description": "Blink research (native, no LLM loop)",
         "kind": "browser",
     },
     {
         "id": "research-flash",
         "label": "/research flash",
+        "usage": "/research flash <query>",
         "description": "Research · HTTP flash depth",
         "kind": "browser",
     },
     {
         "id": "research-standard",
         "label": "/research standard",
+        "usage": "/research standard <query>",
         "description": "Research · headless JS enrich",
+        "kind": "browser",
+    },
+    {
+        "id": "research-deep",
+        "label": "/research deep",
+        "usage": "/research deep <query>",
+        "description": "Research · deep multi-pass",
         "kind": "browser",
     },
 )
@@ -342,6 +408,7 @@ _WEBUI_SLASH_COMPUTER: tuple[dict[str, str], ...] = (
     {
         "id": "computer",
         "label": "/computer",
+        "usage": "/computer <task>",
         "description": "Computer-use skill · type a task after",
         "kind": "skill",
         "title": "computer_use",
@@ -390,14 +457,6 @@ def _webui_slash_catalog(*, project_root: str | None = None) -> dict[str, Any]:
     commands: list[dict[str, Any]] = [dict(c) for c in _WEBUI_SLASH_BASE]
     # Same process serves these routes — include when available.
     commands.extend(dict(c) for c in _WEBUI_SLASH_BROWSER)
-    commands.append(
-        {
-            "id": "comet",
-            "label": "/comet",
-            "description": "Logged-in browser · start / status",
-            "kind": "browser",
-        }
-    )
     commands.extend(dict(c) for c in _WEBUI_SLASH_COMPUTER)
 
     # Explicit skill invocations (/skill-name).
@@ -556,13 +615,9 @@ def _session_file_mimetype(path: Path, data: bytes | None = None) -> str:
         ".flac": "audio/flac",
         ".pdf": "application/pdf",
         ".ppt": "application/vnd.ms-powerpoint",
-        ".pptx": (
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        ),
+        ".pptx": ("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
         ".doc": "application/msword",
-        ".docx": (
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        ),
+        ".docx": ("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         ".xls": "application/vnd.ms-excel",
         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ".md": "text/markdown; charset=utf-8",
@@ -632,6 +687,8 @@ _TOOL_LABELS = {
     "browser_click": "Clicking in browser…",
     "browser_type": "Typing in browser…",
     "browser_snapshot": "Reading page…",
+    "browser_batch": "Running browser actions…",
+    "browser_diagnostics": "Inspecting browser…",
     "shell": "Running shell…",
     "bash": "Running shell…",
     "run_terminal_cmd": "Running shell…",
@@ -701,12 +758,8 @@ _SSE_PAYLOAD_KEEP: dict[str, frozenset[str]] = {
             "computer_frame",
         }
     ),
-    "computer_frame": frozenset(
-        {"path", "thumb_path", "app", "action", "thumb_url"}
-    ),
-    "approval_required": frozenset(
-        {"approval_id", "action", "detail", "risk_class", "question"}
-    ),
+    "computer_frame": frozenset({"path", "thumb_path", "app", "action", "thumb_url"}),
+    "approval_required": frozenset({"approval_id", "action", "detail", "risk_class", "question"}),
     "approval_resolved": frozenset({"approval_id", "approved"}),
     "todo_board": frozenset({"label", "done", "total", "items"}),
 }
@@ -733,19 +786,13 @@ _SSE_DROP_KEYS = frozenset(
 _COMPUTER_FRAME_MIN_INTERVAL_S = 0.2
 
 
-def _tool_card_from_payload(
-    kind: str, data: dict[str, Any]
-) -> dict[str, Any] | None:
+def _tool_card_from_payload(kind: str, data: dict[str, Any]) -> dict[str, Any] | None:
     """Normalize tool_card for WS3 (tolerant of flat or nested journal fields)."""
     if kind not in {"tool_started", "tool_completed", "tool_result"}:
         return None
     existing = data.get("tool_card") if isinstance(data.get("tool_card"), dict) else {}
     name = str(
-        existing.get("name")
-        or data.get("tool")
-        or data.get("tool_name")
-        or data.get("name")
-        or ""
+        existing.get("name") or data.get("tool") or data.get("tool_name") or data.get("name") or ""
     ).strip()
     if not name:
         return None
@@ -771,9 +818,7 @@ def _tool_card_from_payload(
             rel = str(item or "").replace("\\", "/").strip()
             if rel:
                 refs.append(rel)
-    attempt_id = str(
-        existing.get("attempt_id") or data.get("attempt_id") or ""
-    ).strip()
+    attempt_id = str(existing.get("attempt_id") or data.get("attempt_id") or "").strip()
     card = {
         "name": name,
         "args_preview": args_preview,
@@ -786,9 +831,7 @@ def _tool_card_from_payload(
     return card
 
 
-def _computer_frame_from_payload(
-    kind: str, data: dict[str, Any]
-) -> dict[str, Any] | None:
+def _computer_frame_from_payload(kind: str, data: dict[str, Any]) -> dict[str, Any] | None:
     """Normalize computer_frame path refs (never ship base64 / AX)."""
     if kind == "computer_frame":
         frame = data
@@ -796,12 +839,8 @@ def _computer_frame_from_payload(
         frame = data.get("computer_frame")
     if not isinstance(frame, dict):
         return None
-    path = str(frame.get("path") or frame.get("thumb_path") or "").replace(
-        "\\", "/"
-    ).strip()
-    thumb = str(frame.get("thumb_path") or frame.get("thumb") or "").replace(
-        "\\", "/"
-    ).strip()
+    path = str(frame.get("path") or frame.get("thumb_path") or "").replace("\\", "/").strip()
+    thumb = str(frame.get("thumb_path") or frame.get("thumb") or "").replace("\\", "/").strip()
     if not path and not thumb:
         return None
     out: dict[str, Any] = {
@@ -817,9 +856,7 @@ def _computer_frame_from_payload(
     return out
 
 
-def _attach_computer_thumb_url(
-    frame: dict[str, Any], session_id: str
-) -> dict[str, Any]:
+def _attach_computer_thumb_url(frame: dict[str, Any], session_id: str) -> dict[str, Any]:
     """Ensure WS3 can fetch the strip image via session files API."""
     if not isinstance(frame, dict):
         return frame
@@ -828,9 +865,12 @@ def _attach_computer_thumb_url(
     sid = str(session_id or "").strip()
     if not sid or not _SAFE_SESSION_ID.fullmatch(sid):
         return frame
-    rel = str(frame.get("thumb_path") or frame.get("path") or "").replace(
-        "\\", "/"
-    ).strip().lstrip("/")
+    rel = (
+        str(frame.get("thumb_path") or frame.get("path") or "")
+        .replace("\\", "/")
+        .strip()
+        .lstrip("/")
+    )
     if not rel:
         return frame
     encoded = "/".join(quote(part, safe="") for part in rel.split("/") if part)
@@ -885,9 +925,7 @@ def _sse_payload_view(kind: str, payload: dict[str, Any] | None) -> dict[str, An
     return out
 
 
-def _stream_event_view(
-    kind: str, payload: dict[str, Any] | None = None
-) -> dict[str, Any]:
+def _stream_event_view(kind: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Map runtime events to a compact label + expandable detail lines."""
     data = payload or {}
     details: list[str] = []
@@ -906,9 +944,7 @@ def _stream_event_view(
         return {"label": label, "detail": details, "interesting": True}
 
     if kind == "planning_started":
-        task = _clip(
-            str(data.get("turn_task") or data.get("task") or ""), limit=160
-        )
+        task = _clip(str(data.get("turn_task") or data.get("task") or ""), limit=160)
         if task:
             details.append(f"Task: {task}")
         agent_mode = str(data.get("agent_mode") or "").strip()
@@ -923,9 +959,7 @@ def _stream_event_view(
         if data.get("fresh_turn"):
             details.append("Fresh turn")
         label = (
-            f"Planning ({agent_mode})…"
-            if agent_mode and agent_mode != "normal"
-            else "Planning…"
+            f"Planning ({agent_mode})…" if agent_mode and agent_mode != "normal" else "Planning…"
         )
         return {"label": label, "detail": details, "interesting": True}
 
@@ -943,12 +977,7 @@ def _stream_event_view(
             details.append(f"Stage: {stage}")
         for idx, row in enumerate(plan_rows[:6], start=1):
             title = _clip(
-                str(
-                    row.get("description")
-                    or row.get("title")
-                    or row.get("id")
-                    or f"step {idx}"
-                ),
+                str(row.get("description") or row.get("title") or row.get("id") or f"step {idx}"),
                 limit=120,
             )
             tools = row.get("tools") if isinstance(row.get("tools"), list) else []
@@ -975,8 +1004,7 @@ def _stream_event_view(
                 details.append("…")
         mode_bit = f" · {agent_mode}" if agent_mode and agent_mode != "normal" else ""
         label = (
-            f"Plan ready{mode_bit} · {len(plan_rows)} step"
-            f"{'' if len(plan_rows) == 1 else 's'}"
+            f"Plan ready{mode_bit} · {len(plan_rows)} step{'' if len(plan_rows) == 1 else 's'}"
             if plan_rows
             else f"Plan ready{mode_bit}…"
         )
@@ -1119,9 +1147,7 @@ def _stream_event_view(
         return {"label": "Repairing…", "detail": details, "interesting": True}
 
     if kind == "approval_required":
-        action = _clip(
-            str(data.get("action") or data.get("question") or ""), limit=140
-        )
+        action = _clip(str(data.get("action") or data.get("question") or ""), limit=140)
         detail = _clip(str(data.get("detail") or ""), limit=160)
         if action:
             details.append(action)
@@ -1202,9 +1228,7 @@ def _stream_event_view(
             try:
                 from kageha.chat.progress import _friendly_status
 
-                friendly = _friendly_status(str(raw)) or _clip(
-                    str(raw), limit=120
-                )
+                friendly = _friendly_status(str(raw)) or _clip(str(raw), limit=120)
             except Exception:  # noqa: BLE001
                 friendly = _clip(str(raw), limit=120)
             if friendly:
@@ -1261,9 +1285,7 @@ def _stream_event_label(kind: str, payload: dict[str, Any] | None = None) -> str
     return str(_stream_event_view(kind, payload).get("label") or "Working…")
 
 
-def _enrich_sse_payload(
-    kind: str, payload: dict[str, Any], view: dict[str, Any]
-) -> dict[str, Any]:
+def _enrich_sse_payload(kind: str, payload: dict[str, Any], view: dict[str, Any]) -> dict[str, Any]:
     """Slim payload + attach shaped tool_card / computer_frame for WS3."""
     slim = _sse_payload_view(kind, payload)
     card = view.get("tool_card")
@@ -1294,11 +1316,7 @@ def _stream_frame(
 ) -> dict[str, Any]:
     """Build one WebUI stream/events frame (label + tool_card + computer_frame)."""
     view = _stream_event_view(kind, payload)
-    detail = [
-        str(item).strip()
-        for item in (view.get("detail") or [])
-        if str(item).strip()
-    ]
+    detail = [str(item).strip() for item in (view.get("detail") or []) if str(item).strip()]
     frame: dict[str, Any] = {
         "sequence": sequence,
         "kind": kind,
@@ -1328,9 +1346,7 @@ def _stream_frame(
     return frame
 
 
-def _parse_multipart(
-    body: bytes, content_type: str
-) -> tuple[dict[str, str], list[dict[str, Any]]]:
+def _parse_multipart(body: bytes, content_type: str) -> tuple[dict[str, str], list[dict[str, Any]]]:
     """Parse multipart/form-data into (fields, files).
 
     Each file: {field, filename, content_type, data}.
@@ -1448,6 +1464,7 @@ class WebUIApp:
             target=self._run_loop, name="kageha-webui-loop", daemon=True
         )
         self._loop_thread.start()
+
     def _thread_state(self, thread_id: str) -> dict[str, Any]:
         st = self.server.threads.get(thread_id)
         if not isinstance(st, dict):
@@ -1700,9 +1717,7 @@ class WebUIApp:
             session_id = m_design.group(1)
             if not _SAFE_SESSION_ID.fullmatch(session_id):
                 raise ValueError("invalid session_id")
-            return _json_bytes(
-                self._save_session_design(session_id, self._json_body(body))
-            )
+            return _json_bytes(self._save_session_design(session_id, self._json_body(body)))
 
         m = re.fullmatch(r"/api/sessions/([^/]+)", path)
         if method == "GET" and m:
@@ -1710,9 +1725,7 @@ class WebUIApp:
             if not _SAFE_SESSION_ID.fullmatch(session_id):
                 raise ValueError("invalid session_id")
             try:
-                inspected = self.rpc(
-                    "runtime/inspect", {"session_id": session_id}
-                )
+                inspected = self.rpc("runtime/inspect", {"session_id": session_id})
             except RpcError as exc:
                 # AppServer redacts KeyError text; surface a clean 404 instead.
                 if str(exc.detail.get("error_type") or "") == "KeyError":
@@ -1797,11 +1810,7 @@ class WebUIApp:
             for ev in raw_events if isinstance(raw_events, list) else []:
                 if isinstance(ev, dict):
                     kind = str(ev.get("kind") or "")
-                    payload = (
-                        ev.get("payload")
-                        if isinstance(ev.get("payload"), dict)
-                        else {}
-                    )
+                    payload = ev.get("payload") if isinstance(ev.get("payload"), dict) else {}
                     seq = ev.get("sequence")
                 else:
                     kind = (
@@ -1824,9 +1833,7 @@ class WebUIApp:
                 {
                     "thread_id": thread_id,
                     "session_id": session_id,
-                    "turn_id": turn_id
-                    or self._thread_state(thread_id).get("turn_id")
-                    or "",
+                    "turn_id": turn_id or self._thread_state(thread_id).get("turn_id") or "",
                     "events": mapped,
                     "pending_approval": self._thread_state(thread_id).get("pending_approval"),
                 }
@@ -1873,9 +1880,7 @@ class WebUIApp:
             if not _SAFE_SESSION_ID.fullmatch(session_id):
                 raise ValueError("invalid session_id")
             deleted = self._delete_session(session_id)
-            return _json_bytes(
-                {"ok": True, "session_id": session_id, "deleted": deleted}
-            )
+            return _json_bytes({"ok": True, "session_id": session_id, "deleted": deleted})
 
         m_truncate = re.fullmatch(r"/api/sessions/([^/]+)/truncate", path)
         if method == "POST" and m_truncate:
@@ -1973,9 +1978,10 @@ class WebUIApp:
 
         if method == "POST" and path == "/api/chat":
             payload = self._json_body(body)
-            user_title_source = str(
-                payload.get("message") or payload.get("task") or ""
-            ).strip()
+            user_title_source = str(payload.get("message") or payload.get("task") or "").strip()
+            sid_hint = str(payload.get("session_id") or payload.get("run_id") or "").strip()
+            if sid_hint:
+                self._maybe_set_session_title(sid_hint, user_title_source)
             # Native slash: /browser · /research · /computer (no agent loop)
             low_msg = user_title_source.lower()
             if (
@@ -2099,9 +2105,7 @@ class WebUIApp:
                     if brain is None
                     else {
                         "root_file": brain.root_file,
-                        "rules": [
-                            {"name": r.name, "globs": r.globs} for r in brain.rules
-                        ],
+                        "rules": [{"name": r.name, "globs": r.globs} for r in brain.rules],
                         "commands": brain.command_names,
                         "rendered": render_project_brain(brain)[:8000],
                     },
@@ -2124,20 +2128,22 @@ class WebUIApp:
 
             root = self._q(query, "project_root") or self.project_root or str(Path.cwd())
             runner = load_hook_runner(root)
-            return _json_bytes({
-                "project_root": root,
-                "hooks": [
-                    {
-                        "event": h.event,
-                        "command": h.command,
-                        "http": h.http,
-                        "deny_message": h.deny_message,
-                        "matcher": h.matcher,
-                        "timeout_s": h.timeout_s,
-                    }
-                    for h in runner.hooks
-                ],
-            })
+            return _json_bytes(
+                {
+                    "project_root": root,
+                    "hooks": [
+                        {
+                            "event": h.event,
+                            "command": h.command,
+                            "http": h.http,
+                            "deny_message": h.deny_message,
+                            "matcher": h.matcher,
+                            "timeout_s": h.timeout_s,
+                        }
+                        for h in runner.hooks
+                    ],
+                }
+            )
 
         if method == "POST" and path == "/api/hooks":
             payload = self._json_body(body)
@@ -2180,7 +2186,11 @@ class WebUIApp:
                 raise FileNotFoundError("no hooks.json")
             try:
                 raw = json.loads(hooks_path.read_text(encoding="utf-8"))
-                existing = raw if isinstance(raw, list) else (raw.get("hooks") if isinstance(raw, dict) else [])
+                existing = (
+                    raw
+                    if isinstance(raw, list)
+                    else (raw.get("hooks") if isinstance(raw, dict) else [])
+                )
                 if not isinstance(existing, list):
                     existing = []
             except (OSError, json.JSONDecodeError):
@@ -2198,11 +2208,7 @@ class WebUIApp:
         if method == "GET" and path == "/api/project/files":
             from kageha.project.file_index import get_file_index
 
-            root = (
-                self._q(query, "project_root")
-                or self.project_root
-                or str(Path.cwd())
-            )
+            root = self._q(query, "project_root") or self.project_root or str(Path.cwd())
             q = self._q(query, "q", "")
             limit = self._qi(query, "limit", 40)
             idx = get_file_index(root)
@@ -2237,9 +2243,7 @@ class WebUIApp:
                 "jobs/run",
                 {
                     "objective": objective,
-                    "project_root": str(
-                        payload.get("project_root") or Path.cwd()
-                    ),
+                    "project_root": str(payload.get("project_root") or Path.cwd()),
                     "agent_mode": str(payload.get("agent_mode") or "plan"),
                     "max_steps": int(payload.get("max_steps") or 40),
                     "notify_channel": str(payload.get("notify_channel") or "webui"),
@@ -2275,9 +2279,7 @@ class WebUIApp:
             turn_id = str(result.get("turn_id") or "").strip()
             if session_id and not turn_id:
                 try:
-                    inspected = self.rpc(
-                        "runtime/inspect", {"session_id": session_id}
-                    )
+                    inspected = self.rpc("runtime/inspect", {"session_id": session_id})
                 except RpcError:
                     inspected = None
                 if isinstance(inspected, dict):
@@ -2375,9 +2377,7 @@ class WebUIApp:
                 handle_browser_or_research(command), self._loop
             )
             handled, message = future.result(timeout=180)
-            return _json_bytes(
-                {"ok": handled, "message": message, "command": command}
-            )
+            return _json_bytes({"ok": handled, "message": message, "command": command})
 
         if method == "GET" and path == "/api/computer":
             from kageha.harness.tools.computer_prefs import (
@@ -2412,9 +2412,7 @@ class WebUIApp:
                 command = "/" + command
             from kageha.chat.computer_commands import handle_computer_command
 
-            future = asyncio.run_coroutine_threadsafe(
-                handle_computer_command(command), self._loop
-            )
+            future = asyncio.run_coroutine_threadsafe(handle_computer_command(command), self._loop)
             handled, message = future.result(timeout=180)
             if not handled:
                 # /computer <task> belongs in chat (activates computer_use skill).
@@ -2432,17 +2430,11 @@ class WebUIApp:
                     },
                     status=400,
                 )
-            return _json_bytes(
-                {"ok": handled, "message": message, "command": command}
-            )
+            return _json_bytes({"ok": handled, "message": message, "command": command})
 
         # Slash catalog for WebUI / and Cmd+K (capability-gated; no stub 404s)
         if method == "GET" and path == "/api/slash-catalog":
-            root = (
-                self._q(query, "project_root")
-                or self.project_root
-                or str(Path.cwd())
-            )
+            root = self._q(query, "project_root") or self.project_root or str(Path.cwd())
             return _json_bytes(_webui_slash_catalog(project_root=root))
 
         # Model catalog (same registry as CLI /model list)
@@ -2481,9 +2473,7 @@ class WebUIApp:
         if method == "GET" and path == "/api/comet":
             from kageha.chat.comet import ensure_comet
 
-            future = asyncio.run_coroutine_threadsafe(
-                ensure_comet(launch=False), self._loop
-            )
+            future = asyncio.run_coroutine_threadsafe(ensure_comet(launch=False), self._loop)
             message = future.result(timeout=30)
             return _json_bytes({"ok": True, "message": message, "action": "status"})
 
@@ -2502,9 +2492,7 @@ class WebUIApp:
 
         return _error("not found", status=404)
 
-    def _prepare_chat(
-        self, payload: dict[str, Any]
-    ) -> tuple[dict[str, Any], list[str], str]:
+    def _prepare_chat(self, payload: dict[str, Any]) -> tuple[dict[str, Any], list[str], str]:
         """Build AppServer thread/turn params from a Web UI chat payload."""
         message = str(payload.get("message") or payload.get("task") or "").strip()
         attachments = [
@@ -2563,7 +2551,17 @@ class WebUIApp:
             loop_mode = loop_mode_for(agent_mode)
         max_steps = payload.get("max_steps")
         if max_steps is None:
-            max_steps = 24 if loop_mode != "full" else 40
+            # Multi-page forms and applications need room for validation and
+            # recovery. Keep ordinary chat lean, but don't strand a workflow
+            # halfway through a wizard.
+            workflow_heavy = bool(
+                re.search(
+                    r"\b(apply|application|multi[- ]?page|form|checkout|onboarding|book|reservation)\b",
+                    message,
+                    re.I,
+                )
+            )
+            max_steps = 48 if workflow_heavy else (24 if loop_mode != "full" else 40)
         params: dict[str, Any] = {
             "thread_id": thread_id,
             "message": message,
@@ -2637,9 +2635,7 @@ class WebUIApp:
     ) -> int:
         """Poll runtime events and emit SSE `event` + `status` frames."""
         try:
-            events = self.server.runtime.store.events(
-                turn_id, after_sequence=after_sequence
-            )
+            events = self.server.runtime.store.events(turn_id, after_sequence=after_sequence)
         except Exception:  # noqa: BLE001
             return after_sequence
         seq = after_sequence
@@ -2647,6 +2643,22 @@ class WebUIApp:
             seq = int(ev.sequence)
             kind = ev.kind.value if hasattr(ev.kind, "value") else str(ev.kind)
             payload = dict(ev.payload or {})
+            existing_frame = payload.get("computer_frame")
+            if isinstance(existing_frame, dict) and "[REDACTED]" in str(
+                existing_frame.get("path") or existing_frame.get("thumb_path") or ""
+            ):
+                # Older events could have safe artifact paths falsely redacted.
+                # Rebuild the frame from the durable tool result during replay.
+                attempt_id = str(payload.get("attempt_id") or "").strip()
+                if attempt_id:
+                    from kageha.runtime.journal import computer_frame_from_result
+
+                    raw_result = self.server.runtime.store.tool_attempt_result(attempt_id)
+                    repaired = computer_frame_from_result(
+                        str(payload.get("tool") or ""), raw_result
+                    )
+                    if repaired is not None:
+                        payload["computer_frame"] = repaired
             if seen_approval_ids is not None and kind == "approval_required":
                 aid = str(payload.get("approval_id") or "").strip()
                 if aid:
@@ -2724,9 +2736,11 @@ class WebUIApp:
         """
         try:
             payload = self._json_body(body)
-            user_msg = str(
-                payload.get("message") or payload.get("task") or ""
-            ).strip()
+            user_msg = str(payload.get("message") or payload.get("task") or "").strip()
+            initial_sid = str(payload.get("session_id") or payload.get("run_id") or "").strip()
+            if initial_sid:
+                # Title appears in Recent Threads before a long turn completes.
+                self._maybe_set_session_title(initial_sid, user_msg)
             low_msg = user_msg.lower()
             if (
                 low_msg == "/browser"
@@ -2786,9 +2800,7 @@ class WebUIApp:
                 or (self._load_thread_binding(sid_hint) if sid_hint else "")
                 or (f"web-{sid_hint}" if sid_hint else "web-default")
             )
-            previous_turn_id = str(
-                (self._thread_state(_tid_hint)).get("turn_id") or ""
-            ).strip()
+            previous_turn_id = str((self._thread_state(_tid_hint)).get("turn_id") or "").strip()
             params, attachments, loop_mode = self._prepare_chat(payload)
         except ValueError as exc:
             emit("error", {"error": str(exc)})
@@ -2801,8 +2813,7 @@ class WebUIApp:
         # Prefer the pre-clear snapshot; fall back to stash from _prepare_chat.
         if not previous_turn_id:
             previous_turn_id = str(
-                (self.server.threads.get(thread_id) or {}).get("_prev_turn_id")
-                or ""
+                (self.server.threads.get(thread_id) or {}).get("_prev_turn_id") or ""
             ).strip()
         emit(
             "status",
@@ -2832,10 +2843,7 @@ class WebUIApp:
                     candidate = str(state.get("turn_id") or "").strip()
                     # Wait for a *new* turn_id after this stream starts — never
                     # latch a leftover id from the prior turn on this thread.
-                    if (
-                        candidate
-                        and candidate != previous_turn_id
-                    ):
+                    if candidate and candidate != previous_turn_id:
                         turn_id = candidate
                         after_seq = 0
                         emit(
@@ -2877,9 +2885,7 @@ class WebUIApp:
                             "status",
                             {
                                 "phase": "approval_required",
-                                "label": str(
-                                    frame.get("label") or "Waiting for approval…"
-                                ),
+                                "label": str(frame.get("label") or "Waiting for approval…"),
                                 "detail": list(frame.get("detail") or [])[:2],
                                 "turn_id": turn_id or "",
                                 "session_id": state.get("run_id"),
@@ -2899,9 +2905,7 @@ class WebUIApp:
             emit(
                 "error",
                 {
-                    "error": str(
-                        err.get("message") if isinstance(err, dict) else err
-                    ),
+                    "error": str(err.get("message") if isinstance(err, dict) else err),
                     "detail": detail if isinstance(detail, dict) else {},
                 },
             )
@@ -2940,9 +2944,7 @@ class WebUIApp:
 
         run_id = str(result.get("run_id") or "").strip()
         if run_id:
-            user_title_source = str(
-                payload.get("message") or payload.get("task") or ""
-            ).strip()
+            user_title_source = str(payload.get("message") or payload.get("task") or "").strip()
             self._maybe_set_session_title(
                 run_id,
                 user_title_source,
@@ -3026,6 +3028,7 @@ class WebUIApp:
         # Also remove from the durable runtime store (journal / SQLite).
         try:
             from kageha.runtime.store import RuntimeStore
+
             store = RuntimeStore()
             try:
                 with store._lock:
@@ -3135,9 +3138,7 @@ class WebUIApp:
         title = str(meta.get("title") or "").strip()
         return title or None
 
-    def _session_todo_board_payload(
-        self, session_id: str
-    ) -> dict[str, Any] | None:
+    def _session_todo_board_payload(self, session_id: str) -> dict[str, Any] | None:
         """Parsed todo.md checklist for the live Build board (or None).
 
         Hidden while Design is awaiting Build (plan.md present, not approved)
@@ -3174,29 +3175,20 @@ class WebUIApp:
         agent_mode = "plan" if "plan.md" in files else "normal"
         approved = (root / "plan_approved.flag").is_file()
         phases = ["explore", "plan", "build"]
-        thread_id = str(
-            self._load_thread_binding(session_id) or f"web-{session_id}"
-        )
-        pending = (self.server.threads.get(thread_id) or {}).get(
-            "pending_approval"
-        )
+        thread_id = str(self._load_thread_binding(session_id) or f"web-{session_id}")
+        pending = (self.server.threads.get(thread_id) or {}).get("pending_approval")
         # Sticky Build whenever design artifacts exist and are not approved.
         awaiting_build = bool(files) and not approved
         explore_status: dict[str, Any] = {}
         status_path = root / "explore_status.json"
         if status_path.is_file():
             try:
-                raw = json.loads(
-                    status_path.read_text(encoding="utf-8", errors="replace")
-                )
+                raw = json.loads(status_path.read_text(encoding="utf-8", errors="replace"))
                 if isinstance(raw, dict):
                     explore_status = {
                         "status": str(raw.get("status") or ""),
                         "message": str(raw.get("message") or "")[:400],
-                        "degraded": bool(
-                            raw.get("degraded")
-                            or raw.get("status") == "skipped"
-                        ),
+                        "degraded": bool(raw.get("degraded") or raw.get("status") == "skipped"),
                         "from": raw.get("from"),
                         "to": raw.get("to"),
                     }
@@ -3210,20 +3202,14 @@ class WebUIApp:
             "editable": sorted(_DESIGN_EDITABLE_NAMES),
             "approved": approved,
             "awaiting_build": awaiting_build,
-            "awaiting_clarify": bool(
-                (root / "clarify_pending.json").is_file()
-            ),
+            "awaiting_clarify": bool((root / "clarify_pending.json").is_file()),
             "pending_approval": pending if isinstance(pending, dict) else None,
             "explore_status": explore_status or None,
-            "explore_degraded": bool(
-                explore_status.get("degraded") if explore_status else False
-            ),
+            "explore_degraded": bool(explore_status.get("degraded") if explore_status else False),
             "clarify_status": None,
         }
 
-    def _save_session_design(
-        self, session_id: str, payload: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _save_session_design(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Persist allowlisted plan design markdown into the session workspace.
 
         Writes only session artifacts (plan.md / explore_notes.md).
@@ -3241,9 +3227,7 @@ class WebUIApp:
             for key, value in raw_files.items():
                 updates[str(key)] = str(value)
         else:
-            name = str(
-                payload.get("file") or payload.get("name") or ""
-            ).strip()
+            name = str(payload.get("file") or payload.get("name") or "").strip()
             if not name:
                 raise ValueError("file is required")
             if "content" in payload:
@@ -3262,9 +3246,7 @@ class WebUIApp:
             if name not in _DESIGN_EDITABLE_NAMES:
                 raise ValueError(f"file not editable: {name}")
             if len(content) > _MAX_DESIGN_FILE_CHARS:
-                raise ValueError(
-                    f"{name} exceeds {_MAX_DESIGN_FILE_CHARS} characters"
-                )
+                raise ValueError(f"{name} exceeds {_MAX_DESIGN_FILE_CHARS} characters")
             # Path safety: basename allowlist only (no directories).
             if Path(name).name != name or "/" in name or "\\" in name:
                 raise ValueError(f"invalid design file: {name}")
@@ -3352,11 +3334,7 @@ class WebUIApp:
                     continue
             except OSError:
                 continue
-            dest_rel = (
-                raw
-                if raw.startswith("artifacts/")
-                else f"artifacts/{Path(raw).name}"
-            )
+            dest_rel = raw if raw.startswith("artifacts/") else f"artifacts/{Path(raw).name}"
             try:
                 dest = ws.path(dest_rel)
             except ValueError:
@@ -3409,10 +3387,7 @@ class WebUIApp:
                 priority = (
                     0
                     if path.name in _DESIGN_ARTIFACT_NAMES
-                    or any(
-                        rel.startswith(prefix)
-                        for prefix in _ARTIFACT_PREFERRED_PREFIXES
-                    )
+                    or any(rel.startswith(prefix) for prefix in _ARTIFACT_PREFERRED_PREFIXES)
                     else 1
                 )
                 name = path.name
@@ -3426,10 +3401,7 @@ class WebUIApp:
                             "kind": _artifact_file_kind(path),
                             "size": int(stat.st_size),
                             "mtime": float(stat.st_mtime),
-                            "url": (
-                                f"/api/sessions/{session_id}/files/"
-                                f"{rel}"
-                            ),
+                            "url": (f"/api/sessions/{session_id}/files/{rel}"),
                         },
                     )
                 )
@@ -3629,9 +3601,7 @@ class WebUIApp:
             }
         )
 
-    def _session_tts(
-        self, session_id: str, body: bytes
-    ) -> tuple[int, bytes, str, dict[str, str]]:
+    def _session_tts(self, session_id: str, body: bytes) -> tuple[int, bytes, str, dict[str, str]]:
         """Synthesize WAV for spoken assistant replies / previews."""
         from kageha.chat.voice_io import synthesize_reply_wav
 
@@ -3645,9 +3615,7 @@ class WebUIApp:
         os.close(fd)
         tmp = Path(tmp_name)
         try:
-            future = asyncio.run_coroutine_threadsafe(
-                synthesize_reply_wav(text, tmp), self._loop
-            )
+            future = asyncio.run_coroutine_threadsafe(synthesize_reply_wav(text, tmp), self._loop)
             try:
                 future.result(timeout=120)
             except Exception as exc:  # noqa: BLE001
@@ -3818,7 +3786,9 @@ class WebUIApp:
             # Browse mode — list by kind/state without a recall query.
             listed = self._memory_list(
                 {
-                    "kind": [kind or (next(iter(semantic_kinds)) if len(semantic_kinds) == 1 else "")],
+                    "kind": [
+                        kind or (next(iter(semantic_kinds)) if len(semantic_kinds) == 1 else "")
+                    ],
                     "state": [state],
                     "session_id": [session_id],
                     "project_root": [project_root],
@@ -3856,9 +3826,7 @@ class WebUIApp:
             "items": deduped[: max(1, max_results * 3)],
         }
 
-    def _semantic_card(
-        self, row: dict[str, Any], *, source: str = "inspect"
-    ) -> dict[str, Any]:
+    def _semantic_card(self, row: dict[str, Any], *, source: str = "inspect") -> dict[str, Any]:
         return {
             "type": "memory",
             "id": row.get("id"),
@@ -4047,9 +4015,7 @@ def make_handler(app: WebUIApp):
                 "Access-Control-Allow-Methods",
                 "GET, POST, PUT, PATCH, DELETE, OPTIONS",
             )
-            self.send_header(
-                "Access-Control-Allow-Headers", "Content-Type, Content-Length"
-            )
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Content-Length")
             self.end_headers()
 
     return Handler
@@ -4087,9 +4053,7 @@ def serve_webui(
         "  /api/sessions/{id}/events  /api/approvals"
         "  /api/jobs[/{id}|/{id}/attach|/{id}/cancel]"
     )
-    print(
-        "Note: Auto-approve by default; toggle Ask in the UI for HITL Approve/Deny."
-    )
+    print("Note: Auto-approve by default; toggle Ask in the UI for HITL Approve/Deny.")
     if open_browser:
         import webbrowser
 

@@ -7,12 +7,13 @@ Order (never reorder mid-run):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 
 from kageha.context.budget import SectionBudget, estimate_tokens, truncate_to_tokens
 from kageha.models.base import ChatMessage, ToolSpec
 
 
-SYSTEM_PROMPT = """You are Kageha, a general-purpose autonomous agent that can handle any task in the world.
+_LEGACY_SYSTEM_PROMPT = """You are Kageha, a general-purpose autonomous agent that can handle any task in the world.
 
 Identity: You are resourceful, persistent, and creative. When you don't have a skill for something, you research how to do it, write the skill yourself, or ask the human for guidance. You never say "I can't do this" — you find a way or explain what's blocking you and ask for help.
 
@@ -63,7 +64,7 @@ Rules:
 - When the user asks you to do something (open, browse, scan, create, control…), use tools immediately. Never reply with a numbered list of your capabilities unless they explicitly ask what you can do / help / capabilities.
 - "Open Comet" / "browse to …" means: browser_connect(target='auto') then browser_open(url) — not a chat explanation. Auto prefers Comet/CDP when reachable and falls back to headless Chromium — continue working; do not stop to ask for /comet unless a logged-in session is required. User may set backend via /browser use auto|comet|lightpanda|chromium|headless|docker|cdp|http.
 - Parallelism (go fast): in ONE turn, call multiple independent tools together (e.g. several web_search, or parallel_web_search). For multi-angle research or split deliverables, use spawn_subagents or spawn_task_graph (dependency DAG) — they run concurrently in isolated workspaces. Do NOT serialize work that can fan out.
-- Research (prefer for look-up / "research …" / "what is …" / "find sources"): call research_run FIRST (depth from prefs, default flash), then answer in the chat message. Do NOT start with serial web_search→web_fetch loops when research_run is available. depth='standard' for JS pages; depth='deep' then browser_* for login/UI. Prefer parallel_web_fetch / web_fetch over browser_open for public URLs. Interactive browser_* only for JS apps, logins, multi-step UI; snapshot refs (e0…) are source of truth — screenshot only for vision (browser_open defaults screenshot=false).
+- Research (prefer for look-up / "research …" / "what is …" / "find sources"): call research_run FIRST (depth from prefs, default flash), then answer in the chat message. Do NOT start with serial web_search→web_fetch loops when research_run is available. depth='standard' for JS pages; depth='deep' then browser_* for login/UI. Prefer parallel_web_fetch / web_fetch over browser_open for public URLs. Interactive browser_* only for JS apps, logins, multi-step UI; snapshot refs (e0…) are source of truth. Use browser_batch for 2+ predictable actions from one snapshot; screenshot only for vision.
 - Citations (REQUIRED after web_search / parallel_web_search / web_fetch / research_run / parallel_web_fetch / headless_fetch / browser extract): ground factual claims with inline markers like [1] [2] matching tool source ids. End the chat answer (or research brief) with a ## Sources section listing those ids as markdown links (title + URL). Never invent URLs or cite sources you did not retrieve. Keep snippets short; prefer page-sourced facts over search blurbs.
 - Chat-first: for casual Q&A and short follow-ups ("who is…", "what is he doing…"), put the answer in the assistant message. Do NOT write_file a .md summary, brief, notes, or todo unless the user explicitly asked to save, export, or produce a document/file.
 - Detailed responses: when you complete a task that creates files, give a RICH response in chat — describe what you created, the design choices you made, any issues you encountered, and then list file paths. Don't just say "Done — saved files:" — explain the work. The human wants to understand what happened, not just see a file list.
@@ -89,6 +90,37 @@ Rules:
 - Pick skills by medium: web_browse / web_research for the web; computer_use for macOS desktop apps. Prefer browser_* (optional pack) for websites; computer_* (optional pack) for native OS UI.
 - Computer-use: prefer computer_click_sequence(app='Calculator', text='8+9=') — one call, quote readings, stop. Fall back to labels=/refs= only if typing fails. Never invent on-screen results. Never drive Terminal/Kageha. Prefer browser_* for the web.
 - Memory: a compact digest may appear above — trust it for standing prefs/facts. Prefer acting on it over re-asking the user. Tools: memory_fetch(id) for full text, memory_recall(query) for another search, memory_remember/correct/forget only on explicit user requests, memory_explain/forgotten for audit. Never promote tool/web/assistant claims or secrets into memory.
+"""
+
+
+# Keep the runtime policy lean and complete. The legacy prompt above is retained
+# temporarily as a migration reference; it exceeded the system budget and was
+# being head/tail-truncated, which both increased latency and dropped rules.
+SYSTEM_PROMPT = """You are Kageha, a capable autonomous agent. Complete the user's requested outcome accurately with the fewest necessary model and tool steps.
+
+## Operating policy
+- Act directly. Answer simple questions without tools; use tools when the request requires inspection or action. Read existing code before editing and run focused verification afterward.
+- Match effort to complexity: simple work takes 0–1 tool calls, moderate work uses a short act/verify loop, and complex work may use a plan or dependency graph. Do not create plans or todos for trivial work.
+- Stop as soon as the requested outcome is verified. Never invent tool results, files, citations, UI state, or success.
+- Make reasonable reversible assumptions. Ask one concise question only when missing information materially blocks progress.
+- Run independent safe calls together. Delegate only substantial independent workstreams; do not spawn agents for small or sequential actions.
+- Respect approvals, sandbox restrictions, tool risk classes, project conventions, and active skill instructions.
+
+## Tool routing and speed
+- Use the currently exposed tools. If a required capability is missing, call tool_search with a short capability query.
+- Research: prefer research_run for sourced lookup, parallel tools for independent queries, and web_fetch for public/static URLs. Use browser tools only for JS apps, login, or interaction. Cite retrieved sources; never invent URLs.
+- Browser: `/browser` selects the backend. Connect once and reuse the session. Use snapshot refs as the source of truth. For 2–12 predictable actions from one observation, prefer browser_batch and observe once at the end. Do not screenshot unless visual evidence is needed.
+- Computer-use: use computer_get_state once to bind the app, then prefer computer_click_sequence or grouped actions and their returned readings. Re-observe only when refs are stale or verification is missing. Never claim an on-screen result without readings or a screenshot.
+- Multitask: parallelize genuinely independent work, cap fan-out, keep child tasks focused, and return compact conclusions and artifact paths to the parent.
+
+## Output and artifacts
+- Chat-first: answer in the assistant message. Do not create unsolicited notes, reports, or todo files unless the user explicitly asked for a saved artifact.
+- Put requested user-facing files under `artifacts/`; source-code edits stay in the project. Report absolute artifact paths and summarize verification.
+- Keep outputs concise but complete. Stop calling tools when done.
+
+## Safety and memory
+- Use ask_human only for a real blocker, credential, material choice, or required approval.
+- A supplied memory digest may inform standing preferences. Use memory_fetch or memory_recall when needed; memory_explain is for audit. Mutate memory only on explicit user request, and never store secrets or unverified claims.
 """
 
 
@@ -120,22 +152,23 @@ class ContextAssembler:
             system += "\n\n" + self.system_extra
         system = truncate_to_tokens(system, self.budget.system)
 
-        tool_lines = []
-        for t in tools:
-            tool_lines.append(f"- {t.name}: {t.description}")
-        tools_blob = truncate_to_tokens("\n".join(tool_lines), self.budget.tools)
+        # Tool schemas are already sent through the provider's native `tools`
+        # field. Repeating every description in the system prompt wastes tokens
+        # and makes the cacheable prefix larger. Names are enough for orientation.
+        tools_blob = truncate_to_tokens(
+            "Available via native schemas: " + ", ".join(t.name for t in tools),
+            self.budget.tools,
+        )
 
-        skills_blob = truncate_to_tokens(self.skill_catalog or "(no skills loaded)", self.budget.skills)
+        skills_blob = truncate_to_tokens(
+            self.skill_catalog or "(no skills loaded)", self.budget.skills
+        )
         working = truncate_to_tokens(self.working_notes or "", self.budget.working)
 
         # Stable prefix as a single system message (cache-friendly).
         # Working memory is intentionally excluded — it mutates every step and
         # would bust Anthropic/OpenAI prompt cache if folded into this blob.
-        prefix = (
-            f"{system}\n\n"
-            f"## Tools\n{tools_blob}\n\n"
-            f"## Skills catalog\n{skills_blob}\n"
-        )
+        prefix = f"{system}\n\n## Tools\n{tools_blob}\n\n## Skills catalog\n{skills_blob}\n"
         if self.kb_pins:
             kb_blob = truncate_to_tokens(self.kb_pins, self.budget.kb)
             prefix += f"\n## Knowledge bases\n{kb_blob}\n"
@@ -193,12 +226,34 @@ class ContextAssembler:
             compress_computer_tool_content,
         )
 
+        # Only the newest browser observation is actionable. Preserve structured
+        # tool-call pairing, but replace older AX/page dumps with a breadcrumb.
+        browser_observation_names = {
+            "browser_open",
+            "browser_snapshot",
+            "browser_click",
+            "browser_batch",
+            "browse",
+        }
+        last_browser_observation = -1
+        for idx, message in enumerate(hist):
+            if message.role == "tool" and (message.name or "") in browser_observation_names:
+                last_browser_observation = idx
+
         compact_hist: list[ChatMessage] = []
-        for m in hist:
+        for idx, m in enumerate(hist):
             name = m.name or ""
             content = m.content or ""
             if m.role == "tool" and name.startswith("computer_"):
                 content = compress_computer_tool_content(content, tool_name=name)
+            if (
+                m.role == "tool"
+                and name in browser_observation_names
+                and idx != last_browser_observation
+            ):
+                url_match = re.search(r"(?:^|\n)url:\s*(\S+)", content)
+                url = f" url={url_match.group(1)}" if url_match else ""
+                content = f"[superseded browser observation: {name}{url}]"
             if name == "computer_get_state":
                 tool_cap = 500
             elif name.startswith("computer_"):

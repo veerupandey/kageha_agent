@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { ChatMessage, ComputerFrame, ToolCard } from "../api/types";
-import { friendlyActivityLabel } from "../lib/activityUi";
+import { activityTarget, activityUrl, friendlyActivityLabel } from "../lib/activityUi";
 import {
   artifactDownloadUrl,
   artifactFileUrl,
@@ -73,9 +73,13 @@ function lightMarkdown(text: string): string {
 const LiveToolPulse = memo(function LiveToolPulse({
   cards,
   streaming,
+  onOpenBrowser,
+  onOpenComputer,
 }: {
   cards: ToolCard[];
   streaming: boolean;
+  onOpenBrowser?: (url?: string) => void;
+  onOpenComputer?: () => void;
 }) {
   if (!streaming || !cards.length) return null;
 
@@ -91,15 +95,28 @@ const LiveToolPulse = memo(function LiveToolPulse({
     if (names.length >= 3) break;
   }
   if (!names.length) return null;
+  const activeCard = source[0];
+  const target = activityTarget(activeCard?.name || "");
+  const url = activityUrl(activeCard?.argsPreview, activeCard?.resultPreview);
 
   return (
-    <div
-      className="mb-2 flex items-center gap-2 font-mono text-sm text-faint"
+    <button
+      type="button"
+      disabled={!target}
+      className={cn(
+        "mb-2 flex w-full items-center gap-2 rounded-sm font-mono text-sm text-faint",
+        target && "cursor-pointer hover:bg-accent-soft hover:text-accent",
+      )}
       aria-live="polite"
+      onClick={() => {
+        if (target === "browser") onOpenBrowser?.(url || undefined);
+        if (target === "computer") onOpenComputer?.();
+      }}
     >
       <span className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
       <span className="min-w-0 truncate text-muted">{names.join(" · ")}</span>
-    </div>
+      {target ? <span className="ml-auto shrink-0 text-[0.65rem]">Open ↗</span> : null}
+    </button>
   );
 });
 
@@ -363,6 +380,7 @@ const MessageRow = memo(function MessageRow({
   const sessionId = useAppStore((s) => s.sessionId);
   const upsertCanvasPaths = useAppStore((s) => s.upsertCanvasPaths);
   const openCanvasItem = useAppStore((s) => s.openCanvasItem);
+  const showToast = useAppStore((s) => s.showToast);
   const deleteTurn = useAppStore((s) => s.deleteTurn);
 
   const artifactPaths = useMemo(() => {
@@ -405,6 +423,25 @@ const MessageRow = memo(function MessageRow({
   const isUser = m.role === "user";
   const showActivity =
     !isUser && (streaming || stepList.length > 0);
+  const openBrowserActivity = (url?: string) => {
+    const fallback = [...(m.toolCards || [])]
+      .reverse()
+      .map((card) => activityUrl(card.argsPreview, card.resultPreview))
+      .find(Boolean);
+    const target = url || fallback;
+    if (target) window.open(target, "_blank", "noopener,noreferrer");
+    else showToast("Browser is active · no page URL has been reported yet");
+  };
+  const openComputerActivity = () => {
+    const frame = m.computerFrames?.[m.computerFrames.length - 1];
+    if (!frame) {
+      showToast("Computer is active · waiting for the first desktop frame");
+      return;
+    }
+    const path = String(frame.path || "").trim();
+    if (path) openCanvasItem(path, { expand: true });
+    else window.open(frame.url, "_blank", "noopener,noreferrer");
+  };
 
   return (
     <article
@@ -488,13 +525,20 @@ const MessageRow = memo(function MessageRow({
       </div>
 
       {streaming && m.toolCards && m.toolCards.length > 0 ? (
-        <LiveToolPulse cards={m.toolCards} streaming={streaming} />
+        <LiveToolPulse
+          cards={m.toolCards}
+          streaming={streaming}
+          onOpenBrowser={openBrowserActivity}
+          onOpenComputer={openComputerActivity}
+        />
       ) : null}
       {showActivity ? (
         <TerminalActivity
           steps={stepList}
           liveLabel={m.statusLabel || m.statusDetail}
           streaming={streaming}
+          onOpenBrowser={openBrowserActivity}
+          onOpenComputer={openComputerActivity}
         />
       ) : null}
 

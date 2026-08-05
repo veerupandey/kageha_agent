@@ -1105,6 +1105,24 @@ class LoopController:
             )
         except Exception:  # noqa: BLE001
             _skip_mcp = False
+        if self.platform == "subagent":
+            text_lower = (turn_task or task or "").lower()
+            explicit_mcp = any(
+                token in text_lower
+                for token in (
+                    "mcp",
+                    "connector",
+                    "slack",
+                    "notion",
+                    "airtable",
+                    "google drive",
+                    "gmail",
+                    "calendar",
+                )
+            )
+            if not explicit_mcp:
+                _skip_mcp = True
+                _skip_mcp_reason = "focused_subagent"
         if not _skip_mcp and (
             mode == "followup" or resolved_agent_mode == "normal"
         ) and len((turn_task or task or "").strip()) < 240:
@@ -2136,7 +2154,7 @@ class LoopController:
                 + "\n"
                 + goal.to_markdown()
             )
-            tool_specs = _filter_tools_for_skills(ctx)
+            tool_specs = _filter_tools_for_skills(ctx, task=turn_task or task)
             assembled = assembler.build(history=history, tools=tool_specs)
             events.emit("context", assembled.stats)
             self._log(f"[kageha] step {step}/{stop_rules.max_steps} — thinking…")
@@ -2473,6 +2491,10 @@ class LoopController:
                         tool=r.name or "tool",
                         content=r.content or "",
                     )
+                if results:
+                    recent = list(ctx.meta.get("recent_tool_names") or [])
+                    recent.extend(r.name for r in results if r.name)
+                    ctx.meta["recent_tool_names"] = list(dict.fromkeys(recent))[-12:]
                 # Always re-parse when todo tools/files were touched; also pick up
                 # indirect edits (shell, skills) by comparing the board fingerprint.
                 if todo_touched or results:
@@ -3707,7 +3729,7 @@ class LoopController:
         )
 
 
-def _filter_tools_for_skills(ctx: HarnessContext) -> list:
+def _filter_tools_for_skills(ctx: HarnessContext, *, task: str = "") -> list:
     """When active skills declare allowed-tools, narrow the tool catalog.
 
     Always keep core skill/MCP/meta tools so the agent can load more skills.
@@ -3719,7 +3741,9 @@ def _filter_tools_for_skills(ctx: HarnessContext) -> list:
     specs = ctx.tools.specs()
     allowed = ctx.meta.get("skill_allowed_tools")
     if not allowed:
-        return specs
+        from kageha.harness.dynamic_tools import select_tool_specs
+
+        return select_tool_specs(ctx, specs, task=task)
     keep_prefixes = (
         "skill_",
         "mcp_",
@@ -3729,6 +3753,7 @@ def _filter_tools_for_skills(ctx: HarnessContext) -> list:
         "write_file",
         "list_dir",
         "bash",
+        "tool_search",
     )
     allow = set(allowed)
     keep_computer = "computer" in set(ctx.meta.get("tool_packs_enabled") or [])
@@ -3740,7 +3765,11 @@ def _filter_tools_for_skills(ctx: HarnessContext) -> list:
             or (keep_computer and s.name.startswith("computer_"))
         ):
             out.append(s)
-    return out or specs
+    if not out:
+        return specs
+    from kageha.harness.dynamic_tools import select_tool_specs
+
+    return select_tool_specs(ctx, out, task=task)
 
 
 def _estimate_usd(

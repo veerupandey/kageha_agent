@@ -8,6 +8,7 @@ AX snapshots, evaluate, and raw CDP.
 from __future__ import annotations
 
 import os
+import inspect
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -68,13 +69,21 @@ class TabHandle:
     refs: dict[str, Any] = field(default_factory=dict)
     ref_meta: list[dict[str, Any]] = field(default_factory=list)
     last_snapshot: str = ""
+    console_events: list[dict[str, str]] = field(default_factory=list)
+    network_failures: list[dict[str, str]] = field(default_factory=list)
 
 
 class BrowserEngine:
     """One engine per harness registry (agent session)."""
 
-    def __init__(self, artifact_root: Callable[[str], Path] | None = None) -> None:
+    def __init__(
+        self,
+        artifact_root: Callable[[str], Path] | None = None,
+        session_key: str = "",
+    ) -> None:
         self._artifact_root = artifact_root
+        safe_key = "".join(ch for ch in str(session_key) if ch.isalnum() or ch in "-_")
+        self._page_marker = f"kageha-agent-{safe_key}" if safe_key else ""
         self.mode: str = resolve_browser_mode()
         self.cdp: str = resolve_cdp_endpoint()
         self.pw: Any = None
@@ -96,6 +105,38 @@ class BrowserEngine:
         if not (0 <= self.active < len(self.tabs)):
             raise RuntimeError("No active browser tab — call browser_open or browser_tabs(new)")
         return self.tabs[self.active]
+
+    def _instrument_tab(self, tab: TabHandle) -> TabHandle:
+        """Collect bounded diagnostics without another browser round-trip."""
+
+        def on_console(message: Any) -> None:
+            try:
+                tab.console_events.append(
+                    {"type": str(message.type), "text": str(message.text)[:1000]}
+                )
+                del tab.console_events[:-100]
+            except Exception:
+                pass
+
+        def on_request_failed(request: Any) -> None:
+            try:
+                tab.network_failures.append(
+                    {
+                        "url": str(request.url)[:1000],
+                        "method": str(request.method),
+                        "failure": str(request.failure or "request failed")[:500],
+                    }
+                )
+                del tab.network_failures[:-100]
+            except Exception:
+                pass
+
+        try:
+            tab.page.on("console", on_console)
+            tab.page.on("requestfailed", on_request_failed)
+        except Exception:
+            pass
+        return tab
 
     def session_banner(self) -> str:
         if self.mode == "cdp":
@@ -158,7 +199,27 @@ class BrowserEngine:
                 "Start Comet with: open -a Comet --args --remote-debugging-port=9222"
             ) from e
         context = browser.contexts[0] if browser.contexts else await browser.new_context()
-        page = await context.new_page()
+        page = None
+        if self._page_marker:
+            for candidate in context.pages:
+                try:
+                    marker_value = candidate.evaluate("window.name")
+                    if inspect.isawaitable(marker_value):
+                        marker_value = await marker_value
+                    if marker_value == self._page_marker:
+                        page = candidate
+                        break
+                except Exception:
+                    continue
+        if page is None:
+            page = await context.new_page()
+            if self._page_marker:
+                init_result = page.add_init_script(f"window.name = {self._page_marker!r}")
+                if inspect.isawaitable(init_result):
+                    await init_result
+                eval_result = page.evaluate(f"window.name = {self._page_marker!r}")
+                if inspect.isawaitable(eval_result):
+                    await eval_result
         try:
             await page.bring_to_front()
         except Exception:
@@ -169,7 +230,7 @@ class BrowserEngine:
         self.mode = "cdp"
         self.cdp = endpoint
         self.owned = False
-        tab = TabHandle(page=page)
+        tab = self._instrument_tab(TabHandle(page=page))
         self.tabs = [tab]
         self.active = 0
         return tab
@@ -185,7 +246,7 @@ class BrowserEngine:
         self.mode = "headless"
         self.owned = True
         self.docker_session = None
-        tab = TabHandle(page=page)
+        tab = self._instrument_tab(TabHandle(page=page))
         self.tabs = [tab]
         self.active = 0
         return tab
@@ -245,6 +306,31 @@ class BrowserEngine:
 
     async def connect(self, target: str = "auto", endpoint: str = "") -> str:
         t = (target or "auto").strip().lower() or "auto"
+        # Models sometimes repeat browser_connect before every navigation. Reuse
+        # the live agent-owned session; relaunching Chromium/CDP is much slower
+        # and discards useful page state.
+        page = self.page
+        page_live = False
+        if page is not None:
+            try:
+                page_live = not page.is_closed()
+            except Exception:
+                page_live = False
+        requested_cdp = t in {"comet", "cdp", "logged_in", "logged-in", "chrome"}
+        requested_headless = t == "headless"
+        requested_docker = t in {"docker", "sandbox", "browser-sandbox", "sandboxed"}
+        mode_matches = (
+            (t in {"auto", "prefer-comet", "prefer_comet"})
+            or (requested_cdp and self.mode == "cdp")
+            or (requested_headless and self.mode == "headless")
+            or (requested_docker and self.mode == "docker")
+        )
+        endpoint_matches = not endpoint or endpoint == self.cdp
+        if page_live and mode_matches and endpoint_matches:
+            return (
+                f"connected: reused {self.mode}\nurl: {page.url}\n"
+                "Existing agent-owned browser session retained."
+            )
         await self.disconnect()
         self._fallback_note = ""
         if t in {"auto", "prefer-comet", "prefer_comet"}:
@@ -346,9 +432,7 @@ class BrowserEngine:
             title = await page.title()
         except Exception:
             title = ""
-        text, refs, meta = format_snapshot(
-            items, url=page.url or "", title=title, compact=compact
-        )
+        text, refs, meta = format_snapshot(items, url=page.url or "", title=title, compact=compact)
         tab.refs = refs
         tab.ref_meta = meta
         tab.last_snapshot = text
@@ -367,7 +451,7 @@ class BrowserEngine:
         *,
         screenshot: bool = False,
         limit: int = 60,
-        include_text: bool = True,
+        include_text: bool = False,
     ) -> str:
         page = await self.ensure_page()
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -406,7 +490,34 @@ class BrowserEngine:
         return f"typed into {target} ({len(text)} chars)\nurl: {page.url}"
 
     async def fill(self, target: str, text: str) -> str:
+        page = await self.ensure_page()
+        tab = self._tab()
+        loc = await resolve_locator(page, target, tab.refs)
+        tag = await loc.evaluate("el => el.tagName.toLowerCase()")
+        if tag == "select":
+            try:
+                await loc.select_option(label=text, timeout=15000)
+            except Exception:
+                await loc.select_option(value=text, timeout=15000)
+            return f"selected {text!r} in {target}\nurl: {page.url}"
         return await self.type_text(target, text, clear=True, slowly=False)
+
+    async def select(self, target: str, option: str) -> str:
+        page = await self.ensure_page()
+        tab = self._tab()
+        loc = await resolve_locator(page, target, tab.refs)
+        try:
+            await loc.select_option(label=option, timeout=15000)
+        except Exception:
+            await loc.select_option(value=option, timeout=15000)
+        return f"selected {option!r} in {target}\nurl: {page.url}"
+
+    async def upload(self, target: str, paths: list[str]) -> str:
+        page = await self.ensure_page()
+        tab = self._tab()
+        loc = await resolve_locator(page, target, tab.refs)
+        await loc.set_input_files(paths, timeout=15000)
+        return f"uploaded {len(paths)} file(s) into {target}\nurl: {page.url}"
 
     async def press(self, key: str) -> str:
         page = await self.ensure_page()
@@ -499,6 +610,65 @@ class BrowserEngine:
         except Exception:
             return str(result)[:14000]
 
+    async def diagnostics(self, *, clear: bool = False) -> str:
+        """Return console, network, navigation, resource, and CDP performance data."""
+        import json
+
+        page = await self.ensure_page()
+        tab = self._tab()
+        try:
+            timing = await page.evaluate(
+                """() => {
+                  const nav = performance.getEntriesByType('navigation')[0];
+                  const resources = performance.getEntriesByType('resource')
+                    .map(r => ({name:r.name, duration:r.duration, transferSize:r.transferSize,
+                                initiatorType:r.initiatorType}))
+                    .sort((a,b) => b.duration-a.duration).slice(0,20);
+                  return {
+                    navigation: nav ? {
+                      duration: nav.duration,
+                      domContentLoaded: nav.domContentLoadedEventEnd,
+                      loadEvent: nav.loadEventEnd,
+                      responseStart: nav.responseStart,
+                      transferSize: nav.transferSize
+                    } : null,
+                    resources,
+                    dom: {nodes: document.getElementsByTagName('*').length,
+                          textChars: (document.body?.innerText || '').length}
+                  };
+                }"""
+            )
+        except Exception as exc:  # noqa: BLE001
+            timing = {"error": str(exc)[:500]}
+
+        metrics: dict[str, Any] = {}
+        try:
+            client = await page.context.new_cdp_session(page)
+            try:
+                await client.send("Performance.enable")
+                raw = await client.send("Performance.getMetrics")
+                metrics = {
+                    str(row.get("name")): row.get("value")
+                    for row in raw.get("metrics") or []
+                    if row.get("name")
+                }
+            finally:
+                await client.detach()
+        except Exception as exc:  # noqa: BLE001
+            metrics = {"error": str(exc)[:500]}
+
+        out = {
+            "url": page.url,
+            "timing": timing,
+            "performance_metrics": metrics,
+            "console": tab.console_events[-50:],
+            "network_failures": tab.network_failures[-50:],
+        }
+        if clear:
+            tab.console_events.clear()
+            tab.network_failures.clear()
+        return json.dumps(out, indent=2, default=str)[:20000]
+
     async def tabs_action(self, action: str, index: int | None = None) -> str:
         action = (action or "list").strip().lower()
         if action == "list":
@@ -518,7 +688,7 @@ class BrowserEngine:
                 page = await self.context.new_page()
             else:
                 page = await self.browser.new_page()
-            self.tabs.append(TabHandle(page=page))
+            self.tabs.append(self._instrument_tab(TabHandle(page=page)))
             self.active = len(self.tabs) - 1
             return f"new tab index={self.active}\nurl: {page.url}"
         if action == "select":

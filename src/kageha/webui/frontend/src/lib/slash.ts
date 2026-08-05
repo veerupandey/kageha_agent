@@ -70,6 +70,28 @@ function slashCommandRank(cmd: SlashCommand): number {
   return 1000 + (ka < 0 ? 99 : ka);
 }
 
+const SLASH_KIND_TITLES: Record<string, string> = {
+  mode: "Modes",
+  multitask: "Multitask",
+  browser: "Browser & research",
+  computer: "Computer use",
+  skill: "Skills",
+  project: "Project",
+  prefs: "Settings & actions",
+};
+
+export function slashCommandGroup(cmd: SlashCommand): string {
+  return SLASH_KIND_TITLES[String(cmd.kind || "")] || "Other";
+}
+
+export function slashCommandUsage(cmd: SlashCommand): string {
+  if (cmd.usage) return cmd.usage;
+  if (cmd.id === "computer") return "/computer <task>";
+  if (cmd.id === "browser-diagnose") return "/browser diagnose <url>";
+  if (cmd.id.startsWith("research")) return `${cmd.label} <query>`;
+  return cmd.label;
+}
+
 /** `/token` at caret — returns start/end/query or null. */
 export function getSlashContext(
   text: string,

@@ -83,13 +83,23 @@ async def test_browser_comet_enables_pack(isolated_prefs, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_browser_diagnose_validates_input(isolated_prefs) -> None:
+    handled, msg = await browser_commands.handle_browser_command("/browser diagnose")
+    assert handled
+    assert "Usage:" in msg
+    handled, msg = await browser_commands.handle_browser_command(
+        "/browser diagnose javascript:alert(1)"
+    )
+    assert handled
+    assert "URL must use" in msg
+
+
+@pytest.mark.asyncio
 async def test_research_slash_runs_backend(isolated_prefs, monkeypatch) -> None:
     async def fake_run(query: str, depth: str = "", **kwargs):  # noqa: ANN003
         return f"# Research ({depth or 'flash'})\nquery: {query}\nOK"
 
-    monkeypatch.setattr(
-        "kageha.research.backend.research_run", fake_run
-    )
+    monkeypatch.setattr("kageha.research.backend.research_run", fake_run)
     handled, msg = await browser_commands.handle_research_command(
         "/research flash what is lightpanda"
     )
@@ -103,7 +113,10 @@ def test_system_prompt_requires_research_run() -> None:
     assert "REQUIRED" in SYSTEM_PROMPT or "prefer" in SYSTEM_PROMPT.lower()
     assert "/browser" in SYSTEM_PROMPT
     assert "Chat-first" in SYSTEM_PROMPT
-    assert "unsolicited" in SYSTEM_PROMPT.lower() or "unless the user explicitly asked" in SYSTEM_PROMPT
+    assert (
+        "unsolicited" in SYSTEM_PROMPT.lower()
+        or "unless the user explicitly asked" in SYSTEM_PROMPT
+    )
 
 
 def test_default_tools_include_research_run(tmp_path: Path, monkeypatch, isolated_prefs) -> None:

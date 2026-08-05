@@ -37,6 +37,8 @@ _TOOL_LABELS = {
     "browser_click": "Clicking in browser",
     "browser_type": "Typing in browser",
     "browser_snapshot": "Reading page",
+    "browser_batch": "Running browser actions",
+    "browser_diagnostics": "Inspecting browser",
     "shell": "Running shell",
     "bash": "Running shell",
     "run_terminal_cmd": "Running shell",
@@ -295,9 +297,7 @@ class TransientProgress:
                     self._last_status = "Waiting for your answer…"
                     self._base_status = self._last_status
                     if self.sticky_activity and self.transient and not self.detailed:
-                        self._sticky_print(
-                            _activity_text("wait", "Waiting for your answer…")
-                        )
+                        self._sticky_print(_activity_text("wait", "Waiting for your answer…"))
                     elif not self.transient:
                         self.console.print("Waiting for your answer…")
                 return
@@ -329,9 +329,7 @@ class TransientProgress:
                 done_line = _tool_result_activity(raw)
                 if done_line:
                     failed = _tool_result_failed(raw)
-                    self._sticky_print(
-                        _activity_text("fail" if failed else "done", done_line)
-                    )
+                    self._sticky_print(_activity_text("fail" if failed else "done", done_line))
                     self._active_tool = ""
                     self._phase_started_at = time.monotonic()
                     compact = _compact_with_todos(
@@ -344,11 +342,7 @@ class TransientProgress:
                     return
 
             # Multi-line checklist / reasoning / subagent board — sticky in detailed mode.
-            if (
-                _is_checklist_log(raw)
-                or _is_reasoning_log(raw)
-                or _is_subagent_board(raw)
-            ):
+            if _is_checklist_log(raw) or _is_reasoning_log(raw) or _is_subagent_board(raw):
                 self._remember_todo_counts(raw)
                 if _is_subagent_board(raw):
                     rendered = _render_subagent_board(raw)
@@ -419,10 +413,7 @@ class TransientProgress:
             if compact == self._base_status:
                 return
             # New phase of work — reset per-phase timer for clearer progress.
-            if not any(
-                marker in low
-                for marker in ("model=", "tokens=", "usd~", "cache_read=")
-            ):
+            if not any(marker in low for marker in ("model=", "tokens=", "usd~", "cache_read=")):
                 self._phase_started_at = time.monotonic()
             self._set_status(compact)
 
@@ -504,7 +495,12 @@ class TransientProgress:
         base = self._base_status
         self._clear_status_line()
         self.console.print(text)
-        if was_live and self.transient and not self._paused_for_stream and not self._waiting_for_input:
+        if (
+            was_live
+            and self.transient
+            and not self._paused_for_stream
+            and not self._waiting_for_input
+        ):
             resume = base or "Working…"
             self._start_live(self._compose_display(resume))
 
@@ -579,11 +575,7 @@ class TransientProgress:
     def _join_heartbeat(self) -> None:
         thread = self._heartbeat_thread
         self._heartbeat_thread = None
-        if (
-            thread is not None
-            and thread.is_alive()
-            and thread is not threading.current_thread()
-        ):
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
             thread.join(timeout=0.4)
 
     def suspend(self) -> None:
@@ -751,9 +743,7 @@ def _render_reasoning(message: str) -> str:
     return f"Reasoning: {text}"
 
 
-def _compact_with_todos(
-    status: str, step_label: str, done: int, total: int
-) -> str:
+def _compact_with_todos(status: str, step_label: str, done: int, total: int) -> str:
     parts: list[str] = []
     if step_label:
         parts.append(step_label)
@@ -839,9 +829,6 @@ def _friendly_status(message: str) -> str:
         return "Checking the result…"
     if "user inject:" in low:
         return "Applying your steering…"
-    if any(
-        marker in low
-        for marker in ("run_id=", "workspace=", "task=", "mcp:", "auto-loaded")
-    ):
+    if any(marker in low for marker in ("run_id=", "workspace=", "task=", "mcp:", "auto-loaded")):
         return ""
     return compact

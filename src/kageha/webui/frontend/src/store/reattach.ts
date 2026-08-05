@@ -38,6 +38,43 @@ interface SessionSnapshot {
   title?: string | null;
 }
 
+export function pendingApprovalFromFrame(
+  frame: EventFrame,
+  sessionId: string,
+): PendingApproval | null {
+  if (String(frame.kind || "") !== "approval_required") return null;
+  const payload = frame.payload || {};
+  const approvalId = String(payload.approval_id || "").trim();
+  if (!approvalId) return null;
+  return {
+    approval_id: approvalId,
+    sessionId,
+    action: String(payload.action || frame.label || "Approval needed"),
+    risk_class: payload.risk_class ? String(payload.risk_class) : undefined,
+    detail: payload.detail as string | string[] | undefined,
+    label: frame.label ? String(frame.label) : undefined,
+  };
+}
+
+export function terminalRunState(rawStatus: string): {
+  status: RunStatus;
+  label: string;
+} {
+  const normalized = String(rawStatus || "").toLowerCase();
+  if (normalized === "cancelled") return { status: "cancelled", label: "Cancelled" };
+  if (
+    normalized === "interrupted" ||
+    normalized === "reconciliation_required" ||
+    normalized === "blocked"
+  ) {
+    return { status: "interrupted", label: "Interrupted · review before resuming" };
+  }
+  if (normalized === "error" || normalized === "failed") {
+    return { status: "error", label: "Error" };
+  }
+  return { status: "success", label: "Done" };
+}
+
 const POLL_MS = 1200;
 const POLL_MS_RETRY = 2400;
 
@@ -93,6 +130,31 @@ export function reattachToActiveTurn(
     const label = String(frame.label || kind || "");
     const detail = Array.isArray(frame.detail) ? frame.detail : [];
     const interesting = frame.interesting !== false;
+    const frameApproval = pendingApprovalFromFrame(frame, sessionId);
+
+    if (frameApproval) {
+      updateRun(sessionId, (run) => ({
+        ...run,
+        waitingApproval: true,
+        status: "waiting_approval",
+        statusLabel: "Approval needed",
+      }));
+      if (sessionId === get().sessionId) {
+        set({
+          pendingApproval: frameApproval,
+          runStatus: "waiting_approval",
+          statusLabel: "Approval needed",
+        });
+      }
+    } else if (
+      kind === "approval_resolved" ||
+      kind === "blocked" ||
+      kind === "cancelled" ||
+      kind === "turn_completed"
+    ) {
+      updateRun(sessionId, (run) => ({ ...run, waitingApproval: false }));
+      if (sessionId === get().sessionId) set({ pendingApproval: null });
+    }
 
     set((s) => {
       const run = s.runs[sessionId];
@@ -162,14 +224,7 @@ export function reattachToActiveTurn(
     } catch {
       /* best-effort — keep whatever streamed text we accumulated */
     }
-    const status: RunStatus =
-      rawStatus === "cancelled"
-        ? "cancelled"
-        : rawStatus === "error" || rawStatus === "failed"
-          ? "error"
-          : "success";
-    const label =
-      status === "cancelled" ? "Cancelled" : status === "error" ? "Error" : "Done";
+    const { status, label } = terminalRunState(rawStatus);
     updateRun(sessionId, (r) => {
       const messages = r.messages.map((m) =>
         m.id === assistantId
@@ -229,6 +284,24 @@ export function reattachToActiveTurn(
             runStatus: "waiting_approval",
             statusLabel: "Approval needed",
           });
+        }
+      } else {
+        updateRun(sessionId, (r) =>
+          r.waitingApproval
+            ? {
+                ...r,
+                waitingApproval: false,
+                status: "running",
+                statusLabel: "Working…",
+              }
+            : r,
+        );
+        const current = get().pendingApproval;
+        if (
+          sessionId === get().sessionId &&
+          (current?.sessionId === sessionId || current?.session_id === sessionId)
+        ) {
+          set({ pendingApproval: null, runStatus: "running", statusLabel: "Working…" });
         }
       }
 

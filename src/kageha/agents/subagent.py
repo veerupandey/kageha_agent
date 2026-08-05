@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -63,6 +64,7 @@ async def _run_subagent(
     isolation: str = "",
     keep_worktree: bool = False,
 ) -> dict[str, Any]:
+    started = time.perf_counter()
     from kageha.config import security_profile
     from kageha.memory.service import (
         get_memory_service,
@@ -119,13 +121,21 @@ async def _run_subagent(
     from kageha.memory.bootstrap import prepare_turn_memory
 
     memory = get_memory_service(start_worker=True)
-    memory_extra = prepare_turn_memory(
-        memory,
-        query=task,
-        project_root=project_root,
-        session_id="",
-        agent_id=agent_id,
-    )
+    wants_memory = os.environ.get("KAGEHA_SUBAGENT_MEMORY", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    } or any(word in task.lower() for word in ("memory", "remember", "preference"))
+    memory_extra = ""
+    if wants_memory:
+        memory_extra = prepare_turn_memory(
+            memory,
+            query=task,
+            project_root=project_root,
+            session_id="",
+            agent_id=agent_id,
+        )
     steps = max(1, min(int(max_steps), 12))
     from kageha.runtime import (
         AgentRuntime,
@@ -216,10 +226,12 @@ async def _run_subagent(
         "label": label or result.run_id,
         "run_id": result.run_id,
         "status": result.status,
-        "message": result.message[:4000],
-        "artifacts": result.artifacts[:30],
+        # Parent needs conclusions and paths, not another full transcript.
+        "message": result.message[:2000],
+        "artifacts": result.artifacts[:12],
         "mode": mode_norm,
         "workspace": ws_root,
+        "duration_ms": round((time.perf_counter() - started) * 1000.0, 1),
         **worktree_meta,
     }
     hooks.run("subagentStop", payload={**out, "project_root": project_root})
@@ -246,7 +258,7 @@ def register_subagent_tools(ctx: "HarnessContext") -> ToolRegistry:
     )
     async def spawn_subagent(
         task: str,
-        max_steps: int = 8,
+        max_steps: int = 6,
         isolation: str = "",
         keep_worktree: bool = False,
     ) -> str:
@@ -275,7 +287,7 @@ def register_subagent_tools(ctx: "HarnessContext") -> ToolRegistry:
     )
     async def spawn_subagents(
         tasks_json: str,
-        max_steps: int = 6,
+        max_steps: int = 4,
         max_parallel: int = 4,
         isolation: str = "",
     ) -> str:
@@ -289,9 +301,9 @@ def register_subagent_tools(ctx: "HarnessContext") -> ToolRegistry:
         jobs: list[tuple[str, str]] = []
         for i, item in enumerate(raw[:12]):
             if isinstance(item, str):
-                jobs.append((f"t{i+1}", item.strip()))
+                jobs.append((f"t{i + 1}", item.strip()))
             elif isinstance(item, dict):
-                label = str(item.get("id") or item.get("label") or f"t{i+1}")
+                label = str(item.get("id") or item.get("label") or f"t{i + 1}")
                 task = str(item.get("task") or item.get("prompt") or "").strip()
                 if task:
                     jobs.append((label, task))
@@ -318,9 +330,7 @@ def register_subagent_tools(ctx: "HarnessContext") -> ToolRegistry:
                 except Exception as e:  # noqa: BLE001
                     return {"ok": False, "label": label, "error": str(e)}
 
-        board = _format_subagent_assignments(
-            jobs, kind="spawn_subagents", parallel=parallel
-        )
+        board = _format_subagent_assignments(jobs, kind="spawn_subagents", parallel=parallel)
         print(board, flush=True)
         _write_subagent_board(ctx, jobs, kind="spawn_subagents")
         results = await asyncio.gather(*[one(label, task) for label, task in jobs])
@@ -334,7 +344,7 @@ def register_subagent_tools(ctx: "HarnessContext") -> ToolRegistry:
                 "results": list(results),
             },
             indent=2,
-        )[:12000]
+        )[:8000]
 
     @tool(
         description=(
@@ -346,7 +356,7 @@ def register_subagent_tools(ctx: "HarnessContext") -> ToolRegistry:
     )
     async def spawn_task_graph(
         nodes_json: str,
-        max_steps: int = 6,
+        max_steps: int = 4,
         max_parallel: int = 4,
         isolation: str = "worktree",
     ) -> str:
@@ -355,13 +365,9 @@ def register_subagent_tools(ctx: "HarnessContext") -> ToolRegistry:
         try:
             raw = json.loads(nodes_json or "[]")
         except json.JSONDecodeError as e:
-            return json.dumps(
-                {"ok": False, "error": f"nodes_json must be JSON array: {e}"}
-            )
+            return json.dumps({"ok": False, "error": f"nodes_json must be JSON array: {e}"})
         if not isinstance(raw, list) or not raw:
-            return json.dumps(
-                {"ok": False, "error": "nodes_json must be a non-empty JSON array"}
-            )
+            return json.dumps({"ok": False, "error": "nodes_json must be a non-empty JSON array"})
         if len(raw) > 12:
             raw = raw[:12]
         try:
@@ -412,7 +418,7 @@ def register_subagent_tools(ctx: "HarnessContext") -> ToolRegistry:
             deps = f" (after {', '.join(node.depends_on)})" if node.depends_on else ""
             lines.append(f"- [{mark}] `{nid}`{deps}: {node.task[:120]}")
         ctx.workspace.write_text("task_graph.md", "\n".join(lines) + "\n")
-        return json.dumps(summary, indent=2)[:12000]
+        return json.dumps(summary, indent=2)[:8000]
 
     for t in (spawn_subagent, spawn_subagents, spawn_task_graph):
         if hasattr(t, "name"):

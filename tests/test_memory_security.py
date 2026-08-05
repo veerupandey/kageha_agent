@@ -2,6 +2,13 @@ from kageha.memory.security import inspect_memory_text
 from kageha.obs.events import redact
 
 
+def test_session_artifact_path_is_not_treated_as_secret():
+    path = "artifacts/computer/thumbs/action_0001.jpg"
+    result = inspect_memory_text(path)
+    assert result.blocked is False
+    assert result.safe_text == path
+
+
 def test_public_reference_url_is_not_treated_as_high_entropy_secret():
     text = (
         "Inspect this reference: "
