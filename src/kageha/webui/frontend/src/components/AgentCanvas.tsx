@@ -612,6 +612,7 @@ export function AgentCanvas({ alwaysShow, onCollapse, onOpenLightbox }: { always
   const canvasOpen = useAppStore((s) => s.canvasOpen);
   const setCanvasOpen = useAppStore((s) => s.setCanvasOpen);
   const canvasItems = useAppStore((s) => s.canvasItems);
+  const agentMode = useAppStore((s) => s.agentMode);
   const messages = useAppStore((s) => s.messages);
   const runStatus = useAppStore((s) => s.runStatus);
   const todoBoard = useAppStore((s) => s.todoBoard);
@@ -650,11 +651,11 @@ export function AgentCanvas({ alwaysShow, onCollapse, onOpenLightbox }: { always
 
   // Todos appeared → switch to Plan (only once per run, never re-triggers)
   useEffect(() => {
-    if (todoBoard && todoBoard.total > 0 && !autoSwitchedToPlan.current) {
+    if (agentMode !== "multitask" && todoBoard && todoBoard.total > 0 && !autoSwitchedToPlan.current) {
       autoSwitchedToPlan.current = true;
       setActiveTab("plan");
     }
-  }, [todoBoard?.total]);
+  }, [agentMode, todoBoard?.total]);
 
   useEffect(() => {
     if (!hasSubagentActivity && activeTab === "subagents") {

@@ -74,6 +74,10 @@ MODE_PROMPTS: dict[str, str] = {
         "and proactively delegate them with spawn_subagents or spawn_task_graph. Prefer one focused "
         "subagent per independent research, implementation, testing, or review stream. Run them in "
         "parallel when safe, wait for their results, then synthesize one answer for the parent chat. "
+        "For a request containing two or more independent actions, delegation is mandatory: make "
+        "spawn_subagents or spawn_task_graph your first tool call, rather than doing the work "
+        "yourself or merely writing a plan. If the request is a single atomic action, execute it "
+        "directly. "
         "Do not create parallel user chat tabs or ask the user to switch threads. "
         f"{_ARTIFACTS_DEFAULT}"
     ),
