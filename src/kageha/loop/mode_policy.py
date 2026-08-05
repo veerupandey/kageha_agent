@@ -11,9 +11,9 @@ import re
 from pathlib import Path
 from typing import Any, Literal
 
-AgentMode = Literal["normal", "plan", "goal"]
+AgentMode = Literal["normal", "plan", "goal", "multitask"]
 
-AGENT_MODES: frozenset[str] = frozenset({"normal", "plan", "goal"})
+AGENT_MODES: frozenset[str] = frozenset({"normal", "plan", "goal", "multitask"})
 
 AGENT_MODE_FLAG = "agent_mode.flag"
 PLAN_APPROVED_FLAG = "plan_approved.flag"
@@ -37,8 +37,8 @@ PLAN_DESIGN_BLOCKED_TOOLS: frozenset[str] = frozenset(
     }
 )
 
-_MODE_CMD_RE = re.compile(r"^/(plan|goal|normal)\b", re.I)
-_MODE_ONLY_RE = re.compile(r"^/?(plan|goal|normal)\s*$", re.I)
+_MODE_CMD_RE = re.compile(r"^/(plan|goal|normal|multitask)\b", re.I)
+_MODE_ONLY_RE = re.compile(r"^/?(plan|goal|normal|multitask)\s*$", re.I)
 
 _ARTIFACTS_DEFAULT = (
     "File deliverables DEFAULT to `artifacts/` (e.g. `artifacts/deck.pptx`, "
@@ -68,6 +68,15 @@ MODE_PROMPTS: dict[str, str] = {
         "classes still need HITL (Approve/Deny/Suggest). Stop on SUCCESS/cancel.\n"
         f"{_ARTIFACTS_DEFAULT} Pure Q&A → answer briefly like Normal."
     ),
+    "multitask": (
+        "## Agent mode: multitask coordinator\n"
+        "Keep this as one parent conversation. Decompose complex work into independent pieces "
+        "and proactively delegate them with spawn_subagents or spawn_task_graph. Prefer one focused "
+        "subagent per independent research, implementation, testing, or review stream. Run them in "
+        "parallel when safe, wait for their results, then synthesize one answer for the parent chat. "
+        "Do not create parallel user chat tabs or ask the user to switch threads. "
+        f"{_ARTIFACTS_DEFAULT}"
+    ),
 }
 
 # WebUI / slash helper copy (keep in sync with static catalog fallbacks).
@@ -75,6 +84,7 @@ MODE_CHIP_DESCRIPTIONS: dict[str, str] = {
     "normal": "Normal mode — standard chat",
     "plan": "Plan — clarify, research, then Build",
     "goal": "Goal — execute now with HITL when needed",
+    "multitask": "Multitask — coordinate parallel subagents in this chat",
 }
 
 GOAL_QA_MISFIT_MESSAGE = "This looks like Normal"

@@ -27,7 +27,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     id: "multitask",
     label: "/multitask",
     title: "Multitask",
-    description: "Open parallel tab (composer attachments follow)",
+    description: "Coordinate parallel subagents in this chat",
     kind: "multitask",
   },
   {
@@ -40,8 +40,8 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   {
     id: "task",
     label: "/task",
-    title: "Multitask",
-    description: "Multitask · same as /new",
+    title: "New task",
+    description: "Open a separate task chat",
     kind: "multitask",
   },
   {

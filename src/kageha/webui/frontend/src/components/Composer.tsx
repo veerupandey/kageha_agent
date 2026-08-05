@@ -23,7 +23,7 @@ import {
 } from "../lib/voiceClient";
 import { useAppStore } from "../store";
 
-const MODES: AgentMode[] = ["normal", "plan", "goal"];
+const MODES: AgentMode[] = ["normal", "plan", "goal", "multitask"];
 
 const QA_START =
   /^(what|who|when|where|why|how|is|are|can|could|would|should|do|does|did)\b/i;

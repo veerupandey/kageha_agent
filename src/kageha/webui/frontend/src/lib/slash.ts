@@ -9,7 +9,7 @@ export interface TokenContext {
   token?: string;
 }
 
-const AGENT_MODES: AgentMode[] = ["normal", "plan", "goal"];
+const AGENT_MODES: AgentMode[] = ["normal", "plan", "goal", "multitask"];
 
 const SLASH_PRIMARY_IDS = [
   "plan",
@@ -289,7 +289,7 @@ export function applySlashCommand(
     return;
   }
 
-  if (id === "new" || id === "task" || id === "multitask") {
+  if (id === "new" || id === "task") {
     clearToken();
     store.clearComposerChip({ resetMode: false });
     if (store.sessionId) {
@@ -303,6 +303,14 @@ export function applySlashCommand(
       store.setComposerChip("multitask", "multitask");
       store.showToast("Multitask · send your first task, then + or /multitask");
     }
+    return;
+  }
+
+  if (id === "multitask") {
+    clearToken();
+    store.clearComposerChip({ resetMode: false });
+    store.setAgentMode("multitask");
+    store.showToast("Multitask coordinator · one chat with parallel subagents");
     return;
   }
 

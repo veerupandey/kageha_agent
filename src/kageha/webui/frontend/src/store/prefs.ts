@@ -14,7 +14,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   newUi: true,
 };
 
-const AGENT_MODES: AgentMode[] = ["normal", "plan", "goal"];
+const AGENT_MODES: AgentMode[] = ["normal", "plan", "goal", "multitask"];
 
 function isDensity(v: unknown): v is Density {
   return v === "comfortable" || v === "compact";

@@ -82,7 +82,7 @@ export function ThreadView({ onOpenLightbox, rightPanelCollapsed, onToggleRightP
         artifactCounts={artifactCounts}
       />
 
-      <div ref={layoutRef} className="flex min-h-0 flex-1">
+      <div ref={layoutRef} className="flex min-h-0 flex-1 overflow-hidden">
         {/* Conversation panel (left) — expands to full width when right panel is collapsed */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <ConversationPanel />
@@ -117,7 +117,7 @@ export function ThreadView({ onOpenLightbox, rightPanelCollapsed, onToggleRightP
           >
             <span className="absolute left-1/2 top-1/2 h-10 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-faint/50 group-hover:bg-accent" />
           </div>
-          <div className="hidden min-h-0 shrink-0 flex-col md:flex" style={{ width: `${rightWidth}px`, maxWidth: "calc(100% - 400px)" }}>
+          <div className="hidden min-h-0 shrink-0 flex-col overflow-hidden md:flex" style={{ width: `${rightWidth}px`, maxWidth: "calc(100% - 400px)" }}>
             {showAgentCanvas ? (
               <AgentCanvas alwaysShow onCollapse={onToggleRightPanel} onOpenLightbox={onOpenLightbox} />
             ) : (

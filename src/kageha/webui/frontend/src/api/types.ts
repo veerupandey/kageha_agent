@@ -1,4 +1,4 @@
-export type AgentMode = "normal" | "plan" | "goal";
+export type AgentMode = "normal" | "plan" | "goal" | "multitask";
 
 export type RunStatus =
   | "idle"

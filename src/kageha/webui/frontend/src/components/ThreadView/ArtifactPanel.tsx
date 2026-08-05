@@ -124,7 +124,7 @@ function InlinePreview({
   }, [item.url, item.kind, runStatus]);
 
   return (
-    <div className="flex flex-col border-t border-line bg-[var(--color-canvas)]">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden border-t border-line bg-[var(--color-canvas)]">
       {/* Preview header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-line/50">
         <div className="flex items-center gap-2 min-w-0">
@@ -165,7 +165,7 @@ function InlinePreview({
       </div>
 
       {/* Content */}
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
         {item.kind === "image" ? (
           <div className="flex items-center justify-center p-4 bg-[#0d1117]">
             <img
@@ -401,7 +401,7 @@ export function ArtifactPanel({ filter, onOpenLightbox, onCollapse }: ArtifactPa
       <div className="flex min-h-0 flex-1 flex-col">
         {/* File list */}
         <div
-          className={cn("overflow-y-auto px-2 py-1.5 space-y-0.5 shrink-0", !selected && "flex-1")}
+          className={cn("overflow-y-auto overscroll-contain px-2 py-1.5 space-y-0.5 shrink-0", !selected && "flex-1")}
           style={selected ? { height: `${listHeight}px` } : undefined}
         >
           {filtered.map((item) => (
@@ -433,7 +433,7 @@ export function ArtifactPanel({ filter, onOpenLightbox, onCollapse }: ArtifactPa
 
         {/* Inline preview */}
         {selected && (
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div className="min-h-0 flex-1 overflow-hidden">
             <InlinePreview
               item={selected}
               onOpenFull={() => onOpenLightbox(selected.path)}

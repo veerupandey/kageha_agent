@@ -25,12 +25,16 @@ def test_normalize_and_loop_map():
     assert loop_mode_for("normal") == "followup"
     assert loop_mode_for("plan") == "full"
     assert loop_mode_for("goal") == "full"
+    assert normalize_agent_mode("multitask") == "multitask"
+    assert loop_mode_for("multitask") == "full"
 
 
 def test_slash_parse_and_strip():
     assert parse_mode_slash("/spec build a CLI") is None
     assert parse_mode_slash("/goal ship it") == "goal"
+    assert parse_mode_slash("/multitask ship it") == "multitask"
     assert strip_mode_slash("/plan research X") == "research X"
+    assert strip_mode_slash("/multitask research X") == "research X"
     assert strip_mode_slash("hello") == "hello"
     # Mode-only must NOT round-trip the token as the objective.
     assert strip_mode_slash("/plan") == ""
