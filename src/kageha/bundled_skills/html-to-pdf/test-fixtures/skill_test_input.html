@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>html-to-pdf Skill Test</title>
+<style>
+  @page { size: A4; margin: 18mm 14mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1f2933; line-height: 1.6; margin: 0; padding: 0;
+    background: #ffffff;
+  }
+  .hero {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+    color: #fff; padding: 40px 30px; border-radius: 14px; margin-bottom: 28px;
+  }
+  .hero h1 { margin: 0 0 8px; font-size: 30px; }
+  .hero p { margin: 0; opacity: 0.95; font-size: 14px; }
+  h2 { color: #4f46e5; border-bottom: 2px solid #e0e7ff; padding-bottom: 6px; margin-top: 30px; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13.5px; }
+  th { background: #4f46e5; color: #fff; padding: 9px 12px; text-align: left; }
+  td { border: 1px solid #e5e7eb; padding: 8px 12px; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  pre {
+    background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px;
+    overflow-x: auto; font-size: 12.5px; font-family: "SF Mono", "Fira Code", monospace;
+  }
+  code { color: #34d399; }
+  .badge { display: inline-block; background: #dcfce7; color: #166534; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; background: #fff; }
+  .card h3 { margin: 0 0 6px; color: #7c3aed; font-size: 15px; }
+</style>
+</head>
+<body>
+  <div class="hero">
+    <h1>📄 html-to-pdf Skill — E2E Test</h1>
+    <p>Stress test: gradients · tables · code blocks · grid · zebra rows · <span class="badge">PASSED?</span></p>
+  </div>
+
+  <h2>1. Escalation Ladder</h2>
+  <table>
+    <tr><th>#</th><th>Method</th><th>Status</th></tr>
+    <tr><td>1</td><td>Elevated Chrome headless</td><td>✅ Primary</td></tr>
+    <tr><td>2</td><td>Playwright</td><td>⚠️ Fallback</td></tr>
+    <tr><td>3</td><td>PyMuPDF Story</td><td>⚠️ Fallback</td></tr>
+    <tr><td>4</td><td>fpdf2</td><td>🆘 Last resort</td></tr>
+  </table>
+
+  <h2>2. Code Block Fidelity</h2>
+  <pre>render_chrome.sh --headless --no-sandbox \
+  --print-to-pdf=out.pdf input.html
+# Expected: <code>%PDF-</code> header on byte 0</pre>
+
+  <h2>3. Grid + Cards</h2>
+  <div class="grid">
+    <div class="card"><h3>Faithful CSS</h3><p>Gradients, borders, and zebra-striped tables must survive the render.</p></div>
+    <div class="card"><h3>Valid PDF</h3><p>Output verified via <code>head -c 5</code> and PyMuPDF page count.</p></div>
+  </div>
+</body>
+</html>
