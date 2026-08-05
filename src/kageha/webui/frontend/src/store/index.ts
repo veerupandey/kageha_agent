@@ -691,15 +691,16 @@ export const useAppStore = create<AppState>((set, get) => {
       if (previousId) {
         const prevRun = get().runs[previousId];
         if (prevRun?.sending) {
-          // Keep active run in background tab
-          await get().newSession({ parallel: true });
-          return;
+          // Keep the active run in a background tab, but still return to the
+          // Command Center. A fresh session is created only when the user sends.
+          parkActive();
         }
       }
       set({
         sessionId: null,
         threadId: null,
         sessionTitle: null,
+        draft: "",
         messages: [],
         pendingFiles: [],
         pendingApproval: null,
@@ -711,6 +712,7 @@ export const useAppStore = create<AppState>((set, get) => {
         canvasItems: [],
         canvasSelectedPath: null,
         canvasTurnPaths: new Set(),
+        canvasOpen: false,
       });
     },
 
@@ -771,6 +773,10 @@ export const useAppStore = create<AppState>((set, get) => {
         runs: { ...s.runs, [nextId]: run },
         tabs: parallel || keepPreviousTab ? [...s.tabs.filter((id) => id !== nextId), nextId] : [],
         pendingFiles: carriedPending,
+        canvasItems: [],
+        canvasSelectedPath: null,
+        canvasTurnPaths: new Set(),
+        canvasOpen: false,
         ...syncFromRun(run),
       }));
       if (prefs.defaultAgentMode === "normal") {
@@ -1190,6 +1196,9 @@ export const useAppStore = create<AppState>((set, get) => {
         const data = await api<{ artifacts?: ArtifactEntry[] }>(
           `/api/sessions/${encodeURIComponent(sid)}/artifacts`,
         );
+        // The user may have switched sessions while this request was in flight.
+        // Never hydrate the active canvas with artifacts from the previous thread.
+        if (get().sessionId !== sid) return;
         const items: CanvasItem[] = [];
         for (const row of data.artifacts || []) {
           const path = String(row.path || "").replace(/\\/g, "/");
@@ -1216,6 +1225,7 @@ export const useAppStore = create<AppState>((set, get) => {
               : items[0]?.path || null,
         }));
       } catch (err) {
+        if (get().sessionId !== sid) return;
         get().showToast(
           `Artifacts: ${err instanceof Error ? err.message : err}`,
         );
