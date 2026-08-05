@@ -11,7 +11,7 @@ from pathlib import Path
 html_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("input.html")
 pdf_path = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("output.pdf")
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright  # noqa: E402  (deliberately late import)
 
 with sync_playwright() as p:
     browser = p.chromium.launch(

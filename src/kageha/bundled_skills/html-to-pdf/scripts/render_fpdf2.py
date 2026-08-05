@@ -5,7 +5,9 @@ Use ONLY when Chrome, Playwright, and PyMuPDF all fail.
 
 Usage: python render_fpdf2.py <input.html> <output.pdf>
 """
-import sys, re, html as htmlmod
+import html as htmlmod
+import re
+import sys
 from pathlib import Path
 from fpdf import FPDF, HTMLMixin
 

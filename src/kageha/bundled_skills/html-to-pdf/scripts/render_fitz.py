@@ -5,7 +5,10 @@ WARNING: can HANG on complex <style> blocks — always strip them first.
 
 Usage: python render_fitz.py <input.html> <output.pdf>
 """
-import sys, re, signal, time
+import re
+import signal
+import sys
+import time
 from pathlib import Path
 
 html_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("input.html")
@@ -38,7 +41,7 @@ blockquote { border-left: 3px solid #2563eb; padding-left: 10px; margin: 8px 0; 
 def _alarm(sig, frame):
     raise TimeoutError("PyMuPDF Story timed out (>25s)")
 
-import fitz
+import fitz  # noqa: E402  (deliberately late: after signal handler setup)
 
 t0 = time.time()
 signal.signal(signal.SIGALRM, _alarm)
