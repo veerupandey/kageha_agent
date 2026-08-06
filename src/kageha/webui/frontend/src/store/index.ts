@@ -620,6 +620,13 @@ export const useAppStore = create<AppState>((set, get) => {
           sessionId,
           sessionTitle: get().sessionTitle,
           sessionLoading: false,
+          // The artifact drawer is session-scoped top-level state (not stored
+          // per-run), so switching to a parked tab would otherwise leave the
+          // previous thread's files — including nested artifacts only the new
+          // session owns — visible. Clear now and rehydrate from the server.
+          canvasItems: [],
+          canvasSelectedPath: null,
+          canvasTurnPaths: new Set(),
           pendingApproval:
             get().pendingApproval?.sessionId === sessionId ||
             get().pendingApproval?.session_id === sessionId
@@ -633,6 +640,7 @@ export const useAppStore = create<AppState>((set, get) => {
         });
         updateRun(sessionId, (r) => ({ ...r, needsAttention: false }));
         await get().refreshSessions();
+        void get().refreshArtifacts();
         return;
       }
 

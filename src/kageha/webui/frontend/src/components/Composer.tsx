@@ -542,11 +542,30 @@ export function Composer() {
                       return;
                     }
                   }
-                  if (e.key === "Enter" && !e.shiftKey && !e.altKey) {
-                    e.preventDefault();
-                    void sendMessage();
+                  if (e.key === "Enter") {
+                    // Shift+Enter / Alt+Enter: insert a newline at the caret so
+                    // multi-line drafts work reliably across IME / platforms
+                    // (we own the insertion rather than relying on the default).
+                    if (e.shiftKey || e.altKey) {
+                      e.preventDefault();
+                      const el = e.currentTarget;
+                      const start = el.selectionStart ?? draft.length;
+                      const end = el.selectionEnd ?? draft.length;
+                      const pos = start + 1;
+                      setDraft(draft.slice(0, start) + "\n" + draft.slice(end));
+                      requestAnimationFrame(() => {
+                        el.focus();
+                        el.setSelectionRange(pos, pos);
+                        setCaret(pos);
+                      });
+                      return;
+                    }
+                    // Plain Enter sends — but not while composing (IME).
+                    if (!e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      void sendMessage();
+                    }
                   }
-                  // Shift+Enter or Alt+Enter = new line (let browser handle naturally)
                 }}
               />
             </div>

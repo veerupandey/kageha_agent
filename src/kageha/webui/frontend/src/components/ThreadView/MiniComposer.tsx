@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   startMicRecording,
   stopSpokenReply,
@@ -17,11 +17,23 @@ export function MiniComposer() {
   const removePendingFile = useAppStore((s) => s.removePendingFile);
   const showToast = useAppStore((s) => s.showToast);
   const [localDraft, setLocalDraft] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const micStopRef = useRef<null | (() => Promise<Blob>)>(null);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+
+  // Grow the textarea with its content (single line → up to max-h).
+  const autosize = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, []);
+
+  useEffect(() => {
+    autosize();
+  }, [localDraft, autosize]);
 
   const handleSend = () => {
     const text = localDraft.trim();
@@ -90,7 +102,7 @@ export function MiniComposer() {
           ))}
         </div>
       )}
-      <div className="flex items-center gap-2 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 focus-within:border-[var(--color-accent)]">
+      <div className="flex items-end gap-2 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 focus-within:border-[var(--color-accent)]">
         <button
           type="button"
           className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-faint hover:text-ink"
@@ -110,15 +122,33 @@ export function MiniComposer() {
             e.target.value = "";
           }}
         />
-        <input
+        <textarea
           ref={inputRef}
-          type="text"
-          className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-faint"
-          placeholder="Add a follow-up..."
+          className="max-h-[160px] min-h-[24px] min-w-0 flex-1 resize-none bg-transparent py-0.5 text-sm leading-relaxed text-ink outline-none placeholder:text-faint"
+          rows={1}
+          placeholder="Add a follow-up…  (Shift+Enter for a new line)"
           value={localDraft}
           onChange={(e) => setLocalDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            if (e.key !== "Enter") return;
+            // Shift+Enter inserts a newline at the caret (explicit, IME-safe)
+            // so follow-ups can be multi-line.
+            if (e.shiftKey) {
+              e.preventDefault();
+              const el = e.currentTarget;
+              const start = el.selectionStart ?? localDraft.length;
+              const end = el.selectionEnd ?? localDraft.length;
+              const pos = start + 1;
+              setLocalDraft(
+                localDraft.slice(0, start) + "\n" + localDraft.slice(end),
+              );
+              requestAnimationFrame(() => {
+                el.focus();
+                el.setSelectionRange(pos, pos);
+              });
+              return;
+            }
+            if (!e.nativeEvent.isComposing) {
               e.preventDefault();
               handleSend();
             }
