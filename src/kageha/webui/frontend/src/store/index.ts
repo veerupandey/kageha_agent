@@ -232,7 +232,7 @@ export const useAppStore = create<AppState>((set, get) => {
     opts: { autoBuild?: boolean; agentMode?: AgentMode } = {},
   ) =>
     runTurnStream(
-      { set, get, updateRun, patchAssistant, flushQueue },
+      { set, get, updateRun, patchAssistant, flushQueue, reattach },
       sessionId,
       threadId,
       text,
