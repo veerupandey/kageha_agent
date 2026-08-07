@@ -3447,6 +3447,9 @@ class WebUIApp:
         if target.is_file():
             return target
         # Fallback: agent wrote under project_root — sync then re-resolve.
+        # Only attempt sync + project fallback when the file is actually
+        # mentioned in this session's chat/results — prevents serving
+        # unrelated project-root files that just happen to share a name.
         name = parts[-1]
         ext = Path(name).suffix.lower()
         if ext in _DELIVERABLE_EXTS:
@@ -3456,23 +3459,29 @@ class WebUIApp:
                 pass
             if target.is_file():
                 return target
-            # Direct project-root read for bare / artifacts/ basename.
-            project = Path(self.project_root or Path.cwd()).expanduser()
-            try:
-                project = project.resolve()
-            except OSError:
-                project = Path()
-            for candidate in (project / name, project / safe_rel):
+            # Direct project-root read — but ONLY when this specific path
+            # was referenced in the session's chat/result texts. Otherwise
+            # any old project artifact leaks into unrelated sessions.
+            mention_text = self._mention_texts_for_session(session_id)
+            basename_mentioned = name.lower() in mention_text.lower()
+            rel_mentioned = safe_rel.lower() in mention_text.lower()
+            if basename_mentioned or rel_mentioned:
+                project = Path(self.project_root or Path.cwd()).expanduser()
                 try:
-                    resolved = candidate.resolve()
+                    project = project.resolve()
                 except OSError:
-                    continue
-                if (
-                    resolved.is_file()
-                    and str(resolved).startswith(str(project))
-                    and resolved.suffix.lower() in _DELIVERABLE_EXTS
-                ):
-                    return resolved
+                    project = Path()
+                for candidate in (project / name, project / safe_rel):
+                    try:
+                        resolved = candidate.resolve()
+                    except OSError:
+                        continue
+                    if (
+                        resolved.is_file()
+                        and str(resolved).startswith(str(project))
+                        and resolved.suffix.lower() in _DELIVERABLE_EXTS
+                    ):
+                        return resolved
         raise KeyError("file not found")
 
     def _serve_session_file(
