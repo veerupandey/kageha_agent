@@ -89,7 +89,7 @@ export function reattachToActiveTurn(
   threadId: string,
   turnId: string,
   opts: { pendingApproval?: PendingApproval | null } = {},
-): void {
+): () => void {
   const { set, get, updateRun } = deps;
   const assistantId = uid("a");
   let afterSeq = 0;
@@ -323,4 +323,10 @@ export function reattachToActiveTurn(
   };
 
   void tick();
+
+  // Caller can stop the poll loop early (e.g. on unmount / session switch /
+  // starting a fresh reattach for this session). Safe to call after finalize.
+  return () => {
+    stopped = true;
+  };
 }

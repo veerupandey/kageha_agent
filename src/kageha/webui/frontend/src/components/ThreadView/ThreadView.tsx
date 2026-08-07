@@ -19,7 +19,13 @@ export function ThreadView({ onOpenLightbox, rightPanelCollapsed, onToggleRightP
   const runStatus = useAppStore((s) => s.runStatus);
   const [artifactFilter, setArtifactFilter] = useState<ArtifactFilter>("all");
   const layoutRef = useRef<HTMLDivElement>(null);
-  const [rightWidth, setRightWidth] = useState(() => Number(localStorage.getItem("kageha.rightPanelWidth")) || 680);
+  const [rightWidth, setRightWidth] = useState(() => {
+    try {
+      return Number(localStorage.getItem("kageha.rightPanelWidth")) || 680;
+    } catch {
+      return 680;
+    }
+  });
   const [resizing, setResizing] = useState(false);
 
   useEffect(() => {
@@ -43,7 +49,16 @@ export function ThreadView({ onOpenLightbox, rightPanelCollapsed, onToggleRightP
     };
   }, [resizing]);
 
-  useEffect(() => localStorage.setItem("kageha.rightPanelWidth", String(Math.round(rightWidth))), [rightWidth]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "kageha.rightPanelWidth",
+        String(Math.round(rightWidth)),
+      );
+    } catch {
+      /* restricted/private storage — ignore */
+    }
+  }, [rightWidth]);
 
   // Count artifacts by type
   const artifactCounts = useMemo(() => {

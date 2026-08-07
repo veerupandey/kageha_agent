@@ -24,7 +24,13 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapse, onAgentSel
   const newChat = useAppStore((s) => s.newChat);
   const meta = useAppStore((s) => s.meta);
   const [query, setQuery] = useState("");
-  const [width, setWidth] = useState(() => Number(localStorage.getItem("kageha.sidebarWidth")) || 296);
+  const [width, setWidth] = useState(() => {
+    try {
+      return Number(localStorage.getItem("kageha.sidebarWidth")) || 296;
+    } catch {
+      return 296;
+    }
+  });
   const [resizing, setResizing] = useState(false);
 
   useEffect(() => {
@@ -43,7 +49,13 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapse, onAgentSel
     };
   }, [resizing]);
 
-  useEffect(() => localStorage.setItem("kageha.sidebarWidth", String(Math.round(width))), [width]);
+  useEffect(() => {
+    try {
+      localStorage.setItem("kageha.sidebarWidth", String(Math.round(width)));
+    } catch {
+      /* restricted/private storage — ignore */
+    }
+  }, [width]);
 
   const agents: AgentEntry[] = useMemo(() => {
     const list: AgentEntry[] = [

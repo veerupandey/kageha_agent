@@ -292,7 +292,13 @@ export async function runTurn(
               const isPlanBuild =
                 pending.risk_class === "plan" ||
                 pending.action === "approve_plan";
-              if (isPlanBuild && get().agentMode === "normal") {
+              // Mode is session-scoped — never let a backgrounded turn flip
+              // the active session's mode to plan.
+              if (
+                isPlanBuild &&
+                sessionId === get().sessionId &&
+                get().agentMode === "normal"
+              ) {
                 get().setAgentMode("plan");
               }
               updateRun(sessionId, (r) => ({
@@ -394,7 +400,13 @@ export async function runTurn(
     const status = String(done.status || "success");
     const awaitingBuild = status === "awaiting_plan_approval";
     const awaitingClarify = status === "awaiting_clarify";
-    if (awaitingBuild && get().agentMode === "normal") {
+    // Mode is session-scoped — don't let a just-finished background turn
+    // flip the active session's mode to plan.
+    if (
+      awaitingBuild &&
+      sessionId === get().sessionId &&
+      get().agentMode === "normal"
+    ) {
       get().setAgentMode("plan");
     }
     patchAssistant(sessionId, assistantId, {

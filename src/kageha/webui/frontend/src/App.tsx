@@ -44,8 +44,13 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const meta = e.metaKey || e.ctrlKey;
       if (meta && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setPaletteOpen((v) => !v);
+        // In the new UI, Cmd+K focuses the composer (handled by AppShell) —
+        // only the classic layout toggles the command palette here. Gating
+        // also keeps palette open/inert scoped to where #app exists.
+        if (!newUi) {
+          e.preventDefault();
+          setPaletteOpen((v) => !v);
+        }
         return;
       }
       if (e.key === "Escape") {
@@ -62,7 +67,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [paletteOpen, sessionsOpen, closeAllOverlays]);
+  }, [paletteOpen, sessionsOpen, closeAllOverlays, newUi]);
 
   useEffect(() => {
     const app = document.getElementById("app");
