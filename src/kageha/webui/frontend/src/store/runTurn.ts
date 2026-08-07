@@ -1,5 +1,6 @@
 import { streamChat } from "../api/stream";
 import { StreamDroppedError } from "../api/stream";
+import { api } from "../api/client";
 import type {
   AgentMode,
   ChatMessage,
@@ -521,9 +522,29 @@ export async function runTurn(
       if (sessionId === get().sessionId) {
         set({ error: null, runStatus: "running", statusLabel: "Reconnecting…" });
       }
-      reattach(err.sessionId || sessionId, err.threadId || threadId, err.turnId, {
-        assistantId,
-      });
+      // When turn_id is "pending" (no SSE frames received due to proxy
+      // buffering), resolve the actual turn_id from the session endpoint.
+      let resolvedTurnId = err.turnId;
+      if (resolvedTurnId === "pending") {
+        try {
+          const sessionData = await api<{ active_turn?: { turn_id?: string } }>(
+            `/api/sessions/${encodeURIComponent(err.sessionId || sessionId)}`,
+          );
+          resolvedTurnId = sessionData.active_turn?.turn_id || "";
+        } catch {
+          resolvedTurnId = "";
+        }
+      }
+      if (resolvedTurnId && resolvedTurnId !== "pending") {
+        reattach(err.sessionId || sessionId, err.threadId || threadId, resolvedTurnId, {
+          assistantId,
+        });
+      } else {
+        // No turn yet — wait briefly then retry via openSession (full reload)
+        setTimeout(() => {
+          void get().openSession(err.sessionId || sessionId);
+        }, 2000);
+      }
       return;
     }
     const message = err instanceof Error ? err.message : String(err);

@@ -93,8 +93,26 @@ export async function streamChat(
   let streamSessionId = "";
   let streamThreadId = "";
 
+  // Proxy-buffering detection: if no SSE frame arrives within this window,
+  // the connection is likely being buffered by a reverse proxy (Cloudspaces,
+  // nginx, etc.). Cancel the reader so the loop exits and we throw
+  // StreamDroppedError — the caller then falls back to polling reattach.
+  let timedOut = false;
+  let startupTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+    startupTimer = null;
+    if (!sawFrame) {
+      timedOut = true;
+      reader.cancel().catch(() => {});
+    }
+  }, 4000);
+
   const handleFrame = (frame: SseFrame) => {
     sawFrame = true;
+    // Clear startup timeout — stream is working.
+    if (startupTimer) {
+      clearTimeout(startupTimer);
+      startupTimer = null;
+    }
     // Capture routing metadata for reattach-on-drop recovery.
     const tid = String(frame.data.turn_id || "").trim();
     if (tid) turnId = tid;
@@ -149,6 +167,10 @@ export async function streamChat(
     // Release the response body stream even if a handler throws or the
     // fetch is aborted, so it isn't left locked until GC.
     reader.cancel().catch(() => {});
+    if (startupTimer) {
+      clearTimeout(startupTimer);
+      startupTimer = null;
+    }
   }
 
   // An explicit error frame always surfaces — don't let a later `done`
@@ -157,6 +179,16 @@ export async function streamChat(
   if (!donePayload) {
     if (signal?.aborted) {
       return { status: "cancelled", message: assembled };
+    }
+    // Proxy-buffering timeout: the startup timer fired because no frames
+    // arrived. The backend turn is running but the proxy is holding the
+    // response. Signal a recoverable drop for polling reattach.
+    if (timedOut) {
+      throw new StreamDroppedError(
+        turnId || "pending",
+        streamSessionId || body.session_id,
+        streamThreadId || body.thread_id,
+      );
     }
     // Connection dropped mid-stream with a known turn — the backend turn is
     // still running. Signal a recoverable drop so the caller can reattach
@@ -175,7 +207,7 @@ export async function streamChat(
     if (!sawFrame && !buffer.trim()) {
       throw new Error("Stream failed (empty response)");
     }
-    const where = lastStatus ? ` after “${lastStatus}”` : "";
+    const where = lastStatus ? ` after "${lastStatus}"` : "";
     throw new Error(
       `Stream ended without result${where}. Retry — the server may have restarted.`,
     );
