@@ -28,6 +28,27 @@ _INTERNAL_FILES = frozenset({
     "inputs/README.md",
     ".DS_Store",
 })
+# Project documentation / meta — never user-facing deliverables.
+_DOC_META_NAMES = frozenset({
+    "README.md",
+    "readme.md",
+    "USAGE.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "LICENSE",
+    "LICENSE.md",
+    "LICENSE.txt",
+    "AGENTS.md",
+    "KAGEHA.md",
+    "CLAUDE.md",
+    ".cursorrules",
+    ".gitignore",
+    ".editorconfig",
+    "pyproject.toml",
+    "package.json",
+    "Makefile",
+    "Cargo.toml",
+})
 _INTERNAL_ROOTS = frozenset({"_memory", "_turns", "checkpoints"})
 _SCRATCH_ROOTS = frozenset({"inputs", "scripts", "tmp", "temp"})
 _ROOT_SCRATCH_SUFFIXES = frozenset({
@@ -119,6 +140,14 @@ def is_user_artifact(rel: str) -> bool:
     if not rel or rel in _INTERNAL_FILES:
         return False
     if Path(rel).name in _INTERNAL_FILES or Path(rel).name == ".DS_Store":
+        return False
+    # Strip leading artifacts/ for doc-meta check (catches artifacts/README.md)
+    basename = Path(rel).name
+    leaf = rel
+    if leaf.startswith("artifacts/"):
+        leaf = leaf[len("artifacts/"):]
+    leaf_name = Path(leaf).name
+    if leaf_name in _DOC_META_NAMES or basename in _DOC_META_NAMES:
         return False
     parts = Path(rel).parts
     if parts and parts[0] in _INTERNAL_ROOTS:
