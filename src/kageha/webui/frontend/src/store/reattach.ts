@@ -185,7 +185,7 @@ export function reattachToActiveTurn(
             if (idx >= 0) cards[idx] = { ...cards[idx], ...card };
             else cards.push(card);
             next = { ...next, toolCards: cards.slice(-24) };
-            if (card.artifactRefs?.length) {
+            if (card.artifactRefs?.length && sessionId === get().sessionId) {
               get().upsertCanvasPaths(card.artifactRefs);
             }
           }

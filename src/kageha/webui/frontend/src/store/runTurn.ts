@@ -156,8 +156,10 @@ export async function runTurn(
         onToolCard: (data) => {
           const card = normalizeToolCard(data, "tool_card");
           if (!card) return;
-          if (card.artifactRefs?.length) {
-            // Canvas only tracks user deliverables (filters noise internally).
+          if (card.artifactRefs?.length && sessionId === get().sessionId) {
+            // Canvas is session-scoped top-level state — only populate it for
+            // the active session. Background turns are rehydrated via
+            // refreshArtifacts() when the user switches back.
             get().upsertCanvasPaths(card.artifactRefs);
           }
           set((s) => {
@@ -244,30 +246,34 @@ export async function runTurn(
             });
           }
 
-          if (kind === "goal_qa_misfit") {
-            const msg = String(
-              payload.message || data.label || "This looks like Normal",
-            );
-            get().showToast(`${msg} — answering without Goal theater`);
-            get().setAgentMode("normal");
-          }
-          // Live todo/milestone board updates.
-          if (kind === "todo_board") {
-            const items = Array.isArray(payload.items)
-              ? (payload.items as { id?: string; text?: string; done?: boolean }[]).map(
-                  (it, i) => ({
-                    id: String(it.id || `t${i}`),
-                    text: String(it.text || ""),
-                    done: Boolean(it.done),
-                  }),
-                )
-              : [];
-            const board = {
-              done: typeof payload.done === "number" ? payload.done : items.filter((i) => i.done).length,
-              total: typeof payload.total === "number" ? payload.total : items.length,
-              items,
-            };
-            set({ todoBoard: board });
+          // Mode/todo are session-scoped UI state — never let a backgrounded
+          // turn clobber the active session's mode or board.
+          if (sessionId === get().sessionId) {
+            if (kind === "goal_qa_misfit") {
+              const msg = String(
+                payload.message || data.label || "This looks like Normal",
+              );
+              get().showToast(`${msg} — answering without Goal theater`);
+              get().setAgentMode("normal");
+            }
+            // Live todo/milestone board updates.
+            if (kind === "todo_board") {
+              const items = Array.isArray(payload.items)
+                ? (payload.items as { id?: string; text?: string; done?: boolean }[]).map(
+                    (it, i) => ({
+                      id: String(it.id || `t${i}`),
+                      text: String(it.text || ""),
+                      done: Boolean(it.done),
+                    }),
+                  )
+                : [];
+              const board = {
+                done: typeof payload.done === "number" ? payload.done : items.filter((i) => i.done).length,
+                total: typeof payload.total === "number" ? payload.total : items.length,
+                items,
+              };
+              set({ todoBoard: board });
+            }
           }
           if (kind === "approval_required") {
             const approvalId = String(

@@ -1101,12 +1101,9 @@ export const useAppStore = create<AppState>((set, get) => {
           method: "POST",
           body: JSON.stringify({ message_index: messageIndex }),
         });
-        set((s) => {
-          const messages = s.messages.slice(0, messageIndex);
-          return { messages };
-        });
-        const sid = sessionId;
-        updateRun(sid, (r) => ({
+        // updateRun syncs top-level state only if this session is still
+        // active — never truncate the wrong chat after a mid-await switch.
+        updateRun(sessionId, (r) => ({
           ...r,
           messages: r.messages.slice(0, messageIndex),
         }));
