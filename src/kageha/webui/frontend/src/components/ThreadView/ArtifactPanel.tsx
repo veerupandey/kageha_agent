@@ -295,10 +295,19 @@ function FileListItem({
 export function ArtifactPanel({ filter, onOpenLightbox, onCollapse }: ArtifactPanelProps) {
   const canvasItems = useAppStore((s) => s.canvasItems);
   const canvasTurnPaths = useAppStore((s) => s.canvasTurnPaths);
+  const canvasSelectedPath = useAppStore((s) => s.canvasSelectedPath);
+  const selectCanvasItem = useAppStore((s) => s.selectCanvasItem);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const splitRef = useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = useState(() => Number(localStorage.getItem("kageha.artifactListHeight")) || 280);
   const [resizingSplit, setResizingSplit] = useState(false);
+
+  // Sync local selection with store (e.g. when user clicks artifact in chat)
+  useEffect(() => {
+    if (canvasSelectedPath && canvasSelectedPath !== selectedPath) {
+      setSelectedPath(canvasSelectedPath);
+    }
+  }, [canvasSelectedPath]);
 
   useEffect(() => {
     if (!resizingSplit) return;
@@ -346,8 +355,12 @@ export function ArtifactPanel({ filter, onOpenLightbox, onCollapse }: ArtifactPa
   }, [filtered, selectedPath, canvasTurnPaths]);
 
   const handleSelect = useCallback((path: string) => {
-    setSelectedPath((prev) => (prev === path ? null : path));
-  }, []);
+    setSelectedPath((prev) => {
+      const next = prev === path ? null : path;
+      selectCanvasItem(next);
+      return next;
+    });
+  }, [selectCanvasItem]);
 
   if (filtered.length === 0) {
     return (
