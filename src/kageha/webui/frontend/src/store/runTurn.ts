@@ -1,4 +1,5 @@
 import { streamChat } from "../api/stream";
+import { StreamDroppedError } from "../api/stream";
 import type {
   AgentMode,
   ChatMessage,
@@ -37,6 +38,13 @@ export type RunTurnDeps = {
     patch: Partial<ChatMessage>,
   ) => void;
   flushQueue: (sessionId: string) => Promise<void>;
+  /** Reattach to a still-running backend turn (reload / mid-stream recovery). */
+  reattach: (
+    sessionId: string,
+    threadId: string,
+    turnId: string,
+    opts?: { assistantId?: string; pendingApproval?: PendingApproval | null },
+  ) => void;
 };
 
 export async function runTurn(
@@ -48,7 +56,7 @@ export async function runTurn(
   displayText: string,
   opts: { autoBuild?: boolean; agentMode?: AgentMode } = {},
 ): Promise<void> {
-  const { set, get, updateRun, patchAssistant, flushQueue } = deps;
+  const { set, get, updateRun, patchAssistant, flushQueue, reattach } = deps;
   const assistantId = uid("a");
   const abort = new AbortController();
   const userMsg: ChatMessage = {
@@ -156,8 +164,10 @@ export async function runTurn(
         onToolCard: (data) => {
           const card = normalizeToolCard(data, "tool_card");
           if (!card) return;
-          if (card.artifactRefs?.length) {
-            // Canvas only tracks user deliverables (filters noise internally).
+          if (card.artifactRefs?.length && sessionId === get().sessionId) {
+            // Canvas is session-scoped top-level state — only populate it for
+            // the active session. Background turns are rehydrated via
+            // refreshArtifacts() when the user switches back.
             get().upsertCanvasPaths(card.artifactRefs);
           }
           set((s) => {
@@ -244,30 +254,34 @@ export async function runTurn(
             });
           }
 
-          if (kind === "goal_qa_misfit") {
-            const msg = String(
-              payload.message || data.label || "This looks like Normal",
-            );
-            get().showToast(`${msg} — answering without Goal theater`);
-            get().setAgentMode("normal");
-          }
-          // Live todo/milestone board updates.
-          if (kind === "todo_board") {
-            const items = Array.isArray(payload.items)
-              ? (payload.items as { id?: string; text?: string; done?: boolean }[]).map(
-                  (it, i) => ({
-                    id: String(it.id || `t${i}`),
-                    text: String(it.text || ""),
-                    done: Boolean(it.done),
-                  }),
-                )
-              : [];
-            const board = {
-              done: typeof payload.done === "number" ? payload.done : items.filter((i) => i.done).length,
-              total: typeof payload.total === "number" ? payload.total : items.length,
-              items,
-            };
-            set({ todoBoard: board });
+          // Mode/todo are session-scoped UI state — never let a backgrounded
+          // turn clobber the active session's mode or board.
+          if (sessionId === get().sessionId) {
+            if (kind === "goal_qa_misfit") {
+              const msg = String(
+                payload.message || data.label || "This looks like Normal",
+              );
+              get().showToast(`${msg} — answering without Goal theater`);
+              get().setAgentMode("normal");
+            }
+            // Live todo/milestone board updates.
+            if (kind === "todo_board") {
+              const items = Array.isArray(payload.items)
+                ? (payload.items as { id?: string; text?: string; done?: boolean }[]).map(
+                    (it, i) => ({
+                      id: String(it.id || `t${i}`),
+                      text: String(it.text || ""),
+                      done: Boolean(it.done),
+                    }),
+                  )
+                : [];
+              const board = {
+                done: typeof payload.done === "number" ? payload.done : items.filter((i) => i.done).length,
+                total: typeof payload.total === "number" ? payload.total : items.length,
+                items,
+              };
+              set({ todoBoard: board });
+            }
           }
           if (kind === "approval_required") {
             const approvalId = String(
@@ -286,7 +300,13 @@ export async function runTurn(
               const isPlanBuild =
                 pending.risk_class === "plan" ||
                 pending.action === "approve_plan";
-              if (isPlanBuild && get().agentMode === "normal") {
+              // Mode is session-scoped — never let a backgrounded turn flip
+              // the active session's mode to plan.
+              if (
+                isPlanBuild &&
+                sessionId === get().sessionId &&
+                get().agentMode === "normal"
+              ) {
                 get().setAgentMode("plan");
               }
               updateRun(sessionId, (r) => ({
@@ -388,7 +408,13 @@ export async function runTurn(
     const status = String(done.status || "success");
     const awaitingBuild = status === "awaiting_plan_approval";
     const awaitingClarify = status === "awaiting_clarify";
-    if (awaitingBuild && get().agentMode === "normal") {
+    // Mode is session-scoped — don't let a just-finished background turn
+    // flip the active session's mode to plan.
+    if (
+      awaitingBuild &&
+      sessionId === get().sessionId &&
+      get().agentMode === "normal"
+    ) {
       get().setAgentMode("plan");
     }
     patchAssistant(sessionId, assistantId, {
@@ -482,6 +508,22 @@ export async function runTurn(
         status: "cancelled",
         statusLabel: "Cancelled",
       }));
+      return;
+    }
+    // Mid-stream network drop — the backend turn is still running. Hand off
+    // to the reattach poller, reusing the existing assistant bubble so the
+    // user sees "Reconnecting…" then live progress, not a dead Error.
+    if (err instanceof StreamDroppedError) {
+      patchAssistant(sessionId, assistantId, {
+        streaming: true,
+        statusLabel: "Reconnecting…",
+      });
+      if (sessionId === get().sessionId) {
+        set({ error: null, runStatus: "running", statusLabel: "Reconnecting…" });
+      }
+      reattach(err.sessionId || sessionId, err.threadId || threadId, err.turnId, {
+        assistantId,
+      });
       return;
     }
     const message = err instanceof Error ? err.message : String(err);

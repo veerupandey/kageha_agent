@@ -88,33 +88,55 @@ export function reattachToActiveTurn(
   sessionId: string,
   threadId: string,
   turnId: string,
-  opts: { pendingApproval?: PendingApproval | null } = {},
-): void {
+  opts: {
+    pendingApproval?: PendingApproval | null;
+    /** Reuse an existing assistant message instead of appending a new one (mid-stream recovery). */
+    assistantId?: string;
+  } = {},
+): () => void {
   const { set, get, updateRun } = deps;
-  const assistantId = uid("a");
+  const assistantId = opts.assistantId ?? uid("a");
+  const reuseMessage = Boolean(opts.assistantId);
   let afterSeq = 0;
   let stopped = false;
 
-  updateRun(sessionId, (run) => ({
-    ...run,
-    sending: true,
-    status: "running",
-    statusLabel: "Reconnecting…",
-    waitingApproval: Boolean(opts.pendingApproval),
-    messages: [
-      ...run.messages,
-      {
-        id: assistantId,
-        role: "assistant",
-        text: "",
-        streaming: true,
+  updateRun(sessionId, (run) => {
+    if (reuseMessage) {
+      // Mid-stream recovery: patch the existing assistant bubble, don't append.
+      return {
+        ...run,
+        sending: true,
+        status: "running",
         statusLabel: "Reconnecting…",
-        steps: [],
-        toolCards: [],
-        computerFrames: [],
-      },
-    ],
-  }));
+        waitingApproval: Boolean(opts.pendingApproval),
+        messages: run.messages.map((m) =>
+          m.id === assistantId
+            ? { ...m, streaming: true, statusLabel: "Reconnecting…" }
+            : m,
+        ),
+      };
+    }
+    return {
+      ...run,
+      sending: true,
+      status: "running",
+      statusLabel: "Reconnecting…",
+      waitingApproval: Boolean(opts.pendingApproval),
+      messages: [
+        ...run.messages,
+        {
+          id: assistantId,
+          role: "assistant",
+          text: "",
+          streaming: true,
+          statusLabel: "Reconnecting…",
+          steps: [],
+          toolCards: [],
+          computerFrames: [],
+        },
+      ],
+    };
+  });
   if (sessionId === get().sessionId) {
     set({ runStatus: "running", statusLabel: "Reconnecting…", sending: true });
   }
@@ -185,7 +207,7 @@ export function reattachToActiveTurn(
             if (idx >= 0) cards[idx] = { ...cards[idx], ...card };
             else cards.push(card);
             next = { ...next, toolCards: cards.slice(-24) };
-            if (card.artifactRefs?.length) {
+            if (card.artifactRefs?.length && sessionId === get().sessionId) {
               get().upsertCanvasPaths(card.artifactRefs);
             }
           }
@@ -323,4 +345,10 @@ export function reattachToActiveTurn(
   };
 
   void tick();
+
+  // Caller can stop the poll loop early (e.g. on unmount / session switch /
+  // starting a fresh reattach for this session). Safe to call after finalize.
+  return () => {
+    stopped = true;
+  };
 }

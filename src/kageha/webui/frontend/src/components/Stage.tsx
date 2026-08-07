@@ -169,7 +169,6 @@ export function Stage({ onToggleSessions }: StageProps) {
           <section
             className="min-h-0 flex-1 overflow-y-auto"
             id="conversation"
-            aria-live="polite"
           >
             <MessageList messages={messages} />
           </section>

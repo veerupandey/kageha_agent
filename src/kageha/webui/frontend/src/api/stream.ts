@@ -29,6 +29,24 @@ function parseSseChunk(buffer: string): { frames: SseFrame[]; rest: string } {
 
 export { parseSseChunk };
 
+/**
+ * Thrown when the SSE connection drops mid-stream (network blip, server
+ * restart) before a `done` frame arrives. Carries the `turnId` so the caller
+ * can reattach to the still-running backend turn via the events endpoint.
+ */
+export class StreamDroppedError extends Error {
+  readonly turnId: string;
+  readonly sessionId: string;
+  readonly threadId: string;
+  constructor(turnId: string, sessionId: string, threadId: string) {
+    super("Stream connection dropped — reattach required");
+    this.name = "StreamDroppedError";
+    this.turnId = turnId;
+    this.sessionId = sessionId;
+    this.threadId = threadId;
+  }
+}
+
 export async function streamChat(
   body: ChatStreamBody,
   handlers: StreamHandlers,
@@ -70,61 +88,93 @@ export async function streamChat(
   let assembled = "";
   let sawFrame = false;
   let lastStatus = "";
+  // Track the backend turn id / session / thread so we can reattach on drop.
+  let turnId = "";
+  let streamSessionId = "";
+  let streamThreadId = "";
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const parsed = parseSseChunk(buffer);
-    buffer = parsed.rest;
-    for (const frame of parsed.frames) {
-      sawFrame = true;
-      if (frame.event === "status") {
-        lastStatus = String(frame.data.label || "Working…");
-        handlers.onStatus?.(lastStatus, frame.data);
-      } else if (frame.event === "event") {
-        handlers.onEvent?.(frame.data);
-      } else if (frame.event === "tool_card") {
-        handlers.onToolCard?.(frame.data);
-        handlers.onEvent?.({ kind: "tool_card", ...frame.data });
-      } else if (
-        frame.event === "computer_frame" ||
-        frame.event === "artifact_thumb"
-      ) {
-        handlers.onComputerFrame?.(frame.data, frame.event);
-        handlers.onEvent?.({ kind: frame.event, ...frame.data });
-      } else if (frame.event === "delta") {
-        assembled += String(frame.data.text || "");
-        handlers.onDelta?.(assembled);
-      } else if (frame.event === "message") {
-        const full = String(frame.data.text || "");
-        assembled = full;
-        handlers.onMessage?.(full, Boolean(frame.data.partial));
-      } else if (frame.event === "done") {
-        donePayload = frame.data;
-        handlers.onDone?.(frame.data);
-      } else if (frame.event === "error") {
-        lastError = String(frame.data.error || "stream error");
-        handlers.onError?.(lastError);
-      }
+  const handleFrame = (frame: SseFrame) => {
+    sawFrame = true;
+    // Capture routing metadata for reattach-on-drop recovery.
+    const tid = String(frame.data.turn_id || "").trim();
+    if (tid) turnId = tid;
+    const sid = String(frame.data.session_id || "").trim();
+    if (sid) streamSessionId = sid;
+    const thid = String(frame.data.thread_id || "").trim();
+    if (thid) streamThreadId = thid;
+    if (frame.event === "status") {
+      lastStatus = String(frame.data.label || "Working…");
+      handlers.onStatus?.(lastStatus, frame.data);
+    } else if (frame.event === "event") {
+      handlers.onEvent?.(frame.data);
+    } else if (frame.event === "tool_card") {
+      handlers.onToolCard?.(frame.data);
+      handlers.onEvent?.({ kind: "tool_card", ...frame.data });
+    } else if (
+      frame.event === "computer_frame" ||
+      frame.event === "artifact_thumb"
+    ) {
+      handlers.onComputerFrame?.(frame.data, frame.event);
+      handlers.onEvent?.({ kind: frame.event, ...frame.data });
+    } else if (frame.event === "delta") {
+      assembled += String(frame.data.text || "");
+      handlers.onDelta?.(assembled);
+    } else if (frame.event === "message") {
+      const full = String(frame.data.text || "");
+      assembled = full;
+      handlers.onMessage?.(full, Boolean(frame.data.partial));
+    } else if (frame.event === "done") {
+      donePayload = frame.data;
+      handlers.onDone?.(frame.data);
+    } else if (frame.event === "error") {
+      lastError = String(frame.data.error || "stream error");
+      handlers.onError?.(lastError);
     }
+  };
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parsed = parseSseChunk(buffer);
+      buffer = parsed.rest;
+      for (const frame of parsed.frames) handleFrame(frame);
+    }
+    // Flush any trailing partial bytes the TextDecoder still holds, so a
+    // multi-byte char split at the final chunk boundary isn't dropped.
+    buffer += decoder.decode();
+    for (const frame of parseSseChunk(buffer).frames) handleFrame(frame);
+  } finally {
+    // Release the response body stream even if a handler throws or the
+    // fetch is aborted, so it isn't left locked until GC.
+    reader.cancel().catch(() => {});
   }
 
-  if (lastError && !donePayload) throw new Error(lastError);
+  // An explicit error frame always surfaces — don't let a later `done`
+  // silently swallow it.
+  if (lastError) throw new Error(lastError);
   if (!donePayload) {
     if (signal?.aborted) {
       return { status: "cancelled", message: assembled };
     }
-    // Soft-recover: treat leftover assembled text as the answer.
+    // Connection dropped mid-stream with a known turn — the backend turn is
+    // still running. Signal a recoverable drop so the caller can reattach
+    // instead of treating partial output as the final answer.
+    if (turnId) {
+      throw new StreamDroppedError(
+        turnId,
+        streamSessionId || body.session_id,
+        streamThreadId || body.thread_id,
+      );
+    }
+    // No turn_id yet (dropped before the first status frame) — best-effort.
     if (assembled) {
       return { status: "success", message: assembled };
     }
-    // Truly empty body (no SSE frames at all).
     if (!sawFrame && !buffer.trim()) {
       throw new Error("Stream failed (empty response)");
     }
-    // Got status/events then the connection dropped before `done`
-    // (common when the webui/app-server restarts mid-turn).
     const where = lastStatus ? ` after “${lastStatus}”` : "";
     throw new Error(
       `Stream ended without result${where}. Retry — the server may have restarted.`,

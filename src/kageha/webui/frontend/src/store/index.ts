@@ -92,6 +92,9 @@ export const useAppStore = create<AppState>((set, get) => {
   >();
   let textPatchRaf = 0;
 
+  /** Active reattach poll cancellers, keyed by sessionId. */
+  const reattachCancellers = new Map<string, () => void>();
+
   const flushTextPatches = () => {
     textPatchRaf = 0;
     if (!pendingTextPatches.size) return;
@@ -229,7 +232,7 @@ export const useAppStore = create<AppState>((set, get) => {
     opts: { autoBuild?: boolean; agentMode?: AgentMode } = {},
   ) =>
     runTurnStream(
-      { set, get, updateRun, patchAssistant, flushQueue },
+      { set, get, updateRun, patchAssistant, flushQueue, reattach },
       sessionId,
       threadId,
       text,
@@ -243,8 +246,19 @@ export const useAppStore = create<AppState>((set, get) => {
     threadId: string,
     turnId: string,
     opts: { pendingApproval?: PendingApproval | null } = {},
-  ) =>
-    reattachToActiveTurn({ set, get, updateRun }, sessionId, threadId, turnId, opts);
+  ) => {
+    // Cancel any prior poll loop for this session before starting a fresh
+    // reattach, so rapid session reopens never stack overlapping pollers.
+    reattachCancellers.get(sessionId)?.();
+    const cancel = reattachToActiveTurn(
+      { set, get, updateRun },
+      sessionId,
+      threadId,
+      turnId,
+      opts,
+    );
+    reattachCancellers.set(sessionId, cancel);
+  };
 
   return {
     sessions: [],
@@ -1101,12 +1115,9 @@ export const useAppStore = create<AppState>((set, get) => {
           method: "POST",
           body: JSON.stringify({ message_index: messageIndex }),
         });
-        set((s) => {
-          const messages = s.messages.slice(0, messageIndex);
-          return { messages };
-        });
-        const sid = sessionId;
-        updateRun(sid, (r) => ({
+        // updateRun syncs top-level state only if this session is still
+        // active — never truncate the wrong chat after a mid-await switch.
+        updateRun(sessionId, (r) => ({
           ...r,
           messages: r.messages.slice(0, messageIndex),
         }));
