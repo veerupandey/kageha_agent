@@ -52,6 +52,7 @@ User → Chat / WebUI / Telegram / WhatsApp QR
 | **Web UI** | React SPA with live streaming, artifact preview, syntax highlighting, jobs panel |
 | **Channels** | CLI, WebUI, Telegram (polling), WhatsApp QR (experimental), WhatsApp Cloud API (planned) |
 | **Skills** | Declarative YAML; auto-loaded by embedding match; distilled from successful runs |
+| **Project Brain** | Per-repo context via `AGENTS.md`, `.kageha/rules/`, `.kageha/commands/` — injected into every system prompt |
 | **MCP** | Connect external MCP tool servers via stdio/SSE |
 | **Jobs** | Background durable execution; spawn, cancel, attach from UI or CLI |
 | **Hooks** | Lifecycle automation: preToolUse, postCommit, sessionStart, and more |

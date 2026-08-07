@@ -87,6 +87,28 @@ def classify_side_effect(tool_name: str, risk_class: str) -> str:
     return "mutation"
 
 
+# Shell commands whose output lists file names but does NOT create artifacts.
+# Matching any of these at the start of the command suppresses artifact-ref
+# extraction from the result text — prevents stale/unrelated paths from leaking
+# into the canvas.
+_LISTING_CMD_RE = re.compile(
+    r"^\s*(?:ls|find|tree|dir|stat|file|wc|du|df|cat|head|tail|less|more"
+    r"|grep|rg|ag|ack|fzf|fd|exa|eza|bat|realpath|readlink|pwd"
+    r"|echo|printf|env|printenv|which|whereis|type|command)\b",
+    re.I,
+)
+
+
+def _is_listing_command(arguments: dict[str, Any] | None) -> bool:
+    """True when a bash/shell tool invocation is read-only (lists or prints)."""
+    if not isinstance(arguments, dict):
+        return False
+    cmd = str(arguments.get("command") or arguments.get("cmd") or "").strip()
+    if not cmd:
+        return False
+    return bool(_LISTING_CMD_RE.match(cmd))
+
+
 def _clip_preview(text: str, *, limit: int) -> str:
     value = re.sub(r"\s+", " ", str(text or "")).strip()
     if len(value) <= limit:
@@ -349,7 +371,22 @@ class ToolJournal:
             0.0,
             round((float(completed.updated_at) - float(completed.created_at)) * 1000.0, 1),
         )
-        refs = artifact_refs_from_result(result)
+        # Only extract artifact refs from tools that actually create/modify
+        # files. Read-only tools (list_directory, read_file, search_*) and
+        # bash listing commands (ls, find, tree, cat…) just echo existing
+        # paths — surfacing those pollutes the canvas with stale/unrelated
+        # files from previous sessions or unrelated directories.
+        # Exception: computer_* tools classified as "read" still produce
+        # screenshots that we want to surface.
+        skip_artifact_scan = (
+            (completed.side_effect == "read"
+             and not completed.tool_name.startswith("computer_"))
+            or _is_listing_command(args)
+        )
+        if skip_artifact_scan:
+            refs: list[str] = []
+        else:
+            refs = artifact_refs_from_result(result)
         frame = computer_frame_from_result(
             completed.tool_name, result, artifact_refs=refs
         )

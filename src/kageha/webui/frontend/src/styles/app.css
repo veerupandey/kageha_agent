@@ -137,6 +137,134 @@
   scrollbar-color: var(--color-line-strong) transparent;
 }
 
+/* ── Component layer: ka-* semantic hooks ────────────────────────────
+   These were previously bare class hooks relying on inline utilities.
+   A shared layer here keeps hover/focus/shadow/spacing consistent across
+   cards, pills, sidebar items, and the hero input.
+*/
+
+.ka-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--color-muted);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease,
+    background-color 150ms ease, transform 100ms ease, box-shadow 150ms ease;
+}
+
+.ka-pill:hover {
+  color: var(--color-ink);
+  border-color: var(--color-line-strong);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.ka-pill:active {
+  transform: translateY(1px);
+}
+
+.ka-pill > svg {
+  color: var(--color-accent);
+}
+
+.ka-card {
+  padding: 0.85rem 1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 0.75rem;
+  cursor: pointer;
+  transition: border-color 150ms ease, box-shadow 150ms ease,
+    transform 100ms ease;
+}
+
+.ka-card:hover {
+  border-color: var(--color-line-strong);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+}
+
+.ka-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.ka-sidebar-item:hover {
+  background: color-mix(in srgb, var(--color-line) 55%, transparent);
+  color: var(--color-ink);
+}
+
+.ka-sidebar-item > svg {
+  color: var(--color-faint);
+  flex-shrink: 0;
+}
+
+.ka-sidebar-item:hover > svg {
+  color: var(--color-muted);
+}
+
+/* Home screen */
+.ka-command-center-kicker {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--color-faint);
+}
+
+.ka-command-center-title {
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+}
+
+/* Hero input — refine the send affordance */
+.ka-hero-input .ka-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--color-accent);
+  transition: opacity 150ms ease, transform 100ms ease;
+}
+
+.ka-hero-input .ka-send:hover {
+  opacity: 0.9;
+}
+
+.ka-hero-input .ka-send:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.ka-hero-input .ka-send:active {
+  transform: scale(0.94);
+}
+
+.ka-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-faint);
+  border-radius: 0.5rem;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.ka-icon-btn:hover {
+  background: color-mix(in srgb, var(--color-line) 55%, transparent);
+  color: var(--color-ink);
+}
+
 /* Terminal-style activity — follows light/dark theme tokens */
 .terminal-activity {
   background: var(--color-surface);

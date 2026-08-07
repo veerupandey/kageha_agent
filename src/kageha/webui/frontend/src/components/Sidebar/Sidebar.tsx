@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "../../lib/cn";
+import { Icon } from "../../lib/icons";
 import { useAppStore } from "../../store";
 import type { AgentEntry } from "./AgentsList";
 import { AgentsList } from "./AgentsList";
@@ -95,12 +96,12 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapse, onAgentSel
       >
         <button
           type="button"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-faint hover:bg-line/50 hover:text-ink transition-colors"
+          className="ka-icon-btn h-8 w-8"
           aria-label="Expand sidebar"
           title="Expand sidebar"
           onClick={onToggleCollapse}
         >
-          ⊞
+          <Icon.Expand size={18} />
         </button>
         <button
           type="button"
@@ -109,29 +110,33 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapse, onAgentSel
           title="New thread"
           onClick={() => { newChat().catch(() => {}); }}
         >
-          ✎
+          <Icon.NewThread size={18} />
         </button>
         <div className="w-6 border-t border-[var(--color-line)] my-1" />
-        {agents.slice(0, 6).map((agent) => (
-          <button
-            key={agent.id}
-            type="button"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-sm hover:bg-line/50 transition-colors"
-            title={agent.name}
-            onClick={() => {
-              if (agent.id === "command-center") {
-                // Go home
-              }
-            }}
-          >
-            {agent.id === "command-center" ? "⚙️" :
-             agent.id === "jobs" ? "📋" :
-             agent.id === "worktrees" ? "🌿" :
-             agent.id === "project_brain" ? "🧠" :
-             agent.id === "hooks" ? "🪝" :
-             agent.id === "attach" ? "📎" : "·"}
-          </button>
-        ))}
+        {agents.slice(0, 6).map((agent) => {
+          const RailIcon = agent.id === "command-center" ? Icon.CommandCenter
+            : agent.id === "jobs" ? Icon.Jobs
+            : agent.id === "worktrees" ? Icon.Worktrees
+            : agent.id === "project_brain" ? Icon.Brain
+            : agent.id === "hooks" ? Icon.Hooks
+            : agent.id === "attach" ? Icon.Attach
+            : Icon.CommandCenter;
+          return (
+            <button
+              key={agent.id}
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-line/50 hover:text-ink transition-colors"
+              title={agent.name}
+              onClick={() => {
+                if (agent.id === "command-center") {
+                  // Go home
+                }
+              }}
+            >
+              <RailIcon size={18} />
+            </button>
+          );
+        })}
       </aside>
     );
   }

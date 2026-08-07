@@ -1,4 +1,5 @@
 import type { SessionSummary } from "../../api/types";
+import { Icon } from "../../lib/icons";
 
 interface ThreadCardProps {
   session: SessionSummary;
@@ -46,7 +47,7 @@ export function ThreadCard({ session, onClick }: ThreadCardProps) {
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
           {session.pinned && (
-            <span className="mr-1 text-accent" aria-hidden="true">☆</span>
+            <span className="mr-1 text-accent" aria-hidden="true"><Icon.Unpin size={13} /></span>
           )}
           {title}
         </p>

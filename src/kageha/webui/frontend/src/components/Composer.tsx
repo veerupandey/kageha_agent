@@ -9,6 +9,7 @@ import {
 import type { AgentMode, SlashCommand } from "../api/types";
 import { filterSlashByCapabilities } from "../api/slashCatalog";
 import { cn } from "../lib/cn";
+import { Icon } from "../lib/icons";
 import {
   applySlashCommand,
   filterSlashCommands,
@@ -370,13 +371,13 @@ export function Composer() {
           <div className="flex items-end gap-1.5 px-3 pt-2.5">
             <button
               type="button"
-              className="mb-1.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-line/50 hover:text-ink transition-colors"
+              className="ka-icon-btn mb-1.5 h-8 w-8 shrink-0"
               id="btn-attach"
               title="Attach files (drag & drop also works)"
               aria-label="Attach files"
               onClick={() => fileInputRef.current?.click()}
             >
-              <span className="text-lg">+</span>
+              <Icon.Attach size={18} />
             </button>
             <button
               type="button"
@@ -437,7 +438,7 @@ export function Composer() {
                 })();
               }}
             >
-              {transcribing ? "…" : recording ? "■" : "Mic"}
+              {transcribing ? "…" : <Icon.Mic size={15} className={recording ? "text-danger" : undefined} />}
             </button>
             <input
               ref={fileInputRef}

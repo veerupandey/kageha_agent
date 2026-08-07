@@ -4,6 +4,7 @@ import {
   stopSpokenReply,
   transcribeBlob,
 } from "../../lib/voiceClient";
+import { Icon } from "../../lib/icons";
 import { useAppStore } from "../../store";
 
 export function HeroInput() {
@@ -103,12 +104,12 @@ export function HeroInput() {
         <div className="flex items-end px-4 pt-3 pb-2">
           <button
             type="button"
-            className="mb-0.5 mr-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:text-ink"
+            className="ka-icon-btn mb-0.5 mr-2 h-7 w-7 shrink-0"
             aria-label="Attach files"
             title="Attach files"
             onClick={() => fileInputRef.current?.click()}
           >
-            +
+            <Icon.Attach size={18} />
           </button>
           <input
             ref={fileInputRef}
@@ -151,7 +152,7 @@ export function HeroInput() {
           />
           <button
             type="button"
-            className="mb-0.5 ml-2 inline-flex h-8 shrink-0 items-center justify-center rounded-full px-2 text-xs text-muted hover:text-ink disabled:opacity-40"
+            className="ka-icon-btn mb-0.5 ml-2 h-8 w-8 shrink-0"
             title={
               recording ? "Stop recording" : "Click to record, click again to send"
             }
@@ -160,22 +161,23 @@ export function HeroInput() {
             disabled={sending || transcribing}
             onClick={handleMic}
           >
-            {transcribing ? "…" : recording ? "■" : "Mic"}
+            {transcribing ? "…" : <Icon.Mic size={17} className={recording ? "text-danger" : undefined} />}
           </button>
           <button
             type="button"
-            className="mb-0.5 ml-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-white transition-opacity hover:opacity-90"
+            className="ka-send mb-0.5 ml-2 h-8 w-8 shrink-0"
             aria-label="Send"
             title="Send"
+            disabled={sending}
             onClick={() => void sendMessage()}
           >
-            ↑
+            <Icon.ArrowUp size={18} />
           </button>
         </div>
 
         {/* Controls row */}
         <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-line)]/50 px-4 py-2">
-          <span className="text-xs text-faint">⊕</span>
+          <Icon.Canvas size={13} className="text-faint" />
           <select
             className="rounded-md border border-[var(--color-line)] bg-transparent px-2 py-0.5 text-xs text-muted outline-none"
             title="Model"
@@ -187,7 +189,9 @@ export function HeroInput() {
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
-          <span className="text-xs text-faint">⊕ Agent</span>
+          <span className="inline-flex items-center gap-1 text-xs text-faint">
+            <Icon.Settings size={13} /> Agent
+          </span>
           <div className="ml-auto flex items-center gap-1.5">
             <span className="rounded-md bg-[var(--color-accent-soft)] px-2.5 py-1 text-xs font-medium text-accent">
               {agentMode === "plan" ? "Plan" : agentMode === "goal" ? "Goal" : "Execute"}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Icon } from "../../lib/icons";
 import { useAppStore } from "../../store";
 import { AgentCanvas } from "../AgentCanvas";
 import { ArtifactPanel } from "./ArtifactPanel";
@@ -108,12 +109,12 @@ export function ThreadView({ onOpenLightbox, rightPanelCollapsed, onToggleRightP
           <div className="hidden md:flex flex-col items-center w-10 border-l border-[var(--color-line)] bg-surface py-2">
             <button
               type="button"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-faint hover:bg-line/50 hover:text-ink transition-colors"
+              className="ka-icon-btn h-8 w-8"
               aria-label="Expand right panel"
               title="Expand right panel"
               onClick={onToggleRightPanel}
             >
-              ⊞
+              <Icon.Canvas size={18} />
             </button>
             {canvasItems.length > 0 && (
               <span className="mt-2 rounded-full bg-accent/20 px-1.5 py-0.5 text-[0.6rem] text-accent font-medium">

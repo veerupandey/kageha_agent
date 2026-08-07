@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Icon } from "../../lib/icons";
 import { useAppStore } from "../../store";
 import type { ThemeMode } from "../../api/types";
 
@@ -35,10 +36,11 @@ export function SidebarFooter() {
               <SettingRow label="Theme" sublabel={theme === "dark" ? "Dark" : "Light"}>
                 <button
                   type="button"
-                  className="rounded-md bg-line/50 px-2 py-1 text-xs font-medium text-ink hover:bg-line transition-colors"
+                  className="inline-flex items-center gap-1 rounded-md bg-line/50 px-2 py-1 text-xs font-medium text-ink hover:bg-line transition-colors"
                   onClick={toggleTheme}
                 >
-                  {theme === "dark" ? "☀ Light" : "🌙 Dark"}
+                  {theme === "dark" ? <Icon.Sun size={13} /> : <Icon.Moon size={13} />}
+                  {theme === "dark" ? "Light" : "Dark"}
                 </button>
               </SettingRow>
               <SettingRow label="Density" sublabel={density}>
@@ -76,23 +78,23 @@ export function SidebarFooter() {
         {/* Theme quick toggle */}
         <button
           type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-sm text-muted hover:bg-line/50 hover:text-ink transition-colors"
+          className="ka-icon-btn h-7 w-7"
           title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
           onClick={toggleTheme}
         >
-          {theme === "dark" ? "☀" : "🌙"}
+          {theme === "dark" ? <Icon.Sun size={16} /> : <Icon.Moon size={16} />}
         </button>
         <span className="min-w-0 flex-1 text-[0.7rem] text-faint">
           ⌘K palette
         </span>
         <button
           type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-sm text-muted hover:bg-line/50 hover:text-ink transition-colors"
+          className="ka-icon-btn h-7 w-7"
           aria-label="Settings"
           title="Settings"
           onClick={() => setSettingsOpen((v) => !v)}
         >
-          ⚙
+          <Icon.Settings size={16} />
         </button>
       </div>
     </div>

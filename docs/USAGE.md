@@ -134,6 +134,116 @@ Explicit: `/skill <name>` or `$<name>`.
 
 Bundled: `getting_started`, `web_research`, `web_browse`, `memory`, `computer_use`.
 
+## Project Brain
+
+Project Brain gives the agent persistent, per-project context. Drop a few
+markdown files in your repo root and Kageha loads them into the system prompt
+on **every turn** — so the model always knows your conventions, stack, and
+guardrails without you repeating them.
+
+### What it looks for
+
+| Location | Behavior | Example |
+|----------|----------|---------|
+| `AGENTS.md` | Root instructions (first match wins) | Project overview, coding standards |
+| `KAGEHA.md` | Root instructions (fallback) | Same as above |
+| `CLAUDE.md` | Root instructions (fallback) | Cursor/Claude compatibility |
+| `.cursorrules` | Root instructions (fallback) | Cursor compatibility |
+| `.cursor/rules/` | Root instructions (merged, fallback) | Multiple Cursor rule files |
+| `.kageha/rules/*.md` | **Stacking** rules (up to 24 files) | Scoped conventions |
+| `.kageha/commands/*.md` | Slash-command recipes | `/project:review` |
+
+### Root instructions (first match only)
+
+Create one file at the repo root. Kageha checks candidates in order and uses
+the **first** one found — they do not stack:
+
+```bash
+# AGENTS.md — preferred
+cat > AGENTS.md <<'EOF'
+# Project conventions
+- Python 3.11+, fully typed
+- Use uv for all dependency management
+- Prefer functional, stateless components
+- Never commit .env or secrets
+EOF
+```
+
+### Rules (all stack)
+
+Files under `.kageha/rules/` are **additive** — every matching file loads.
+Each can carry an optional frontmatter `globs` filter so a rule only applies
+when relevant files are touched:
+
+```bash
+mkdir -p .kageha/rules
+
+# .kageha/rules/python-style.md
+cat > .kageha/rules/python-style.md <<'EOF'
+---
+globs: ["**/*.py"]
+---
+- Use type hints on all function signatures
+- Prefer pathlib over os.path
+- Line length: 100
+EOF
+
+# .kageha/rules/frontend.md  (no globs → always on)
+cat > .kageha/rules/frontend.md <<'EOF'
+---
+globs: ["src/**/*.tsx", "src/**/*.ts"]
+---
+- Functional components with hooks
+- IBM Plex Sans / Mono font stack
+- Tailwind utility classes only
+EOF
+```
+
+A rule with **no globs** is always included. A rule **with globs** is included
+on the first turn and whenever the agent edits files matching the pattern
+(keeping context lean on unrelated turns).
+
+### Commands (slash recipes)
+
+Files under `.kageha/commands/` become project-scoped slash commands:
+
+```bash
+mkdir -p .kageha/commands
+
+# .kageha/commands/review.md
+cat > .kageha/commands/review.md <<'EOF'
+Review the current diff for:
+1. Correctness bugs
+2. Security issues (injection, auth, data exposure)
+3. Missing error handling
+Report findings sorted by severity.
+EOF
+```
+
+Type `/project:review` in chat to expand it into your message.
+
+### How it reaches the model
+
+1. On each turn, Kageha reads the brain files from the project root.
+2. `render_project_brain()` assembles them into a `## Project instructions`
+   block (root file first, then matching rules, then command names).
+3. That block is appended to the **system prompt** and sent to the LLM —
+   it is not searched at query time, it is preloaded every turn.
+
+Limits: 12 000 chars per root file, 4 000 per rule, 24 000 total (truncated
+if exceeded).
+
+### Inspecting the brain
+
+```bash
+# CLI — see what the agent sees (prints JSON summary + rendered brain text)
+uv run kageha project brain
+```
+
+In the **WebUI**, click **Project Brain** in the sidebar to view the loaded
+root file, rules (with glob scopes), commands, and a collapsible rendered
+preview — exactly what gets injected into the system prompt.
+
 ## MCP
 
 ```bash

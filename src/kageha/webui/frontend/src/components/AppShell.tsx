@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { cn } from "../lib/cn";
+import { Icon } from "../lib/icons";
 import { useAppStore } from "../store";
 import { CommandCenter } from "./CommandCenter/CommandCenter";
 import { ArtifactLightbox } from "./Lightbox/ArtifactLightbox";
 import { HooksPanel } from "./Sidebar/HooksPanel";
 import { JobsPanel } from "./Sidebar/JobsPanel";
+import { ProjectBrainPanel } from "./Sidebar/ProjectBrainPanel";
 import { Sidebar } from "./Sidebar/Sidebar";
 import { ThreadView } from "./ThreadView/ThreadView";
+import { WorktreesPanel } from "./Sidebar/WorktreesPanel";
 
-type ActivePanel = null | "jobs" | "hooks";
+type ActivePanel = null | "jobs" | "hooks" | "worktrees" | "brain";
 
 /**
  * AppShell — 3-panel layout with collapsible sidebars.
@@ -83,6 +86,8 @@ export function AppShell() {
   const handleAgentSelect = useCallback((agentId: string) => {
     if (agentId === "jobs") setActivePanel("jobs");
     else if (agentId === "hooks") setActivePanel("hooks");
+    else if (agentId === "worktrees") setActivePanel("worktrees");
+    else if (agentId === "project_brain") setActivePanel("brain");
     else setActivePanel(null);
   }, []);
 
@@ -116,11 +121,11 @@ export function AppShell() {
           <div className="ka-mobile-header flex h-11 shrink-0 items-center border-b border-[var(--color-line)] px-3 md:hidden">
             <button
               type="button"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:text-ink"
+              className="ka-icon-btn h-8 w-8 text-muted"
               aria-label="Open menu"
               onClick={() => setSidebarOpen(true)}
             >
-              ☰
+              <Icon.Menu size={18} />
             </button>
             <span className="ml-2 text-sm font-medium text-ink">Kageha</span>
           </div>
@@ -130,6 +135,10 @@ export function AppShell() {
             <JobsPanel onClose={() => setActivePanel(null)} />
           ) : activePanel === "hooks" ? (
             <HooksPanel onClose={() => setActivePanel(null)} />
+          ) : activePanel === "worktrees" ? (
+            <WorktreesPanel onClose={() => setActivePanel(null)} />
+          ) : activePanel === "brain" ? (
+            <ProjectBrainPanel onClose={() => setActivePanel(null)} />
           ) : isHome ? (
             <CommandCenter />
           ) : (

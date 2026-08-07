@@ -1,7 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ComponentType } from "react";
 import { createPortal } from "react-dom";
 import type { SessionSummary } from "../../api/types";
 import { cn } from "../../lib/cn";
+import { Icon, type IconProps } from "../../lib/icons";
 import { useAppStore } from "../../store";
 import { StatusDot } from "../shared/StatusDot";
 import type { DotStatus } from "../shared/StatusDot";
@@ -138,19 +139,19 @@ function SessionContextMenu({ x, y, session, onClose }: ContextMenuProps) {
         style={{ top, left }}
         role="menu"
       >
-        <MenuItem label="Rename" icon="✎" onClick={handleRename} />
+        <MenuItem label="Rename" icon={Icon.Rename} onClick={handleRename} />
         <MenuItem
           label={session.pinned ? "Unpin" : "Pin"}
-          icon={session.pinned ? "✦" : "☆"}
+          icon={session.pinned ? Icon.Unpin : Icon.Pin}
           onClick={handlePin}
         />
         <MenuItem
           label={session.archived ? "Unarchive" : "Archive"}
-          icon="▣"
+          icon={session.archived ? Icon.ArchiveRestore : Icon.Archive}
           onClick={handleArchive}
         />
         <div className="my-1 mx-2 border-t border-[var(--color-line)]" />
-        <MenuItem label="Delete" icon="✕" onClick={handleDelete} danger />
+        <MenuItem label="Delete" icon={Icon.Delete} onClick={handleDelete} danger />
       </div>
     </>,
     document.body,
@@ -159,12 +160,12 @@ function SessionContextMenu({ x, y, session, onClose }: ContextMenuProps) {
 
 function MenuItem({
   label,
-  icon,
+  icon: ItemIcon,
   onClick,
   danger,
 }: {
   label: string;
-  icon: string;
+  icon: ComponentType<IconProps>;
   onClick: () => void;
   danger?: boolean;
 }) {
@@ -180,14 +181,10 @@ function MenuItem({
       )}
       onClick={onClick}
     >
-      <span
-        className={cn(
-          "inline-flex h-5 w-5 shrink-0 items-center justify-center text-xs",
-          danger ? "text-[var(--color-danger)]" : "text-muted",
-        )}
-      >
-        {icon}
-      </span>
+      <ItemIcon
+        size={14}
+        className={cn("shrink-0", danger ? "text-[var(--color-danger)]" : "text-muted")}
+      />
       {label}
     </button>
   );
@@ -235,7 +232,7 @@ function ThreadItem({
         <div className="min-w-0 flex-1 overflow-hidden">
           <div className="flex items-center gap-1">
             {session.pinned && (
-              <span className="shrink-0 text-[0.65rem] text-accent">✦</span>
+              <span className="shrink-0 text-accent"><Icon.Unpin size={11} /></span>
             )}
             <p className="truncate text-[0.82rem] font-medium leading-snug text-ink">
               {title}
@@ -267,14 +264,14 @@ function ThreadItem({
 
         {/* Three-dot hover trigger */}
         <span
-          className="absolute right-1 top-1 hidden h-6 w-6 shrink-0 items-center justify-center rounded text-sm text-faint hover:bg-line/60 hover:text-ink group-hover:inline-flex"
+          className="ka-icon-btn absolute right-1 top-1 hidden h-6 w-6 shrink-0 group-hover:inline-flex"
           onClick={(e) => {
             e.stopPropagation();
             onContextMenu(e);
           }}
           aria-label="Thread options"
         >
-          ⋯
+          <Icon.More size={16} />
         </span>
       </button>
     </li>
@@ -317,10 +314,10 @@ export function RecentThreadsList({
           Recent threads
         </p>
         <span
-          className="text-xs text-faint hover:text-ink transition-transform"
+          className="text-faint transition-transform duration-150"
           style={{ transform: collapsed ? "rotate(-90deg)" : undefined }}
         >
-          ▾
+          <Icon.Chevron size={14} />
         </span>
       </button>
 

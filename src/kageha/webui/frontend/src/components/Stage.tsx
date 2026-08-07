@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
+import { Icon } from "../lib/icons";
 import { useAppStore } from "../store";
 import { ApprovalBanner } from "./ApprovalBanner";
 import { AgentCanvas } from "./AgentCanvas";
@@ -70,12 +71,12 @@ export function Stage({ onToggleSessions }: StageProps) {
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-line px-3 md:px-5">
         <button
           type="button"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-line/70 md:hidden"
+          className="ka-icon-btn h-8 w-8 text-muted md:hidden"
           aria-label="Open sessions"
           title="Sessions"
           onClick={() => onToggleSessions?.()}
         >
-          ☰
+          <Icon.Menu size={18} />
         </button>
         <span
           className={cn(
@@ -124,18 +125,19 @@ export function Stage({ onToggleSessions }: StageProps) {
         )}
         <button
           type="button"
-          className="shrink-0 rounded-md px-2.5 py-1 text-xs font-medium text-muted hover:bg-line/70 hover:text-ink"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-muted hover:bg-line/70 hover:text-ink"
           title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           onClick={() =>
             setPrefs({ theme: theme === "dark" ? "light" : "dark" })
           }
         >
-          {theme === "dark" ? "Light" : "Dark"}
+          {theme === "dark" ? <Icon.Sun size={14} /> : <Icon.Moon size={14} />}
+          <span className="hidden sm:inline">{theme === "dark" ? "Light" : "Dark"}</span>
         </button>
         <button
           type="button"
           className={cn(
-            "shrink-0 rounded-md px-2.5 py-1 text-xs font-medium",
+            "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium",
             canvasOpen
               ? "bg-accent-soft text-accent"
               : "text-muted hover:bg-line/70 hover:text-ink",
@@ -148,11 +150,12 @@ export function Stage({ onToggleSessions }: StageProps) {
             if (next) void refreshArtifacts();
           }}
         >
+          <Icon.Canvas size={14} />
           Canvas{canvasItems.length ? ` · ${canvasItems.length}` : ""}
         </button>
         <button
           type="button"
-          className="shrink-0 rounded-md px-2.5 py-1 text-xs font-medium text-muted hover:bg-line/70 hover:text-ink"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-muted hover:bg-line/70 hover:text-ink"
           title="Export session as shareable HTML"
           disabled={!sessionId}
           onClick={() => {
@@ -160,7 +163,8 @@ export function Stage({ onToggleSessions }: StageProps) {
             window.open(`/api/sessions/${sessionId}/share`, "_blank");
           }}
         >
-          Share
+          <Icon.Share size={14} />
+          <span className="hidden sm:inline">Share</span>
         </button>
       </header>
 
