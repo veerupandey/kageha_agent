@@ -71,46 +71,60 @@ export async function streamChat(
   let sawFrame = false;
   let lastStatus = "";
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const parsed = parseSseChunk(buffer);
-    buffer = parsed.rest;
-    for (const frame of parsed.frames) {
-      sawFrame = true;
-      if (frame.event === "status") {
-        lastStatus = String(frame.data.label || "Working…");
-        handlers.onStatus?.(lastStatus, frame.data);
-      } else if (frame.event === "event") {
-        handlers.onEvent?.(frame.data);
-      } else if (frame.event === "tool_card") {
-        handlers.onToolCard?.(frame.data);
-        handlers.onEvent?.({ kind: "tool_card", ...frame.data });
-      } else if (
-        frame.event === "computer_frame" ||
-        frame.event === "artifact_thumb"
-      ) {
-        handlers.onComputerFrame?.(frame.data, frame.event);
-        handlers.onEvent?.({ kind: frame.event, ...frame.data });
-      } else if (frame.event === "delta") {
-        assembled += String(frame.data.text || "");
-        handlers.onDelta?.(assembled);
-      } else if (frame.event === "message") {
-        const full = String(frame.data.text || "");
-        assembled = full;
-        handlers.onMessage?.(full, Boolean(frame.data.partial));
-      } else if (frame.event === "done") {
-        donePayload = frame.data;
-        handlers.onDone?.(frame.data);
-      } else if (frame.event === "error") {
-        lastError = String(frame.data.error || "stream error");
-        handlers.onError?.(lastError);
-      }
+  const handleFrame = (frame: SseFrame) => {
+    sawFrame = true;
+    if (frame.event === "status") {
+      lastStatus = String(frame.data.label || "Working…");
+      handlers.onStatus?.(lastStatus, frame.data);
+    } else if (frame.event === "event") {
+      handlers.onEvent?.(frame.data);
+    } else if (frame.event === "tool_card") {
+      handlers.onToolCard?.(frame.data);
+      handlers.onEvent?.({ kind: "tool_card", ...frame.data });
+    } else if (
+      frame.event === "computer_frame" ||
+      frame.event === "artifact_thumb"
+    ) {
+      handlers.onComputerFrame?.(frame.data, frame.event);
+      handlers.onEvent?.({ kind: frame.event, ...frame.data });
+    } else if (frame.event === "delta") {
+      assembled += String(frame.data.text || "");
+      handlers.onDelta?.(assembled);
+    } else if (frame.event === "message") {
+      const full = String(frame.data.text || "");
+      assembled = full;
+      handlers.onMessage?.(full, Boolean(frame.data.partial));
+    } else if (frame.event === "done") {
+      donePayload = frame.data;
+      handlers.onDone?.(frame.data);
+    } else if (frame.event === "error") {
+      lastError = String(frame.data.error || "stream error");
+      handlers.onError?.(lastError);
     }
+  };
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parsed = parseSseChunk(buffer);
+      buffer = parsed.rest;
+      for (const frame of parsed.frames) handleFrame(frame);
+    }
+    // Flush any trailing partial bytes the TextDecoder still holds, so a
+    // multi-byte char split at the final chunk boundary isn't dropped.
+    buffer += decoder.decode();
+    for (const frame of parseSseChunk(buffer).frames) handleFrame(frame);
+  } finally {
+    // Release the response body stream even if a handler throws or the
+    // fetch is aborted, so it isn't left locked until GC.
+    reader.cancel().catch(() => {});
   }
 
-  if (lastError && !donePayload) throw new Error(lastError);
+  // An explicit error frame always surfaces — don't let a later `done`
+  // silently swallow it.
+  if (lastError) throw new Error(lastError);
   if (!donePayload) {
     if (signal?.aborted) {
       return { status: "cancelled", message: assembled };

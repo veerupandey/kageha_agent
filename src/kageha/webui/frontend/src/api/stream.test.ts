@@ -86,4 +86,25 @@ describe("streamChat", () => {
     const done = await streamChat({ thread_id: "t", session_id: "s", message: "hi" }, {});
     expect(done).toEqual({ status: "success", message: "Hello" });
   });
+
+  it("surfaces an error frame even when followed by done", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          sseBody([
+            'event: error\ndata: {"error":"boom"}\n\n',
+            'event: done\ndata: {"status":"success","message":"Hello"}\n\n',
+          ]),
+          {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    await expect(
+      streamChat({ thread_id: "t", session_id: "s", message: "hi" }, {}),
+    ).rejects.toThrow("boom");
+  });
 });
