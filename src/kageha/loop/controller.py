@@ -2174,7 +2174,7 @@ class LoopController:
             model_error: Exception | None = None
             for model_attempt in range(1, 3):
                 try:
-                    model, resp = await router.chat(
+                    chat_task = asyncio.ensure_future(router.chat(
                         assembled.messages,
                         tool_specs,
                         role=self.execution_role,
@@ -2182,7 +2182,18 @@ class LoopController:
                         max_tokens=8192,
                         effort=effort,
                         on_text_delta=step_delta if callable(step_delta) else None,
+                    ))
+                    cancel_wait = asyncio.ensure_future(self.cancel_event.wait())
+                    done, _ = await asyncio.wait(
+                        {chat_task, cancel_wait},
+                        return_when=asyncio.FIRST_COMPLETED,
                     )
+                    if cancel_wait in done and self.cancel_event.is_set():
+                        chat_task.cancel()
+                        final = StopDecision(StopReason.CANCELLED, "Cancelled")
+                        break
+                    cancel_wait.cancel()
+                    model, resp = await chat_task
                     model_error = None
                     break
                 except Exception as e:  # noqa: BLE001
@@ -2219,6 +2230,9 @@ class LoopController:
                         continue
                     break
             if model_error is not None or model is None or resp is None:
+                if final is not None:
+                    # Cancelled during LLM call — skip the error path.
+                    break
                 e = model_error or RuntimeError("model call failed")
                 if callable(step_delta):
                     end = getattr(step_delta, "end_step", None)

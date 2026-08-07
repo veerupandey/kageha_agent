@@ -556,7 +556,7 @@ class AppServer:
                 fut = self._approval_waiters.get(aid)
                 if fut is not None and not fut.done():
                     fut.set_result(False)
-            return {"ok": True}
+            return {"ok": True, "cancelled": handle is not None}
         if method == "thread/approve":
             approval_id = str(params.get("approval_id") or "").strip()
             if not approval_id:
