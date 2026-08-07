@@ -9,7 +9,6 @@ import {
   canvasKindForPath,
   fileBasename,
   isChatMediaArtifact,
-  isPreviewableKind,
   kindLabel,
   showcaseSortKey,
 } from "../lib/artifactMedia";
@@ -263,7 +262,6 @@ const MessageArtifacts = memo(function MessageArtifacts({
       {refs.map((path) => {
         const kind = canvasKindForPath(path);
         const url = artifactFileUrl(sessionId, path);
-        const previewable = isPreviewableKind(kind);
         const dl = artifactDownloadUrl(sessionId, path);
         return (
           <div
@@ -272,11 +270,11 @@ const MessageArtifacts = memo(function MessageArtifacts({
             tabIndex={0}
             className="group relative h-32 w-44 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-line bg-surface text-left shadow-[0_1px_2px_rgba(28,27,25,0.04)] transition hover:border-accent/35 hover:shadow-md"
             title={path}
-            onClick={() => openCanvasItem(path, { expand: previewable })}
+            onClick={() => openCanvasItem(path, { expand: false })}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                openCanvasItem(path, { expand: previewable });
+                openCanvasItem(path, { expand: false });
               }
             }}
           >
@@ -589,11 +587,37 @@ const MessageRow = memo(function MessageRow({
               const path = link.getAttribute("data-artifact") || "";
               if (path) {
                 e.preventDefault();
-                openCanvasItem(path, {
-                  expand: isPreviewableKind(canvasKindForPath(path)),
-                });
+                openCanvasItem(path, { expand: false });
               }
               return;
+            }
+
+            // Bare filename click — check if clicking on text that looks like
+            // a deliverable filename (e.g. bold/code text "report.html") and
+            // matches a known canvas artifact.
+            if (target.tagName !== "IMG" && target.tagName !== "A") {
+              const clickedText = (target.textContent || "").trim();
+              const filenameMatch = clickedText.match(
+                /^([A-Za-z0-9][A-Za-z0-9._-]*\.(?:html?|pdf|pptx?|docx?|xlsx?|png|jpe?g|gif|webp|svg|mp4|webm|mov|wav|mp3|csv|zip|md|txt))$/i,
+              );
+              if (filenameMatch) {
+                const name = filenameMatch[1];
+                // Check if this filename matches any artifact in the current canvas
+                const canvasItems = useAppStore.getState().canvasItems;
+                const match = canvasItems.find(
+                  (item) => item.path.endsWith(`/${name}`) || item.path === `artifacts/${name}`,
+                );
+                if (match) {
+                  e.preventDefault();
+                  openCanvasItem(match.path, { expand: false });
+                  return;
+                }
+                // No existing match — try as artifacts/{name}
+                const guessPath = `artifacts/${name}`;
+                e.preventDefault();
+                openCanvasItem(guessPath, { expand: false });
+                return;
+              }
             }
             if (target.tagName !== "IMG") return;
             const src =

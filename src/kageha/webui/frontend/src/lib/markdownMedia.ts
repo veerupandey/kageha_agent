@@ -35,6 +35,16 @@ export function extractArtifactPaths(text: string): string[] {
       out.push(path);
     }
   }
+  // Bare deliverable filenames in backticks (e.g. `report.html`) → artifacts/{name}
+  for (const m of src.matchAll(/`([A-Za-z0-9][A-Za-z0-9._-]*\.(?:html?|pdf|pptx?|docx?|xlsx?|png|jpe?g|gif|webp|svg|mp4|webm|mov|wav|mp3|csv|zip|md))`/gi)) {
+    const name = (m[1] || "").trim();
+    if (!name) continue;
+    const path = `artifacts/${name}`;
+    if (!seen.has(path)) {
+      seen.add(path);
+      out.push(path);
+    }
+  }
   return out;
 }
 
@@ -93,6 +103,18 @@ export function rewriteMarkdownMediaHtml(
     (_full, raw: string) => {
       const path = normalizeRelPath(raw);
       if (!path) return `<code>${raw}</code>`;
+      const url = artifactFileUrl(sessionId, path);
+      if (!url) return `<code>${raw}</code>`;
+      return `<a href="${url}" class="artifact-path" data-artifact="${path}"><code>${raw}</code></a>`;
+    },
+  );
+  // Turn bare deliverable filenames in code spans (e.g. `report.html`)
+  // into clickable artifact links — maps to artifacts/{filename}.
+  out = out.replace(
+    /<code>([A-Za-z0-9][A-Za-z0-9._-]*\.(?:html?|pdf|pptx?|docx?|xlsx?|png|jpe?g|gif|webp|svg|mp4|webm|mov|wav|mp3|csv|zip|md|txt))<\/code>/gi,
+    (_full, raw: string) => {
+      // Skip if already wrapped in an <a> tag (handled above).
+      const path = `artifacts/${raw.trim()}`;
       const url = artifactFileUrl(sessionId, path);
       if (!url) return `<code>${raw}</code>`;
       return `<a href="${url}" class="artifact-path" data-artifact="${path}"><code>${raw}</code></a>`;

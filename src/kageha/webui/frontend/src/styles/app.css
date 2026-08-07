@@ -403,11 +403,18 @@
 
 .markdown a.artifact-path {
   text-decoration: none;
+  cursor: pointer;
 }
 
 .markdown a.artifact-path code {
   color: var(--color-accent);
   background: var(--color-accent-soft);
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.markdown a.artifact-path:hover code {
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
 }
 
 .markdown table {
