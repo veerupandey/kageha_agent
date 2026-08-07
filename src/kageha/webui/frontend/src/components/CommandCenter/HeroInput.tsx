@@ -128,7 +128,22 @@ export function HeroInput() {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              if (e.key !== "Enter") return;
+              // Shift+Enter inserts a newline (explicit, IME-safe).
+              if (e.shiftKey) {
+                e.preventDefault();
+                const el = e.currentTarget;
+                const start = el.selectionStart ?? draft.length;
+                const end = el.selectionEnd ?? draft.length;
+                const pos = start + 1;
+                setDraft(draft.slice(0, start) + "\n" + draft.slice(end));
+                requestAnimationFrame(() => {
+                  el.focus();
+                  el.setSelectionRange(pos, pos);
+                });
+                return;
+              }
+              if (!e.nativeEvent.isComposing) {
                 e.preventDefault();
                 void sendMessage();
               }
