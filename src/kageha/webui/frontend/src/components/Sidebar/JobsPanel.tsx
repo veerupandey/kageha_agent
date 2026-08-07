@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { cn } from "../../lib/cn";
+import { useAppStore } from "../../store";
 
 interface JobItem {
   id: string;
@@ -9,6 +10,7 @@ interface JobItem {
   bucket: string;
   can_cancel: boolean;
   attachable: boolean;
+  session_id?: string;
   created_at: number;
   updated_at: number;
   agent_mode: string;
@@ -102,6 +104,23 @@ export function JobsPanel({ onClose }: { onClose: () => void }) {
       }
     },
     [fetchJobs],
+  );
+
+  const openSession = useAppStore((s) => s.openSession);
+
+  const handleAttach = useCallback(
+    async (job: JobItem) => {
+      const sessionId = job.session_id || job.id;
+      try {
+        // Call attach endpoint to ensure session is ready
+        await api(`/api/jobs/${job.id}/attach`);
+      } catch {
+        /* proceed anyway — session may still be loadable */
+      }
+      await openSession(sessionId);
+      onClose();
+    },
+    [openSession, onClose],
   );
 
   return (
@@ -219,15 +238,24 @@ export function JobsPanel({ onClose }: { onClose: () => void }) {
                       </a>
                     )}
                   </div>
-                  {job.can_cancel && (
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    {job.can_cancel && (
+                      <button
+                        type="button"
+                        className="rounded px-2 py-1 text-[0.65rem] text-[var(--color-danger)] hover:bg-[var(--color-danger-soft)]"
+                        onClick={() => handleCancel(job.id)}
+                      >
+                        Cancel
+                      </button>
+                    )}
                     <button
                       type="button"
-                      className="shrink-0 rounded px-2 py-1 text-[0.65rem] text-[var(--color-danger)] hover:bg-[var(--color-danger-soft)]"
-                      onClick={() => handleCancel(job.id)}
+                      className="rounded px-2 py-1 text-[0.65rem] text-accent hover:bg-accent/15"
+                      onClick={() => void handleAttach(job)}
                     >
-                      Cancel
+                      {job.bucket === "running" ? "Attach" : "View"}
                     </button>
-                  )}
+                  </div>
                 </div>
               </li>
             ))}
